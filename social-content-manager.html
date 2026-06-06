@@ -903,7 +903,7 @@ Output ONLY the caption and hashtags. No explanations, no labels, just the post.
         'anthropic-version': '2023-06-01',
         'anthropic-dangerous-direct-browser-ipc': 'true'
       },
-      body: JSON.stringify({ model: 'claude-sonnet-4-20250514', max_tokens: 700, messages: [{ role: 'user', content: prompt }] })
+      body: JSON.stringify({ model: 'claude-sonnet-4-6', max_tokens: 700, messages: [{ role: 'user', content: prompt }] })
     });
     const data = await res.json();
     if (data.error) { showToast('API Error: ' + data.error.message, 'error'); resetGenerateBtn(); return; }
@@ -1127,7 +1127,7 @@ async function testApiKey(service) {
     const res = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: { "Content-Type": "application/json", "x-api-key": key, "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-ipc": "true" },
-      body: JSON.stringify({ model: "claude-sonnet-4-20250514", max_tokens: 10, messages: [{ role: "user", content: "Hi" }] })
+      body: JSON.stringify({ model: "claude-sonnet-4-6", max_tokens: 10, messages: [{ role: "user", content: "Hi" }] })
     });
     const data = await res.json();
     if (data.error) { showToast("API Error: " + data.error.message, "error"); }
