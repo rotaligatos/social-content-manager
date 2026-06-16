@@ -431,7 +431,7 @@ select:focus{border-color:var(--accent-border);}
             </div>
             <input type="file" id="photo-file-input" accept="image/*" style="display:none" onchange="handlePhotoUpload(event)">
             <div class="photo-options">
-              <button class="btn btn-secondary btn-sm" onclick="showScreen('library')">Choose from Library</button>
+              <button class="btn btn-secondary btn-sm" onclick="openPhotoPicker()">Choose from Library</button>
               <button class="btn btn-secondary btn-sm" style="color:var(--text3)" title="Coming Phase 2">AI Generate Image</button>
             </div>
           </div>
@@ -524,6 +524,11 @@ select:focus{border-color:var(--accent-border);}
   <div class="topbar">
     <div class="topbar-left"><h1>Photo Library</h1><p id="lib-count-label">0 photos · 3 companies</p></div>
     <div class="topbar-actions">
+      <select id="lib-upload-company" style="width:140px" onchange="APP.libUploadCompany=this.value">
+        <option value="mssi">Tag as MSSI</option>
+        <option value="wcli">Tag as WCLI</option>
+        <option value="cwli">Tag as CWLI</option>
+      </select>
       <button class="btn btn-primary" onclick="document.getElementById('lib-file-input').click()">
         <svg style="width:13px;height:13px" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 1v10M4 5l4-4 4 4"/><path d="M2 13h12"/></svg>
         Upload Photos
@@ -557,9 +562,9 @@ select:focus{border-color:var(--accent-border);}
       <div class="autogen-settings">
         <div class="card">
           <div style="font-size:14px;font-weight:500;margin-bottom:16px">Select Companies</div>
-          <div class="toggle-row"><div><div class="toggle-label" style="color:var(--mssi)">MSSI</div><div class="toggle-sub">Module Systems &amp; Services</div></div><div class="toggle on" onclick="toggleSwitch(this)"><div class="toggle-thumb"></div></div></div>
-          <div class="toggle-row"><div><div class="toggle-label" style="color:var(--wcli)">WCLI</div><div class="toggle-sub">World Class Laminate</div></div><div class="toggle on" onclick="toggleSwitch(this)"><div class="toggle-thumb"></div></div></div>
-          <div class="toggle-row" style="border-bottom:none"><div><div class="toggle-label" style="color:var(--cwli)">CWLI</div><div class="toggle-sub">Cebu World Laminate</div></div><div class="toggle on" onclick="toggleSwitch(this)"><div class="toggle-thumb"></div></div></div>
+          <div class="toggle-row"><div><div class="toggle-label" style="color:var(--mssi)">MSSI</div><div class="toggle-sub">Module Systems &amp; Services</div></div><div class="toggle on" id="autogen-toggle-mssi" onclick="toggleSwitch(this)"><div class="toggle-thumb"></div></div></div>
+          <div class="toggle-row"><div><div class="toggle-label" style="color:var(--wcli)">WCLI</div><div class="toggle-sub">World Class Laminate</div></div><div class="toggle on" id="autogen-toggle-wcli" onclick="toggleSwitch(this)"><div class="toggle-thumb"></div></div></div>
+          <div class="toggle-row" style="border-bottom:none"><div><div class="toggle-label" style="color:var(--cwli)">CWLI</div><div class="toggle-sub">Cebu World Laminate</div></div><div class="toggle on" id="autogen-toggle-cwli" onclick="toggleSwitch(this)"><div class="toggle-thumb"></div></div></div>
         </div>
         <div class="card">
           <div style="font-size:14px;font-weight:500;margin-bottom:16px">Posts Per Company</div>
@@ -575,8 +580,8 @@ select:focus{border-color:var(--accent-border);}
         <div class="card">
           <div style="font-size:14px;font-weight:500;margin-bottom:4px">Audience Mix</div>
           <div style="font-size:12px;color:var(--text3);margin-bottom:16px">Distribute content across audience types</div>
-          <div class="toggle-row"><div><div class="toggle-label">Include B2C content</div><div class="toggle-sub">Homeowner-focused posts (MSSI)</div></div><div class="toggle on" onclick="toggleSwitch(this)"><div class="toggle-thumb"></div></div></div>
-          <div class="toggle-row"><div><div class="toggle-label">Include B2B trade content</div><div class="toggle-sub">Fabricators, dealers, contractors</div></div><div class="toggle on" onclick="toggleSwitch(this)"><div class="toggle-thumb"></div></div></div>
+          <div class="toggle-row"><div><div class="toggle-label">Include B2C content</div><div class="toggle-sub">Homeowner-focused posts (MSSI)</div></div><div class="toggle on" id="autogen-toggle-b2c" onclick="toggleSwitch(this)"><div class="toggle-thumb"></div></div></div>
+          <div class="toggle-row"><div><div class="toggle-label">Include B2B trade content</div><div class="toggle-sub">Fabricators, dealers, contractors</div></div><div class="toggle on" id="autogen-toggle-b2b" onclick="toggleSwitch(this)"><div class="toggle-thumb"></div></div></div>
           <div class="toggle-row" style="border-bottom:none"><div><div class="toggle-label">Auto-rotate content pillars</div><div class="toggle-sub">Follow Mon–Sun pillar schedule</div></div><div class="toggle on" onclick="toggleSwitch(this)"><div class="toggle-thumb"></div></div></div>
         </div>
         <button class="generate-btn" id="autogen-btn" onclick="runAutoGenerate()">
@@ -748,13 +753,17 @@ const APP = {
   currentPhoto: null,
   currentCaption: null,
   posts: [],
+  photos: [],
   apiKeys: {},
-  calFilter: 'all'
+  calFilter: 'all',
+  libFilter: 'all',
+  autogenCount: 5
 };
 
 function loadState() {
   try {
     APP.posts = JSON.parse(localStorage.getItem('scm_posts') || '[]');
+    APP.photos = JSON.parse(localStorage.getItem('scm_photos') || '[]');
     APP.apiKeys.anthropic = localStorage.getItem('scm_anthropic_key') || '';
     APP.apiKeys.facebook = localStorage.getItem('scm_facebook_key') || '';
     APP.apiKeys.ideogram = localStorage.getItem('scm_ideogram_key') || '';
@@ -766,7 +775,13 @@ function loadState() {
     updateDashboard();
     renderCalendar();
     updateReviewQueue();
+    renderPhotoLibrary();
+    loadFbPages();
   } catch(e) { console.error(e); }
+}
+
+function savePhotos() {
+  localStorage.setItem('scm_photos', JSON.stringify(APP.photos));
 }
 
 function saveState() {
@@ -827,59 +842,137 @@ function handlePhotoUpload(e) {
 
 function handleLibraryUpload(e) {
   const files = Array.from(e.target.files);
-  const grid = document.getElementById('photo-grid');
+  const tagCompany = APP.libUploadCompany || 'mssi';
+  let remaining = files.length;
   files.forEach(file => {
     const r = new FileReader();
     r.onload = function(ev) {
-      const card = document.createElement('div');
-      card.className = 'photo-card';
-      card.innerHTML = '<img src="'+ev.target.result+'" style="width:100%;height:130px;object-fit:cover" alt="'+file.name+'"><div class="photo-meta"><div class="photo-name">'+file.name+'</div><div style="display:flex;gap:6px;margin-top:4px"><span class="post-company-badge badge-mssi" style="font-size:9px">MSSI</span><span style="font-size:10.5px;color:var(--text3)">'+(file.size/1024).toFixed(0)+'KB</span></div></div>';
-      grid.insertBefore(card, grid.firstChild);
+      APP.photos.unshift({
+        id: Date.now() + Math.random(),
+        name: file.name,
+        data: ev.target.result,
+        company: tagCompany,
+        size: file.size,
+        uploadedAt: new Date().toISOString()
+      });
+      remaining--;
+      if (remaining === 0) {
+        savePhotos();
+        renderPhotoLibrary();
+        showToast(files.length + ' photo'+(files.length>1?'s':'')+' added to library', 'success');
+      }
     };
     r.readAsDataURL(file);
   });
-  document.getElementById('lib-count-label').textContent = files.length + ' photo'+(files.length>1?'s':'')+' uploaded';
-  showToast(files.length + ' photo'+(files.length>1?'s':'')+' added to library', 'success');
+}
+
+function renderPhotoLibrary() {
+  const grid = document.getElementById('photo-grid');
+  if (!grid) return;
+  const filtered = APP.libFilter === 'all' ? APP.photos : APP.photos.filter(p => p.company === APP.libFilter);
+  document.getElementById('lib-count-label').textContent = APP.photos.length + ' photo' + (APP.photos.length !== 1 ? 's' : '') + ' · 3 companies';
+  if (!filtered.length) {
+    grid.innerHTML = '<div class="empty-state" style="grid-column:1/-1;padding:30px 20px"><div class="empty-icon">🖼</div><div class="empty-title">No photos yet</div><div class="empty-sub">Upload your first photo above</div></div>';
+    return;
+  }
+  grid.innerHTML = filtered.map(p => `
+    <div class="photo-card">
+      <img src="${p.data}" style="width:100%;height:130px;object-fit:cover" alt="${p.name}">
+      <div class="photo-meta">
+        <div class="photo-name">${p.name}</div>
+        <div style="display:flex;align-items:center;gap:6px;margin-top:4px">
+          <span class="post-company-badge badge-${p.company}" style="font-size:9px">${p.company.toUpperCase()}</span>
+          <span style="font-size:10.5px;color:var(--text3)">${(p.size/1024).toFixed(0)}KB</span>
+          <button class="icon-btn reject" style="margin-left:auto;width:22px;height:22px" onclick="deletePhoto(${JSON.stringify(p.id)})" title="Delete">×</button>
+        </div>
+      </div>
+    </div>
+  `).join('');
+}
+
+function deletePhoto(id) {
+  APP.photos = APP.photos.filter(p => p.id !== id);
+  savePhotos();
+  renderPhotoLibrary();
+  showToast('Photo removed', 'info');
+}
+
+function libFilter(f, el) {
+  APP.libFilter = f;
+  document.querySelectorAll('#screen-library .filter-pill').forEach(p => p.classList.remove('active'));
+  el.classList.add('active');
+  renderPhotoLibrary();
+}
+
+// PHOTO PICKER MODAL (for Create Post "Choose from Library")
+function openPhotoPicker() {
+  const relevant = APP.currentCompany ? APP.photos.filter(p => p.company === APP.currentCompany) : APP.photos;
+  let html = '<div id="photo-picker-overlay" style="position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:2000;display:flex;align-items:center;justify-content:center" onclick="if(event.target.id===\'photo-picker-overlay\')closePhotoPicker()">';
+  html += '<div style="background:var(--bg2);border:1px solid var(--border2);border-radius:var(--radius-lg);width:560px;max-height:70vh;display:flex;flex-direction:column;overflow:hidden">';
+  html += '<div style="padding:16px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between"><div style="font-size:14px;font-weight:500">Choose from Library'+(APP.currentCompany?' — '+APP.currentCompany.toUpperCase():'')+'</div><button class="btn btn-ghost btn-sm" onclick="closePhotoPicker()">Close</button></div>';
+  html += '<div style="padding:16px 18px;overflow-y:auto;flex:1">';
+  if (!relevant.length) {
+    html += '<div class="empty-state" style="padding:30px 0"><div class="empty-icon">🖼</div><div class="empty-title">No photos for this company yet</div><div class="empty-sub">Upload photos in the Photo Library first</div></div>';
+  } else {
+    html += '<div class="photo-grid">';
+    relevant.forEach(p => {
+      html += '<div class="photo-card" onclick="pickPhoto('+JSON.stringify(p.id)+')"><img src="'+p.data+'" style="width:100%;height:110px;object-fit:cover" alt="'+p.name+'"><div class="photo-meta"><div class="photo-name">'+p.name+'</div></div></div>';
+    });
+    html += '</div>';
+  }
+  html += '</div></div></div>';
+  const div = document.createElement('div');
+  div.id = 'photo-picker-container';
+  div.innerHTML = html;
+  document.body.appendChild(div);
+}
+
+function pickPhoto(id) {
+  const photo = APP.photos.find(p => p.id === id);
+  if (!photo) return;
+  APP.currentPhoto = photo.data;
+  document.getElementById('preview-image').innerHTML = '<img src="'+photo.data+'" style="width:100%;height:200px;object-fit:cover" alt="Post photo">';
+  closePhotoPicker();
+  showToast('Photo selected', 'success');
+}
+
+function closePhotoPicker() {
+  const el = document.getElementById('photo-picker-container');
+  if (el) el.remove();
 }
 
 // GENERATE POST
-async function generatePost() {
-  if (!APP.currentCompany) { showToast('Select a company first', 'error'); return; }
-  if (!APP.currentAudience) { showToast('Select an audience', 'error'); return; }
-  if (!APP.currentPillar) { showToast('Select a content type', 'error'); return; }
-  const apiKey = APP.apiKeys.anthropic || localStorage.getItem('scm_anthropic_key');
-  if (!apiKey) { showToast('Add your Anthropic API key in Settings first', 'error'); return; }
+// SHARED BRAND/PROMPT LOGIC (used by both manual Create Post and Auto-Generate Week)
+const COMPANY_DESC = {
+  mssi: 'Module Systems and Services, Inc. (MSSI) — a Philippine company that manufactures and sells modular furniture including kitchen cabinets, wardrobes, closets, vanity cabinets, toilet partitions, and wall cladding',
+  wcli: 'World Class Laminate, Inc. (WCLI) — a Philippine supplier of laminated melamine boards, the raw material used in furniture fabrication, serving the Luzon and national market',
+  cwli: 'Cebu World Laminate, Inc. (CWLI) — a Philippine supplier of laminated melamine boards serving Cebu, Visayas, and Mindanao, emphasizing local availability and regional identity'
+};
+const TONE_GUIDE = {
+  mssi: {
+    'Homeowner': 'Warm, aspirational, and solution-oriented. Speak to the dream of a beautiful home. Use Filipino household context — family spaces, small but functional rooms, value for money. Be encouraging and relatable.',
+    'Interior Designer / Architect': 'Professional, project-delivery focused. Speak to specifications, lead times, and design flexibility. Use industry vocabulary naturally.',
+    'Contractor / Developer': 'Reliable, commercially-minded. Emphasize volume capability, timelines, and project experience.',
+    'Cabinet Maker / Fabricator': 'Trade-to-trade respect. Technical quality, ease of installation, consistent supply.',
+    'Hardware Store / Dealer': 'Business partnership. Margins, availability, fast-moving product, dealer support.'
+  },
+  wcli: { default: 'Authoritative, technical, quality-driven. Speak to fabricators\' pride in craftsmanship and need for a reliable material supplier. Confident and trade-professional. Highlight board quality, consistency, and supplier reliability.' },
+  cwli: { default: 'Technical authority with regional warmth. Emphasize local availability, proximity advantage over Manila-based suppliers, and regional pride. Occasional short Bisaya phrase welcome for local trust-building (e.g. Libre kwestyon! or Kumpleto ang stock namo!).' }
+};
+function getToneFor(co, aud) {
+  const m = TONE_GUIDE[co];
+  return (m && m[aud]) || (m && m.default) || 'Professional and engaging';
+}
+function getGoalFor(co) {
+  return co === 'mssi' ? 'Generate quotation inquiries and DM conversations' : 'Build trade authority and generate dealer or partner inquiries';
+}
+function buildCaptionPrompt(co, audience, pillar, notes) {
+  return `You are writing a Facebook post for ${COMPANY_DESC[co]}.
 
-  const btn = document.getElementById('generate-btn');
-  btn.innerHTML = '<div class="spinner" style="width:18px;height:18px;border-width:2px"></div> Generating with Claude...';
-  btn.disabled = true;
-
-  const notes = document.getElementById('post-notes').value;
-  const companyDesc = {
-    mssi: 'Module Systems and Services, Inc. (MSSI) — a Philippine company that manufactures and sells modular furniture including kitchen cabinets, wardrobes, closets, vanity cabinets, toilet partitions, and wall cladding',
-    wcli: 'World Class Laminate, Inc. (WCLI) — a Philippine supplier of laminated melamine boards, the raw material used in furniture fabrication, serving the Luzon and national market',
-    cwli: 'Cebu World Laminate, Inc. (CWLI) — a Philippine supplier of laminated melamine boards serving Cebu, Visayas, and Mindanao, emphasizing local availability and regional identity'
-  };
-  const toneGuide = {
-    mssi: {
-      'Homeowner': 'Warm, aspirational, and solution-oriented. Speak to the dream of a beautiful home. Use Filipino household context — family spaces, small but functional rooms, value for money. Be encouraging and relatable.',
-      'Interior Designer / Architect': 'Professional, project-delivery focused. Speak to specifications, lead times, and design flexibility. Use industry vocabulary naturally.',
-      'Contractor / Developer': 'Reliable, commercially-minded. Emphasize volume capability, timelines, and project experience.',
-      'Cabinet Maker / Fabricator': 'Trade-to-trade respect. Technical quality, ease of installation, consistent supply.',
-      'Hardware Store / Dealer': 'Business partnership. Margins, availability, fast-moving product, dealer support.'
-    },
-    wcli: { default: 'Authoritative, technical, quality-driven. Speak to fabricators\' pride in craftsmanship and need for a reliable material supplier. Confident and trade-professional. Highlight board quality, consistency, and supplier reliability.' },
-    cwli: { default: 'Technical authority with regional warmth. Emphasize local availability, proximity advantage over Manila-based suppliers, and regional pride. Occasional short Bisaya phrase welcome for local trust-building (e.g. Libre kwestyon! or Kumpleto ang stock namo!).' }
-  };
-  const getT = (co, aud) => { const m = toneGuide[co]; return (m && m[aud]) || (m && m.default) || 'Professional and engaging'; };
-  const goal = APP.currentCompany === 'mssi' ? 'Generate quotation inquiries and DM conversations' : 'Build trade authority and generate dealer or partner inquiries';
-
-  const prompt = `You are writing a Facebook post for ${companyDesc[APP.currentCompany]}.
-
-Target Audience: ${APP.currentAudience}
-Content Pillar: ${APP.currentPillar}
-Tone and Voice: ${getT(APP.currentCompany, APP.currentAudience)}
-Primary Goal: ${goal}
+Target Audience: ${audience}
+Content Pillar: ${pillar}
+Tone and Voice: ${getToneFor(co, audience)}
+Primary Goal: ${getGoalFor(co)}
 ${notes ? 'Notes from manager: ' + notes : ''}
 
 Write one complete Facebook post following these rules exactly:
@@ -893,33 +986,53 @@ Write one complete Facebook post following these rules exactly:
 - No em-dashes in the caption
 
 Output ONLY the caption and hashtags. No explanations, no labels, just the post.`;
+}
+async function callClaude(apiKey, prompt, maxTokens = 700) {
+  const res = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': apiKey,
+      'anthropic-version': '2023-06-01',
+      'anthropic-dangerous-direct-browser-access': 'true'
+    },
+    body: JSON.stringify({ model: 'claude-sonnet-4-6', max_tokens: maxTokens, messages: [{ role: 'user', content: prompt }] })
+  });
+  const data = await res.json();
+  if (data.error) throw new Error(data.error.message);
+  return data.content[0].text.trim();
+}
+function splitCaptionTags(fullText) {
+  const lines = fullText.split('\n');
+  const tagLine = lines.filter(l => /^#/.test(l.trim())).join(' ');
+  const body = lines.filter(l => !/^#/.test(l.trim())).join('\n').trim();
+  const tags = (tagLine.match(/#\w+/g) || []);
+  return { body, tags, full: fullText };
+}
+
+async function generatePost() {
+  if (!APP.currentCompany) { showToast('Select a company first', 'error'); return; }
+  if (!APP.currentAudience) { showToast('Select an audience', 'error'); return; }
+  if (!APP.currentPillar) { showToast('Select a content type', 'error'); return; }
+  const apiKey = APP.apiKeys.anthropic || localStorage.getItem('scm_anthropic_key');
+  if (!apiKey) { showToast('Add your Anthropic API key in Settings first', 'error'); return; }
+
+  const btn = document.getElementById('generate-btn');
+  btn.innerHTML = '<div class="spinner" style="width:18px;height:18px;border-width:2px"></div> Generating with Claude...';
+  btn.disabled = true;
+
+  const notes = document.getElementById('post-notes').value;
+  const prompt = buildCaptionPrompt(APP.currentCompany, APP.currentAudience, APP.currentPillar, notes);
 
   try {
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01',
-        'anthropic-dangerous-direct-browser-ipc': 'true'
-      },
-      body: JSON.stringify({ model: 'claude-sonnet-4-6', max_tokens: 700, messages: [{ role: 'user', content: prompt }] })
-    });
-    const data = await res.json();
-    if (data.error) { showToast('API Error: ' + data.error.message, 'error'); resetGenerateBtn(); return; }
-
-    const fullText = data.content[0].text.trim();
+    const fullText = await callClaude(apiKey, prompt);
     APP.currentCaption = fullText;
-
-    // Split caption and hashtags
-    const lines = fullText.split('\n');
-    const tagLine = lines.filter(l => /^#/.test(l.trim())).join(' ');
-    const body = lines.filter(l => !/^#/.test(l.trim())).join('\n').trim();
+    const { body, tags } = splitCaptionTags(fullText);
 
     document.getElementById('preview-caption').textContent = body;
     document.getElementById('preview-caption').style.color = '#c4c3d6';
     document.getElementById('preview-caption').style.fontStyle = 'normal';
-    document.getElementById('preview-tags').innerHTML = (tagLine.match(/#\w+/g) || []).map(t => '<span class="fb-tag">'+t+'</span>').join(' ');
+    document.getElementById('preview-tags').innerHTML = tags.map(t => '<span class="fb-tag">'+t+'</span>').join(' ');
 
     document.getElementById('btn-regenerate').style.display = 'inline-flex';
     document.getElementById('btn-approve').style.display = 'inline-flex';
@@ -962,28 +1075,56 @@ function saveDraft() {
 // REVIEW QUEUE
 function updateReviewQueue() {
   const pending = APP.posts.filter(p => p.status === 'draft');
+  const scheduled = APP.posts.filter(p => p.status === 'scheduled');
   const el = document.getElementById('review-content');
   const label = document.getElementById('review-count-label');
-  label.textContent = pending.length + ' post' + (pending.length !== 1 ? 's' : '') + ' pending review';
-  if (!pending.length) {
+  label.textContent = pending.length + ' post' + (pending.length !== 1 ? 's' : '') + ' pending review' + (scheduled.length ? ' · ' + scheduled.length + ' scheduled' : '');
+
+  let html = '';
+
+  if (!pending.length && !scheduled.length) {
     el.innerHTML = '<div class="empty-state"><div class="empty-icon">📋</div><div class="empty-title">Review queue is empty</div><div class="empty-sub">Generated posts will appear here.</div><button class="btn btn-primary" style="margin-top:20px" onclick="showScreen(\'create\')">Create a Post</button></div>';
     return;
   }
-  el.innerHTML = pending.map(p => `
-    <div style="background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius-lg);padding:18px 20px;margin-bottom:14px">
-      <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
+
+  if (pending.length) {
+    html += '<div style="font-size:13px;font-weight:500;color:var(--text2);margin-bottom:10px">Awaiting Review</div>';
+    html += pending.map(p => `
+      <div style="background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius-lg);padding:18px 20px;margin-bottom:14px">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
+          <span class="post-company-badge badge-${p.company}">${p.company.toUpperCase()}</span>
+          <span style="font-size:12px;color:var(--text3)">${p.pillar} · ${p.audience}</span>
+          <span style="font-size:11px;color:var(--text3);margin-left:auto">${new Date(p.createdAt).toLocaleDateString()}</span>
+        </div>
+        <div style="display:flex;gap:12px;margin-bottom:12px">
+          ${p.photo ? `<img src="${p.photo}" style="width:90px;height:90px;object-fit:cover;border-radius:var(--radius);flex-shrink:0" alt="Post photo">` : `<div style="width:90px;height:90px;border-radius:var(--radius);background:var(--bg4);display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:11px;color:var(--text3);text-align:center;padding:4px">No photo</div>`}
+          <div style="font-size:13.5px;line-height:1.7;color:var(--text2);background:var(--bg3);padding:14px;border-radius:var(--radius);white-space:pre-wrap;flex:1">${p.caption}</div>
+        </div>
+        <div style="display:flex;gap:8px">
+          <button class="btn btn-ghost btn-sm" onclick="deletePost(${p.id})" style="color:var(--red)">Delete</button>
+          <input type="datetime-local" class="time-input" style="flex:1;padding:6px 10px;font-size:12px" id="sched-${p.id}">
+          <button class="btn btn-primary btn-sm" onclick="schedulePost(${p.id})">Schedule &amp; Approve</button>
+        </div>
+      </div>
+    `).join('');
+  }
+
+  if (scheduled.length) {
+    html += '<div style="font-size:13px;font-weight:500;color:var(--text2);margin:20px 0 10px">Scheduled — Ready to Publish</div>';
+    html += scheduled.map(p => `
+      <div style="background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius-lg);padding:16px 20px;margin-bottom:10px;display:flex;align-items:center;gap:14px">
         <span class="post-company-badge badge-${p.company}">${p.company.toUpperCase()}</span>
-        <span style="font-size:12px;color:var(--text3)">${p.pillar} · ${p.audience}</span>
-        <span style="font-size:11px;color:var(--text3);margin-left:auto">${new Date(p.createdAt).toLocaleDateString()}</span>
+        <div style="flex:1">
+          <div style="font-size:13px;color:var(--text2)">${p.pillar} · ${p.audience}</div>
+          <div style="font-size:11.5px;color:var(--text3)">Scheduled for ${p.scheduledFor ? new Date(p.scheduledFor).toLocaleString() : '—'}</div>
+        </div>
+        <button class="btn btn-secondary btn-sm" onclick="deletePost(${p.id})" style="color:var(--red)">Cancel</button>
+        <button class="btn btn-primary btn-sm" onclick="publishPostNow(${p.id})">Publish Now</button>
       </div>
-      <div style="font-size:13.5px;line-height:1.7;color:var(--text2);background:var(--bg3);padding:14px;border-radius:var(--radius);white-space:pre-wrap;margin-bottom:12px">${p.caption}</div>
-      <div style="display:flex;gap:8px">
-        <button class="btn btn-ghost btn-sm" onclick="deletePost(${p.id})" style="color:var(--red)">Delete</button>
-        <input type="datetime-local" class="time-input" style="flex:1;padding:6px 10px;font-size:12px" id="sched-${p.id}">
-        <button class="btn btn-primary btn-sm" onclick="schedulePost(${p.id})">Schedule &amp; Approve</button>
-      </div>
-    </div>
-  `).join('');
+    `).join('');
+  }
+
+  el.innerHTML = html;
 }
 
 function approveAll() {
@@ -1085,11 +1226,6 @@ function calFilter(f, el) {
   renderCalendar();
 }
 
-function libFilter(f, el) {
-  document.querySelectorAll('#screen-library .filter-pill').forEach(p => p.classList.remove('active'));
-  el.classList.add('active');
-}
-
 // BRAND TABS
 function switchBrandTab(c) {
   document.querySelectorAll('.brand-tab').forEach(t => t.className = 'brand-tab');
@@ -1126,7 +1262,7 @@ async function testApiKey(service) {
   try {
     const res = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
-      headers: { "Content-Type": "application/json", "x-api-key": key, "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-ipc": "true" },
+      headers: { "Content-Type": "application/json", "x-api-key": key, "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" },
       body: JSON.stringify({ model: "claude-sonnet-4-6", max_tokens: 10, messages: [{ role: "user", content: "Hi" }] })
     });
     const data = await res.json();
@@ -1148,7 +1284,89 @@ function updateApiStatusBadges() {
   });
 }
 
-function saveFbPages() { showToast('Facebook page settings saved', 'success'); }
+function saveFbPages() {
+  const data = {
+    mssi: { id: document.getElementById('fb-mssi-id').value.trim(), token: document.getElementById('fb-mssi-token').value.trim() },
+    wcli: { id: document.getElementById('fb-wcli-id').value.trim(), token: document.getElementById('fb-wcli-token').value.trim() },
+    cwli: { id: document.getElementById('fb-cwli-id').value.trim(), token: document.getElementById('fb-cwli-token').value.trim() }
+  };
+  localStorage.setItem('scm_fb_pages', JSON.stringify(data));
+  APP.fbPages = data;
+  showToast('Facebook page settings saved', 'success');
+}
+
+function loadFbPages() {
+  try {
+    const data = JSON.parse(localStorage.getItem('scm_fb_pages') || '{}');
+    APP.fbPages = data;
+    ['mssi','wcli','cwli'].forEach(co => {
+      if (data[co]) {
+        const idEl = document.getElementById('fb-'+co+'-id');
+        const tokenEl = document.getElementById('fb-'+co+'-token');
+        if (idEl && data[co].id) idEl.value = data[co].id;
+        if (tokenEl && data[co].token) tokenEl.value = data[co].token;
+      }
+    });
+  } catch(e) { console.error(e); }
+}
+
+// FACEBOOK GRAPH API PUBLISHING
+async function publishToFacebook(post) {
+  const pages = APP.fbPages || JSON.parse(localStorage.getItem('scm_fb_pages') || '{}');
+  const pageData = pages[post.company];
+  if (!pageData || !pageData.id || !pageData.token) {
+    return { success: false, error: 'No Facebook Page ID/Token configured for ' + post.company.toUpperCase() + '. Add it in Settings → Facebook Pages.' };
+  }
+
+  try {
+    let photoId = null;
+    // If there's a photo, upload it first (unpublished) to get a media fbid
+    if (post.photo) {
+      const photoRes = await fetch(`https://graph.facebook.com/v19.0/${pageData.id}/photos`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: post.photo.startsWith('data:') ? undefined : post.photo, published: false, access_token: pageData.token })
+      });
+      // Note: Graph API photos endpoint needs a public URL or multipart upload for base64 data.
+      // Base64 data URLs cannot be sent directly as "url" - this will be addressed when Cloudinary/Imgur is wired in Phase 2.
+    }
+
+    const params = new URLSearchParams();
+    params.append('message', post.caption);
+    params.append('access_token', pageData.token);
+
+    const res = await fetch(`https://graph.facebook.com/v19.0/${pageData.id}/feed`, {
+      method: 'POST',
+      body: params
+    });
+    const data = await res.json();
+    if (data.error) {
+      return { success: false, error: data.error.message };
+    }
+    return { success: true, postId: data.id };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+}
+
+async function publishPostNow(id) {
+  const post = APP.posts.find(p => p.id === id);
+  if (!post) return;
+  showToast('Publishing to Facebook...', 'info');
+  const result = await publishToFacebook(post);
+  if (result.success) {
+    post.status = 'published';
+    post.fbPostId = result.postId;
+    post.publishedAt = new Date().toISOString();
+    saveState();
+    updateReviewQueue();
+    updateDashboard();
+    renderCalendar();
+    showToast('Published to Facebook!', 'success');
+  } else {
+    showToast('Publish failed: ' + result.error, 'error');
+  }
+}
 
 function exportPosts() {
   if (!APP.posts.length) { showToast('No posts to export', 'info'); return; }
@@ -1178,39 +1396,96 @@ function toggleSwitch(el) { el.classList.toggle('on'); }
 function setCount(btn, n) {
   document.querySelectorAll('.count-btn').forEach(b => b.classList.remove('selected'));
   btn.classList.add('selected');
+  APP.autogenCount = n;
   document.getElementById('count-label').textContent = n+' posts × 3 companies = '+(n*3)+' posts total this week';
 }
 
 async function runAutoGenerate() {
-  const apiKey = localStorage.getItem('scm_anthropic_key');
+  const apiKey = APP.apiKeys.anthropic || localStorage.getItem('scm_anthropic_key');
   if (!apiKey) { showToast('Add your Anthropic API key in Settings first', 'error'); return; }
+
+  // Read toggle states
+  const companies = [];
+  if (document.getElementById('autogen-toggle-mssi')?.classList.contains('on')) companies.push('mssi');
+  if (document.getElementById('autogen-toggle-wcli')?.classList.contains('on')) companies.push('wcli');
+  if (document.getElementById('autogen-toggle-cwli')?.classList.contains('on')) companies.push('cwli');
+  if (!companies.length) { showToast('Select at least one company', 'error'); return; }
+
+  const includeB2C = document.getElementById('autogen-toggle-b2c')?.classList.contains('on');
+  const includeB2B = document.getElementById('autogen-toggle-b2b')?.classList.contains('on');
+  const postCount = APP.autogenCount || 5;
+
+  const pillars = ['Product Showcase','Education','Social Proof','Sales Push','Aspiration / Lifestyle','Brand Story','Engagement'];
+  const audiencesByCompany = {
+    mssi: [
+      ...(includeB2C ? ['Homeowner'] : []),
+      ...(includeB2B ? ['Interior Designer / Architect','Contractor / Developer'] : [])
+    ],
+    wcli: includeB2B ? ['Cabinet Maker / Fabricator','Hardware Store / Dealer'] : [],
+    cwli: includeB2B ? ['Cabinet Maker / Fabricator','Hardware Store / Dealer'] : []
+  };
+
   const btn = document.getElementById('autogen-btn');
   btn.innerHTML = '<div class="spinner" style="width:18px;height:18px;border-width:2px"></div> Generating...';
   btn.disabled = true;
 
-  const companies = ['mssi','wcli','cwli'];
-  const pillars = ['Product','Education','Social Proof','Sales Push','Aspiration'];
-  const audiences = {
-    mssi: ['Homeowner','Interior Designer / Architect','Contractor / Developer'],
-    wcli: ['Cabinet Maker / Fabricator','Hardware Store / Dealer'],
-    cwli: ['Cabinet Maker / Fabricator','Hardware Store / Dealer']
-  };
-
   const queue = document.getElementById('autogen-queue');
-  queue.innerHTML = '<div style="font-size:13px;color:var(--text2);margin-bottom:12px">Generating...</div>';
+  queue.innerHTML = '<div style="font-size:13px;color:var(--text2);margin-bottom:12px">Generating posts with Claude — this may take a minute...</div>';
 
-  let generated = 0;
+  let successCount = 0;
+  let failCount = 0;
+
   for (const co of companies) {
-    for (let i = 0; i < 5; i++) {
-      await new Promise(r => setTimeout(r, 200));
+    const audiences = audiencesByCompany[co];
+    if (!audiences.length) continue;
+
+    for (let i = 0; i < postCount; i++) {
       const pillar = pillars[i % pillars.length];
-      const audience = audiences[co][i % audiences[co].length];
-      queue.innerHTML += `<div style="display:flex;align-items:center;gap:10px;padding:10px 14px;background:var(--bg3);border-radius:var(--radius);border:1px solid var(--border);margin-bottom:8px"><span class="post-company-badge badge-${co}">${co.toUpperCase()}</span><span style="font-size:12.5px;color:var(--text2)">${pillar} · ${audience}</span><div class="spinner" style="width:14px;height:14px;border-width:2px;margin-left:auto"></div></div>`;
-      generated++;
+      const audience = audiences[i % audiences.length];
+
+      const rowId = 'aq-' + co + '-' + i;
+      queue.innerHTML += `<div id="${rowId}" style="display:flex;align-items:center;gap:10px;padding:10px 14px;background:var(--bg3);border-radius:var(--radius);border:1px solid var(--border);margin-bottom:8px">
+        <span class="post-company-badge badge-${co}">${co.toUpperCase()}</span>
+        <span style="font-size:12.5px;color:var(--text2);flex:1">${pillar} · ${audience}</span>
+        <div class="spinner" style="width:14px;height:14px;border-width:2px"></div>
+      </div>`;
+
+      try {
+        const prompt = buildCaptionPrompt(co, audience, pillar, '');
+        const fullText = await callClaude(apiKey, prompt);
+        const post = {
+          id: Date.now() + Math.random(),
+          company: co,
+          audience: audience,
+          pillar: pillar,
+          caption: fullText,
+          photo: null,
+          status: 'draft',
+          createdAt: new Date().toISOString(),
+          scheduledFor: null
+        };
+        APP.posts.push(post);
+        successCount++;
+
+        const row = document.getElementById(rowId);
+        if (row) row.innerHTML = `<span class="post-company-badge badge-${co}">${co.toUpperCase()}</span><span style="font-size:12.5px;color:var(--text2);flex:1">${pillar} · ${audience}</span><span style="color:var(--green);font-size:13px">✓</span>`;
+      } catch (err) {
+        failCount++;
+        const row = document.getElementById(rowId);
+        if (row) row.innerHTML = `<span class="post-company-badge badge-${co}">${co.toUpperCase()}</span><span style="font-size:12.5px;color:var(--text2);flex:1">${pillar} · ${audience}</span><span style="color:var(--red);font-size:11px">Failed</span>`;
+      }
+      // Small delay to avoid rate limit bursts
+      await new Promise(r => setTimeout(r, 300));
     }
   }
 
-  showToast('Auto-generate wired up — full batch generation coming in next session', 'info');
+  saveState();
+  updateDashboard();
+  updateReviewBadge();
+  updateReviewQueue();
+  renderCalendar();
+
+  showToast(successCount + ' posts generated' + (failCount ? ', ' + failCount + ' failed' : '') + ' — review them in Review & Schedule', 'success');
   btn.innerHTML = '<svg style="width:16px;height:16px" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 1v3M8 12v3M1 8h3M12 8h3"/><circle cx="8" cy="8" r="3"/></svg> Generate This Week\'s Posts';
   btn.disabled = false;
 }
