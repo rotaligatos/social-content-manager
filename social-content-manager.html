@@ -432,7 +432,7 @@ select:focus{border-color:var(--accent-border);}
             <input type="file" id="photo-file-input" accept="image/*" style="display:none" onchange="handlePhotoUpload(event)">
             <div class="photo-options">
               <button class="btn btn-secondary btn-sm" onclick="openPhotoPicker()">Choose from Library</button>
-              <button class="btn btn-secondary btn-sm" style="color:var(--text3)" title="Coming Phase 2">AI Generate Image</button>
+              <button class="btn btn-secondary btn-sm" onclick="openImageGenModal()">✦ AI Generate Image</button>
             </div>
           </div>
         </div>
@@ -941,6 +941,113 @@ function pickPhoto(id) {
 function closePhotoPicker() {
   const el = document.getElementById('photo-picker-container');
   if (el) el.remove();
+}
+
+// AI IMAGE GENERATION (Ideogram)
+function openImageGenModal() {
+  if (!APP.currentCompany) { showToast('Select a company first so the prompt can be tailored', 'error'); return; }
+  const suggestedPrompt = buildImagePromptSuggestion(APP.currentCompany, APP.currentPillar);
+  let html = '<div id="imggen-overlay" style="position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:2000;display:flex;align-items:center;justify-content:center" onclick="if(event.target.id===\'imggen-overlay\')closeImageGenModal()">';
+  html += '<div style="background:var(--bg2);border:1px solid var(--border2);border-radius:var(--radius-lg);width:520px;max-height:80vh;display:flex;flex-direction:column;overflow:hidden">';
+  html += '<div style="padding:16px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between"><div style="font-size:14px;font-weight:500">AI Generate Image — '+APP.currentCompany.toUpperCase()+'</div><button class="btn btn-ghost btn-sm" onclick="closeImageGenModal()">Close</button></div>';
+  html += '<div style="padding:18px;overflow-y:auto;flex:1">';
+  html += '<label class="form-label">Describe the image</label>';
+  html += '<textarea id="imggen-prompt" rows="4" style="margin-bottom:14px">'+suggestedPrompt+'</textarea>';
+  html += '<div style="font-size:11.5px;color:var(--text3);margin-bottom:14px">Tip: mention the product, setting, and mood. Avoid asking for text/logos — Ideogram can render text but brand logos need to be added separately.</div>';
+  html += '<button class="generate-btn" id="imggen-btn" onclick="runImageGen()" style="margin-bottom:14px"><svg style="width:16px;height:16px" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 1v3M8 12v3M1 8h3M12 8h3"/><circle cx="8" cy="8" r="3"/></svg> Generate Image</button>';
+  html += '<div id="imggen-result"></div>';
+  html += '</div></div></div>';
+  const div = document.createElement('div');
+  div.id = 'imggen-container';
+  div.innerHTML = html;
+  document.body.appendChild(div);
+}
+
+function closeImageGenModal() {
+  const el = document.getElementById('imggen-container');
+  if (el) el.remove();
+}
+
+function buildImagePromptSuggestion(co, pillar) {
+  const base = {
+    mssi: 'A modern modular kitchen cabinet installation in a bright Filipino home, clean lines, warm natural lighting, professional product photography style',
+    wcli: 'Stacked laminated melamine boards in a clean furniture fabrication workshop, showing texture and finish quality, professional industrial photography style',
+    cwli: 'Stacked laminated melamine boards in a clean furniture workshop in Cebu, showing texture and finish quality, professional industrial photography style'
+  };
+  return base[co] || 'A professional product photo';
+}
+
+async function runImageGen() {
+  const apiKey = APP.apiKeys.ideogram || localStorage.getItem('scm_ideogram_key');
+  if (!apiKey) {
+    showToast('Add your Ideogram API key in Settings first', 'error');
+    closeImageGenModal();
+    showScreen('settings');
+    return;
+  }
+  const prompt = document.getElementById('imggen-prompt').value.trim();
+  if (!prompt) { showToast('Describe the image first', 'error'); return; }
+
+  const btn = document.getElementById('imggen-btn');
+  btn.innerHTML = '<div class="spinner" style="width:18px;height:18px;border-width:2px"></div> Generating image...';
+  btn.disabled = true;
+  document.getElementById('imggen-result').innerHTML = '';
+
+  try {
+    const res = await fetch('https://api.ideogram.ai/v1/ideogram-v3/generate', {
+      method: 'POST',
+      headers: { 'Api-Key': apiKey, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prompt: prompt, aspect_ratio: '1x1', rendering_speed: 'DEFAULT' })
+    });
+    const data = await res.json();
+    if (data.error || !data.data || !data.data.length) {
+      throw new Error((data.error && data.error.message) || 'No image returned');
+    }
+    const imageUrl = data.data[0].url;
+
+    // Fetch the image and convert to base64 so it persists (Ideogram URLs expire)
+    const imgRes = await fetch(imageUrl);
+    const blob = await imgRes.blob();
+    const reader = new FileReader();
+    reader.onload = function(ev) {
+      const base64 = ev.target.result;
+      document.getElementById('imggen-result').innerHTML = `
+        <img src="${base64}" style="width:100%;border-radius:var(--radius);margin-bottom:10px" alt="Generated image">
+        <div style="display:flex;gap:8px">
+          <button class="btn btn-secondary btn-sm" style="flex:1" onclick='saveGeneratedToLibrary(${JSON.stringify(base64)})'>Save to Library</button>
+          <button class="btn btn-primary btn-sm" style="flex:1" onclick='useGeneratedImage(${JSON.stringify(base64)})'>Use This Image</button>
+        </div>
+      `;
+      showToast('Image generated!', 'success');
+    };
+    reader.readAsDataURL(blob);
+  } catch (err) {
+    document.getElementById('imggen-result').innerHTML = `<div style="color:var(--red);font-size:12.5px">Error: ${err.message}</div>`;
+    showToast('Image generation failed: ' + err.message, 'error');
+  }
+
+  btn.innerHTML = '<svg style="width:16px;height:16px" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 1v3M8 12v3M1 8h3M12 8h3"/><circle cx="8" cy="8" r="3"/></svg> Generate Image';
+  btn.disabled = false;
+}
+
+function useGeneratedImage(base64) {
+  APP.currentPhoto = base64;
+  document.getElementById('preview-image').innerHTML = '<img src="'+base64+'" style="width:100%;height:200px;object-fit:cover" alt="Post photo">';
+  closeImageGenModal();
+  showToast('Photo applied to post', 'success');
+}
+
+function saveGeneratedToLibrary(base64) {
+  APP.photos.unshift({
+    id: Date.now() + Math.random(),
+    name: 'AI-generated-' + Date.now() + '.png',
+    data: base64,
+    company: APP.currentCompany || 'mssi',
+    size: Math.round(base64.length * 0.75),
+    uploadedAt: new Date().toISOString()
+  });
+  savePhotos();
+  showToast('Saved to Photo Library', 'success');
 }
 
 // GENERATE POST
