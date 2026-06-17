@@ -330,6 +330,9 @@ select:focus{border-color:var(--accent-border);}
         <div class="company-card-status"><div class="status-dot amber" id="dot-cwli"></div><span id="status-cwli">Facebook not connected yet</span></div>
       </div>
     </div>
+
+    <div class="card" id="inquiry-check-card" style="margin-bottom:16px"></div>
+
     <div class="dash-row">
       <div class="card">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
@@ -382,6 +385,7 @@ select:focus{border-color:var(--accent-border);}
     <div class="topbar-left"><h1>Create Post</h1><p>Generate AI-written content for Facebook</p></div>
   </div>
   <div class="content">
+    <div id="holiday-banner"></div>
     <div class="create-layout">
       <div class="create-form">
         <div class="form-section">
@@ -509,13 +513,15 @@ select:focus{border-color:var(--accent-border);}
   <div class="content">
     <div class="cal-header">
       <div class="cal-nav">
-        <button class="btn btn-ghost btn-sm">←</button>
-        <div class="cal-month">June 2026</div>
-        <button class="btn btn-ghost btn-sm">→</button>
+        <button class="btn btn-ghost btn-sm" onclick="changeMonth(-1)">←</button>
+        <div class="cal-month" id="cal-month-label">June 2026</div>
+        <button class="btn btn-ghost btn-sm" onclick="changeMonth(1)">→</button>
+        <button class="btn btn-ghost btn-sm" onclick="goToToday()" style="margin-left:8px">Today</button>
       </div>
       <button class="btn btn-primary btn-sm" onclick="showScreen('autogen')">+ Fill Week</button>
     </div>
     <div class="cal-grid" id="calendar-grid"></div>
+    <div id="cal-day-detail"></div>
   </div>
 </div>
 
@@ -582,7 +588,7 @@ select:focus{border-color:var(--accent-border);}
           <div style="font-size:12px;color:var(--text3);margin-bottom:16px">Distribute content across audience types</div>
           <div class="toggle-row"><div><div class="toggle-label">Include B2C content</div><div class="toggle-sub">Homeowner-focused posts (MSSI)</div></div><div class="toggle on" id="autogen-toggle-b2c" onclick="toggleSwitch(this)"><div class="toggle-thumb"></div></div></div>
           <div class="toggle-row"><div><div class="toggle-label">Include B2B trade content</div><div class="toggle-sub">Fabricators, dealers, contractors</div></div><div class="toggle on" id="autogen-toggle-b2b" onclick="toggleSwitch(this)"><div class="toggle-thumb"></div></div></div>
-          <div class="toggle-row" style="border-bottom:none"><div><div class="toggle-label">Auto-rotate content pillars</div><div class="toggle-sub">Follow Mon–Sun pillar schedule</div></div><div class="toggle on" onclick="toggleSwitch(this)"><div class="toggle-thumb"></div></div></div>
+          <div class="toggle-row" style="border-bottom:none"><div><div class="toggle-label">Auto-rotate content pillars</div><div class="toggle-sub">Follow Mon–Sun pillar schedule</div></div><div class="toggle on" id="autogen-toggle-rotate" onclick="toggleSwitch(this)"><div class="toggle-thumb"></div></div></div>
         </div>
         <button class="generate-btn" id="autogen-btn" onclick="runAutoGenerate()">
           <svg style="width:16px;height:16px" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 1v3M8 12v3M1 8h3M12 8h3"/><circle cx="8" cy="8" r="3"/></svg>
@@ -714,28 +720,47 @@ select:focus{border-color:var(--accent-border);}
           </div>
           <button class="btn btn-primary" style="margin-top:10px" onclick="saveFbPages()">Save Page Settings</button>
         </div>
+        <div class="card" style="margin-top:16px">
+          <div style="font-size:13px;font-weight:500;margin-bottom:8px">About Comments &amp; Auto-Reply</div>
+          <div style="font-size:12px;color:var(--text3);line-height:1.6">This app does not auto-reply to Facebook comments or DMs. Doing that safely requires a server running continuously to watch for new messages — not something a browser-only app can do, and risky for B2B trust if a bot replies with the wrong info. Instead, the Dashboard's <strong style="color:var(--text2)">Inquiry &amp; Comment Check</strong> reminds you which published posts to look at on Facebook directly, so real inquiries get a real reply from you.</div>
+        </div>
       </div>
       <div id="stab-schedule" style="display:none">
         <div class="card">
           <div style="font-size:14px;font-weight:500;margin-bottom:14px">Default Posting Times</div>
+          <div style="font-size:12px;color:var(--text3);margin-bottom:14px">Used by Auto-Generate Week to suggest a posting time per weekday based on the content pillar rotation.</div>
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
-            <div><label class="form-label">Monday</label><input type="time" class="time-input" value="09:00"></div>
-            <div><label class="form-label">Tuesday</label><input type="time" class="time-input" value="10:00"></div>
-            <div><label class="form-label">Wednesday</label><input type="time" class="time-input" value="14:00"></div>
-            <div><label class="form-label">Thursday</label><input type="time" class="time-input" value="11:00"></div>
-            <div><label class="form-label">Friday</label><input type="time" class="time-input" value="15:00"></div>
-            <div><label class="form-label">Saturday</label><input type="time" class="time-input" value="10:30"></div>
-            <div><label class="form-label">Sunday</label><input type="time" class="time-input" value="12:00"></div>
+            <div><label class="form-label">Monday</label><input type="time" class="time-input" id="sched-time-1" value="09:00"></div>
+            <div><label class="form-label">Tuesday</label><input type="time" class="time-input" id="sched-time-2" value="10:00"></div>
+            <div><label class="form-label">Wednesday</label><input type="time" class="time-input" id="sched-time-3" value="14:00"></div>
+            <div><label class="form-label">Thursday</label><input type="time" class="time-input" id="sched-time-4" value="11:00"></div>
+            <div><label class="form-label">Friday</label><input type="time" class="time-input" id="sched-time-5" value="15:00"></div>
+            <div><label class="form-label">Saturday</label><input type="time" class="time-input" id="sched-time-6" value="10:30"></div>
+            <div><label class="form-label">Sunday</label><input type="time" class="time-input" id="sched-time-0" value="12:00"></div>
           </div>
-          <button class="btn btn-primary" style="margin-top:16px" onclick="showToast('Schedule saved','success')">Save Schedule</button>
+          <button class="btn btn-primary" style="margin-top:16px" onclick="saveSchedule()">Save Schedule</button>
         </div>
       </div>
       <div id="stab-data" style="display:none">
+        <div class="card" style="margin-bottom:16px">
+          <div style="font-size:14px;font-weight:500;margin-bottom:4px">Full Backup</div>
+          <div style="font-size:12px;color:var(--text3);margin-bottom:14px">Saves everything — posts, photos, brand profiles, Facebook page settings, and API keys — into one file you can restore later or move to another computer.</div>
+          <button class="btn btn-primary" style="margin-bottom:10px;width:100%" onclick="exportFullBackup()">Download Full Backup (.json)</button>
+          <div style="display:flex;align-items:center;gap:10px;margin-top:6px">
+            <input type="file" id="backup-restore-input" accept=".json" style="display:none" onchange="restoreFullBackup(event)">
+            <button class="btn btn-secondary" style="flex:1" onclick="document.getElementById('backup-restore-input').click()">Restore from Backup</button>
+          </div>
+          <div style="font-size:11px;color:var(--text3);margin-top:8px">Restoring replaces all current data in this browser. Back up first if unsure.</div>
+        </div>
+        <div class="card" style="margin-bottom:16px">
+          <div style="font-size:14px;font-weight:500;margin-bottom:4px">Spreadsheet Export</div>
+          <div style="font-size:12px;color:var(--text3);margin-bottom:14px">Quick CSV of all posts for review in Excel or Google Sheets — not a full backup.</div>
+          <button class="btn btn-secondary" style="width:100%" onclick="exportPosts()">Export All Posts as CSV</button>
+        </div>
         <div class="card">
-          <div style="font-size:14px;font-weight:500;margin-bottom:14px">Data &amp; Export</div>
-          <button class="btn btn-secondary" style="margin-bottom:10px;width:100%" onclick="exportPosts()">Export All Posts as CSV</button>
-          <button class="btn btn-secondary" style="margin-bottom:10px;width:100%">Export Brand Profiles as JSON</button>
-          <button class="btn btn-ghost" style="color:var(--red);border-color:var(--red-bg);width:100%;margin-top:16px" onclick="clearData()">Clear All Local Data</button>
+          <div style="font-size:14px;font-weight:500;margin-bottom:4px;color:var(--red)">Danger Zone</div>
+          <div style="font-size:12px;color:var(--text3);margin-bottom:14px">This permanently deletes everything in this browser. Download a backup first.</div>
+          <button class="btn btn-ghost" style="color:var(--red);border-color:var(--red-bg);width:100%" onclick="clearData()">Clear All Local Data</button>
         </div>
       </div>
     </div>
@@ -779,6 +804,7 @@ function loadState() {
     renderPhotoLibrary();
     loadFbPages();
     loadBrandProfiles();
+    loadSchedule();
   } catch(e) { console.error(e); }
 }
 
@@ -801,6 +827,7 @@ function showScreen(id) {
   if (id === 'calendar') renderCalendar();
   if (id === 'review') updateReviewQueue();
   if (id === 'dashboard') updateDashboard();
+  if (id === 'create') renderHolidayBanner();
 }
 
 // COMPANY
@@ -1242,7 +1269,7 @@ function updateReviewQueue() {
         <div style="display:flex;gap:8px">
           <button class="btn btn-ghost btn-sm" onclick="deletePost(${p.id})" style="color:var(--red)">Delete</button>
           <button class="btn btn-secondary btn-sm" onclick="copyCaption(${p.id})">Copy Caption</button>
-          <input type="datetime-local" class="time-input" style="flex:1;padding:6px 10px;font-size:12px" id="sched-${p.id}">
+          <input type="datetime-local" class="time-input" style="flex:1;padding:6px 10px;font-size:12px" id="sched-${p.id}" value="${p.suggestedDate ? p.suggestedDate.slice(0,16) : ''}">
           <button class="btn btn-primary btn-sm" onclick="schedulePost(${p.id})">Schedule &amp; Approve</button>
         </div>
       </div>
@@ -1353,15 +1380,102 @@ function updateDashboard() {
     list.innerHTML = recentPosts.map(p => `<div style="display:flex;align-items:center;gap:12px;padding:10px 14px;background:var(--bg3);border-radius:var(--radius);border:1px solid var(--border);margin-bottom:8px"><span class="post-company-badge badge-${p.company}">${p.company.toUpperCase()}</span><span style="font-size:13px;color:var(--text2);flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${p.pillar} · ${p.audience}</span><span class="post-company-badge" style="${p.status==='scheduled'?'background:var(--green-bg);color:var(--green)':'background:var(--bg4);color:var(--text3)'}">${p.status}</span></div>`).join('');
   }
   updateReviewBadge();
+  renderInquiryCheck();
+  renderHolidayBanner();
+}
+
+// INQUIRY / COMMENT CHECK
+// NOTE: True auto-reply to Facebook comments/DMs requires a live server polling the Graph API continuously,
+// which isn't possible from a static GitHub Pages app. This is the safe interim version: it tracks which
+// published posts you've acknowledged checking, and reminds you to go look at comments/inquiries on Facebook
+// directly. Once Facebook access + a real backend exist, this can be upgraded to pull live comment counts
+// and eventually draft suggested replies for your approval (never fully automatic, given B2B trust risk).
+function renderInquiryCheck() {
+  const card = document.getElementById('inquiry-check-card');
+  if (!card) return;
+  const published = APP.posts.filter(p => p.status === 'published');
+  const unchecked = published.filter(p => !p.inquiryChecked);
+
+  if (!published.length) {
+    card.innerHTML = `
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:4px">
+        <span style="font-size:15px">💬</span>
+        <div style="font-size:14px;font-weight:500">Inquiry &amp; Comment Check</div>
+      </div>
+      <div style="font-size:12.5px;color:var(--text3)">Once posts are published to Facebook, this will remind you to check comments and DMs for inquiries. True auto-reply isn't available yet — see note in Settings.</div>
+    `;
+    return;
+  }
+
+  if (!unchecked.length) {
+    card.innerHTML = `
+      <div style="display:flex;align-items:center;gap:10px">
+        <span style="font-size:15px">✅</span>
+        <div style="font-size:13.5px;color:var(--text2)">All published posts checked for comments/inquiries. Nice and current.</div>
+      </div>`;
+    return;
+  }
+
+  card.innerHTML = `
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
+      <span style="font-size:15px">💬</span>
+      <div style="font-size:14px;font-weight:500">Inquiry &amp; Comment Check</div>
+      <span class="post-company-badge" style="background:var(--amber-bg);color:var(--amber);margin-left:auto">${unchecked.length} to review</span>
+    </div>
+    <div style="font-size:12px;color:var(--text3);margin-bottom:12px">Go check Facebook for comments and DMs on these published posts, then mark them reviewed here.</div>
+    ${unchecked.map(p => `
+      <div style="display:flex;align-items:center;gap:10px;padding:9px 12px;background:var(--bg3);border-radius:var(--radius);border:1px solid var(--border);margin-bottom:6px">
+        <span class="post-company-badge badge-${p.company}">${p.company.toUpperCase()}</span>
+        <span style="font-size:12.5px;color:var(--text2);flex:1">${p.pillar} · ${p.audience}</span>
+        <span style="font-size:11px;color:var(--text3)">${p.publishedAt ? new Date(p.publishedAt).toLocaleDateString() : ''}</span>
+        <button class="btn btn-ghost btn-sm" onclick="markInquiryChecked(${p.id})">Mark Checked</button>
+      </div>
+    `).join('')}
+  `;
+}
+
+function markInquiryChecked(id) {
+  const post = APP.posts.find(p => p.id === id);
+  if (!post) return;
+  post.inquiryChecked = true;
+  saveState();
+  renderInquiryCheck();
+  showToast('Marked as checked', 'success');
 }
 
 // CALENDAR
-let CAL_MONTH = 5; // June = 5
-let CAL_YEAR = 2026;
+const now0 = new Date();
+let CAL_MONTH = now0.getMonth();
+let CAL_YEAR = now0.getFullYear();
+const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+
+function postDateForCalendar(p) {
+  // Scheduled posts display on their scheduled date; drafts/others show on creation date
+  return p.scheduledFor ? new Date(p.scheduledFor) : new Date(p.createdAt);
+}
+
+function changeMonth(delta) {
+  CAL_MONTH += delta;
+  if (CAL_MONTH > 11) { CAL_MONTH = 0; CAL_YEAR++; }
+  if (CAL_MONTH < 0) { CAL_MONTH = 11; CAL_YEAR--; }
+  closeDayDetail();
+  renderCalendar();
+}
+
+function goToToday() {
+  const t = new Date();
+  CAL_MONTH = t.getMonth();
+  CAL_YEAR = t.getFullYear();
+  closeDayDetail();
+  renderCalendar();
+}
 
 function renderCalendar() {
   const grid = document.getElementById('calendar-grid');
   if (!grid) return;
+  const label = document.getElementById('cal-month-label');
+  if (label) label.textContent = MONTH_NAMES[CAL_MONTH] + ' ' + CAL_YEAR;
+
   const days = ['SUN','MON','TUE','WED','THU','FRI','SAT'];
   let html = days.map(d => '<div class="cal-day-header">'+d+'</div>').join('');
   const firstDay = new Date(CAL_YEAR, CAL_MONTH, 1).getDay();
@@ -1375,21 +1489,73 @@ function renderCalendar() {
   }
   for (let d = 1; d <= daysInMonth; d++) {
     const dayPosts = APP.posts.filter(p => {
-      const pd = new Date(p.createdAt);
+      const pd = postDateForCalendar(p);
       return pd.getFullYear()===CAL_YEAR && pd.getMonth()===CAL_MONTH && pd.getDate()===d && (APP.calFilter==='all' || p.company===APP.calFilter);
     });
+    const holiday = getHolidayFor(new Date(CAL_YEAR, CAL_MONTH, d));
+    const holidayHtml = holiday ? `<div style="font-size:9.5px;color:var(--amber);margin-bottom:3px;font-weight:500" title="${holiday.name}">🇵🇭 ${holiday.name}</div>` : '';
     const chipsHtml = dayPosts.slice(0,3).map(p => '<div class="cal-post-chip badge-'+p.company+'">'+p.pillar+'</div>').join('');
-    html += '<div class="cal-day '+(d===todayD?'today':'')+'"><div class="cal-day-num">'+d+'</div>'+chipsHtml+'</div>';
+    const moreHtml = dayPosts.length > 3 ? '<div style="font-size:10px;color:var(--text3);padding-left:2px">+'+(dayPosts.length-3)+' more</div>' : '';
+    html += '<div class="cal-day '+(d===todayD?'today':'')+'" onclick="showDayDetail('+CAL_YEAR+','+CAL_MONTH+','+d+')"><div class="cal-day-num">'+d+'</div>'+holidayHtml+chipsHtml+moreHtml+'</div>';
   }
   const rem = 42 - firstDay - daysInMonth;
   for (let i = 1; i <= rem; i++) html += '<div class="cal-day other-month"><div class="cal-day-num">'+i+'</div></div>';
   grid.innerHTML = html;
 }
 
+function showDayDetail(year, month, day) {
+  const dayPosts = APP.posts.filter(p => {
+    const pd = postDateForCalendar(p);
+    return pd.getFullYear()===year && pd.getMonth()===month && pd.getDate()===day && (APP.calFilter==='all' || p.company===APP.calFilter);
+  });
+  const detail = document.getElementById('cal-day-detail');
+  const dateLabel = new Date(year, month, day).toLocaleDateString('en-PH', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
+
+  if (!dayPosts.length) {
+    detail.innerHTML = `
+      <div class="card" style="margin-top:16px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+          <div style="font-size:14px;font-weight:500">${dateLabel}</div>
+          <button class="btn btn-ghost btn-sm" onclick="closeDayDetail()">Close</button>
+        </div>
+        <div style="font-size:13px;color:var(--text3)">No posts on this day.</div>
+        <button class="btn btn-primary btn-sm" style="margin-top:10px" onclick="showScreen('create')">Create a Post</button>
+      </div>`;
+    return;
+  }
+
+  detail.innerHTML = `
+    <div class="card" style="margin-top:16px">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+        <div style="font-size:14px;font-weight:500">${dateLabel} · ${dayPosts.length} post${dayPosts.length>1?'s':''}</div>
+        <button class="btn btn-ghost btn-sm" onclick="closeDayDetail()">Close</button>
+      </div>
+      ${dayPosts.map(p => `
+        <div style="display:flex;gap:12px;padding:12px 0;border-top:1px solid var(--border)">
+          ${p.photo ? `<img src="${p.photo}" style="width:60px;height:60px;object-fit:cover;border-radius:var(--radius);flex-shrink:0" alt="Post photo">` : `<div style="width:60px;height:60px;border-radius:var(--radius);background:var(--bg4);flex-shrink:0"></div>`}
+          <div style="flex:1;min-width:0">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
+              <span class="post-company-badge badge-${p.company}">${p.company.toUpperCase()}</span>
+              <span style="font-size:12px;color:var(--text3)">${p.pillar} · ${p.audience}</span>
+              <span class="post-company-badge" style="margin-left:auto;${p.status==='scheduled'?'background:var(--green-bg);color:var(--green)':p.status==='published'?'background:var(--accent-bg);color:var(--accent2)':'background:var(--bg4);color:var(--text3)'}">${p.status}</span>
+            </div>
+            <div style="font-size:12.5px;color:var(--text2);line-height:1.5;max-height:60px;overflow:hidden">${p.caption.split('\\n')[0]}</div>
+          </div>
+        </div>
+      `).join('')}
+    </div>`;
+}
+
+function closeDayDetail() {
+  const detail = document.getElementById('cal-day-detail');
+  if (detail) detail.innerHTML = '';
+}
+
 function calFilter(f, el) {
   APP.calFilter = f;
   document.querySelectorAll('#screen-calendar .filter-pill').forEach(p => p.classList.remove('active'));
   el.classList.add('active');
+  closeDayDetail();
   renderCalendar();
 }
 
@@ -1545,6 +1711,35 @@ function loadFbPages() {
   } catch(e) { console.error(e); }
 }
 
+// DEFAULT POSTING SCHEDULE (per weekday, used by Auto-Generate Week)
+function saveSchedule() {
+  const data = {};
+  for (let i = 0; i <= 6; i++) {
+    const el = document.getElementById('sched-time-' + i);
+    if (el) data[i] = el.value;
+  }
+  localStorage.setItem('scm_schedule_times', JSON.stringify(data));
+  APP.scheduleTimes = data;
+  showToast('Default posting times saved', 'success');
+}
+
+function loadSchedule() {
+  try {
+    const data = JSON.parse(localStorage.getItem('scm_schedule_times') || 'null');
+    if (!data) return;
+    APP.scheduleTimes = data;
+    Object.entries(data).forEach(([day, time]) => {
+      const el = document.getElementById('sched-time-' + day);
+      if (el && time) el.value = time;
+    });
+  } catch(e) { console.error(e); }
+}
+
+function getDefaultTimeForWeekday(dayIndex) {
+  const times = APP.scheduleTimes || JSON.parse(localStorage.getItem('scm_schedule_times') || '{}');
+  return times[dayIndex] || times[String(dayIndex)] || null;
+}
+
 // FACEBOOK GRAPH API PUBLISHING
 async function publishToFacebook(post) {
   const pages = APP.fbPages || JSON.parse(localStorage.getItem('scm_fb_pages') || '{}');
@@ -1605,7 +1800,7 @@ async function publishPostNow(id) {
 
 function exportPosts() {
   if (!APP.posts.length) { showToast('No posts to export', 'info'); return; }
-  const headers = ['id','company','audience','pillar','status','createdAt','caption'];
+  const headers = ['id','company','audience','pillar','status','createdAt','scheduledFor','caption'];
   const rows = APP.posts.map(p => headers.map(h => '"'+(p[h]||'').toString().replace(/"/g,'""')+'"').join(','));
   const csv = [headers.join(','), ...rows].join('\n');
   const a = document.createElement('a');
@@ -1615,14 +1810,74 @@ function exportPosts() {
   showToast('Posts exported as CSV', 'success');
 }
 
+function exportFullBackup() {
+  const backup = {
+    backupVersion: 1,
+    exportedAt: new Date().toISOString(),
+    posts: APP.posts,
+    photos: APP.photos,
+    brandProfiles: APP.brandProfiles,
+    fbPages: APP.fbPages || JSON.parse(localStorage.getItem('scm_fb_pages') || '{}'),
+    apiKeys: {
+      anthropic: localStorage.getItem('scm_anthropic_key') || '',
+      facebook: localStorage.getItem('scm_facebook_key') || '',
+      ideogram: localStorage.getItem('scm_ideogram_key') || ''
+    }
+  };
+  const json = JSON.stringify(backup, null, 2);
+  const blob = new Blob([json], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'scm-backup-' + new Date().toISOString().slice(0,10) + '.json';
+  a.click();
+  URL.revokeObjectURL(url);
+  showToast('Full backup downloaded', 'success');
+}
+
+function restoreFullBackup(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  if (!confirm('Restoring will replace all current posts, photos, brand profiles, and settings in this browser. Continue?')) {
+    event.target.value = '';
+    return;
+  }
+  const reader = new FileReader();
+  reader.onload = function(ev) {
+    try {
+      const backup = JSON.parse(ev.target.result);
+      if (!backup || typeof backup !== 'object') throw new Error('Invalid backup file');
+
+      APP.posts = backup.posts || [];
+      APP.photos = backup.photos || [];
+      APP.brandProfiles = backup.brandProfiles || {};
+      APP.fbPages = backup.fbPages || {};
+
+      localStorage.setItem('scm_posts', JSON.stringify(APP.posts));
+      localStorage.setItem('scm_photos', JSON.stringify(APP.photos));
+      localStorage.setItem('scm_brand_profiles', JSON.stringify(APP.brandProfiles));
+      localStorage.setItem('scm_fb_pages', JSON.stringify(APP.fbPages));
+
+      if (backup.apiKeys) {
+        if (backup.apiKeys.anthropic) localStorage.setItem('scm_anthropic_key', backup.apiKeys.anthropic);
+        if (backup.apiKeys.facebook) localStorage.setItem('scm_facebook_key', backup.apiKeys.facebook);
+        if (backup.apiKeys.ideogram) localStorage.setItem('scm_ideogram_key', backup.apiKeys.ideogram);
+      }
+
+      showToast('Backup restored — reloading...', 'success');
+      setTimeout(() => location.reload(), 1200);
+    } catch (err) {
+      showToast('Restore failed: ' + err.message, 'error');
+    }
+  };
+  reader.readAsText(file);
+}
+
 function clearData() {
-  if (!confirm('Clear all local data? This cannot be undone.')) return;
-  localStorage.removeItem('scm_posts');
-  APP.posts = [];
-  updateDashboard();
-  renderCalendar();
-  updateReviewQueue();
-  showToast('All data cleared', 'info');
+  if (!confirm('Clear ALL local data — posts, photos, brand profiles, Facebook page settings, and API keys? This cannot be undone. Consider downloading a backup first.')) return;
+  ['scm_posts','scm_photos','scm_brand_profiles','scm_fb_pages','scm_anthropic_key','scm_facebook_key','scm_ideogram_key'].forEach(k => localStorage.removeItem(k));
+  showToast('All data cleared — reloading...', 'info');
+  setTimeout(() => location.reload(), 1000);
 }
 
 // AUTO-GENERATE
@@ -1633,6 +1888,81 @@ function setCount(btn, n) {
   btn.classList.add('selected');
   APP.autogenCount = n;
   document.getElementById('count-label').textContent = n+' posts × 3 companies = '+(n*3)+' posts total this week';
+}
+
+// Content pillar schedule from the brand strategy: rotates by day of week
+// PHILIPPINE HOLIDAYS 2026 (Proclamation No. 1006) — used to override or flavor the day's content pillar
+const PH_HOLIDAYS_2026 = {
+  '2026-01-01': { name: "New Year's Day", type: 'regular' },
+  '2026-02-17': { name: 'Chinese New Year', type: 'special' },
+  '2026-02-25': { name: 'EDSA People Power Anniversary', type: 'special-working' },
+  '2026-04-02': { name: 'Maundy Thursday', type: 'regular' },
+  '2026-04-03': { name: 'Good Friday', type: 'regular' },
+  '2026-04-04': { name: 'Black Saturday', type: 'special' },
+  '2026-04-09': { name: 'Araw ng Kagitingan', type: 'regular' },
+  '2026-05-01': { name: 'Labor Day', type: 'regular' },
+  '2026-06-12': { name: 'Independence Day', type: 'regular' },
+  '2026-08-21': { name: 'Ninoy Aquino Day', type: 'special' },
+  '2026-08-31': { name: 'National Heroes Day', type: 'regular' },
+  '2026-11-01': { name: "All Saints' Day", type: 'special' },
+  '2026-11-02': { name: "All Souls' Day", type: 'special' },
+  '2026-11-30': { name: 'Bonifacio Day', type: 'regular' },
+  '2026-12-08': { name: 'Feast of the Immaculate Conception', type: 'special' },
+  '2026-12-24': { name: 'Christmas Eve', type: 'special' },
+  '2026-12-25': { name: 'Christmas Day', type: 'regular' },
+  '2026-12-30': { name: 'Rizal Day', type: 'regular' },
+  '2026-12-31': { name: 'Last Day of the Year', type: 'special' }
+  // Eid al-Fitr and Eid al-Adha dates are announced separately each year based on the Islamic calendar — add once proclaimed
+};
+
+function getHolidayFor(date) {
+  const key = date.toISOString().slice(0, 10);
+  return PH_HOLIDAYS_2026[key] || null;
+}
+
+function renderHolidayBanner() {
+  const banner = document.getElementById('holiday-banner');
+  if (!banner) return;
+  const today = new Date();
+  today.setHours(0,0,0,0);
+  // Look ahead 7 days for an upcoming holiday
+  let upcoming = null;
+  let daysAway = 0;
+  for (let i = 0; i <= 7; i++) {
+    const checkDate = new Date(today);
+    checkDate.setDate(today.getDate() + i);
+    const h = getHolidayFor(checkDate);
+    if (h) { upcoming = h; daysAway = i; break; }
+  }
+  if (!upcoming) { banner.innerHTML = ''; return; }
+  const whenLabel = daysAway === 0 ? 'today' : daysAway === 1 ? 'tomorrow' : `in ${daysAway} days`;
+  banner.innerHTML = `
+    <div style="background:var(--amber-bg);border:1px solid rgba(245,166,35,0.3);border-radius:var(--radius);padding:12px 16px;margin-bottom:16px;display:flex;align-items:center;gap:10px">
+      <span style="font-size:16px">🇵🇭</span>
+      <span style="font-size:13px;color:var(--text2)"><strong style="color:var(--amber)">${upcoming.name}</strong> is ${whenLabel}. Consider mentioning it in your notes below for a timely, relevant post.</span>
+    </div>`;
+}
+
+const WEEKDAY_PILLARS = {
+  1: 'Product Showcase',   // Monday
+  2: 'Education',          // Tuesday
+  3: 'Social Proof',       // Wednesday
+  4: 'Sales Push',         // Thursday
+  5: 'Aspiration / Lifestyle', // Friday
+  6: 'Brand Story',        // Saturday
+  0: 'Engagement'          // Sunday
+};
+
+function getNextWeekdays(count, startFrom = new Date()) {
+  // Returns the next `count` calendar dates starting from tomorrow, used to assign posts to real dates
+  const dates = [];
+  const d = new Date(startFrom);
+  d.setDate(d.getDate() + 1); // start from tomorrow so today's already-posted content isn't overwritten
+  while (dates.length < count) {
+    dates.push(new Date(d));
+    d.setDate(d.getDate() + 1);
+  }
+  return dates;
 }
 
 async function runAutoGenerate() {
@@ -1648,9 +1978,10 @@ async function runAutoGenerate() {
 
   const includeB2C = document.getElementById('autogen-toggle-b2c')?.classList.contains('on');
   const includeB2B = document.getElementById('autogen-toggle-b2b')?.classList.contains('on');
+  const useWeekdayRotation = document.getElementById('autogen-toggle-rotate')?.classList.contains('on') ?? true;
   const postCount = APP.autogenCount || 5;
 
-  const pillars = ['Product Showcase','Education','Social Proof','Sales Push','Aspiration / Lifestyle','Brand Story','Engagement'];
+  const fallbackPillars = ['Product Showcase','Education','Social Proof','Sales Push','Aspiration / Lifestyle','Brand Story','Engagement'];
   const audiencesByCompany = {
     mssi: [
       ...(includeB2C ? ['Homeowner'] : []),
@@ -1674,20 +2005,38 @@ async function runAutoGenerate() {
     const audiences = audiencesByCompany[co];
     if (!audiences.length) continue;
 
+    // Assign each post to a real upcoming calendar date so the pillar rotation and scheduling make sense
+    const dates = getNextWeekdays(postCount);
+
     for (let i = 0; i < postCount; i++) {
-      const pillar = pillars[i % pillars.length];
+      const postDate = dates[i];
+      const holiday = getHolidayFor(postDate);
+      let pillar = useWeekdayRotation ? WEEKDAY_PILLARS[postDate.getDay()] : fallbackPillars[i % fallbackPillars.length];
       const audience = audiences[i % audiences.length];
 
+      // If a Philippine holiday falls on this date, override the pillar with a holiday-themed post
+      if (holiday) pillar = 'Holiday — ' + holiday.name;
+
       const rowId = 'aq-' + co + '-' + i;
+      const dayLabel = postDate.toLocaleDateString('en-PH', { weekday: 'short', month: 'short', day: 'numeric' });
+      const holidayTag = holiday ? ` 🇵🇭` : '';
       queue.innerHTML += `<div id="${rowId}" style="display:flex;align-items:center;gap:10px;padding:10px 14px;background:var(--bg3);border-radius:var(--radius);border:1px solid var(--border);margin-bottom:8px">
         <span class="post-company-badge badge-${co}">${co.toUpperCase()}</span>
-        <span style="font-size:12.5px;color:var(--text2);flex:1">${pillar} · ${audience}</span>
+        <span style="font-size:12.5px;color:var(--text2);flex:1">${pillar}${holidayTag} · ${audience} <span style="color:var(--text3)">— ${dayLabel}</span></span>
         <div class="spinner" style="width:14px;height:14px;border-width:2px"></div>
       </div>`;
 
       try {
-        const prompt = buildCaptionPrompt(co, audience, pillar, '');
+        const notes = holiday ? `Today is ${holiday.name}, a Philippine holiday. Write this post around the holiday — tie it naturally to the company's products or trade relevance (e.g. greeting, reflection, or a relevant offer), rather than a generic pillar post. Keep it warm and appropriate to the occasion.` : '';
+        const prompt = buildCaptionPrompt(co, audience, pillar, notes);
         const fullText = await callClaude(apiKey, prompt);
+        // Default time uses the Auto-Schedule settings for this day of week if configured
+        const defaultTime = getDefaultTimeForWeekday(postDate.getDay());
+        const scheduledDateTime = new Date(postDate);
+        if (defaultTime) {
+          const [h, m] = defaultTime.split(':');
+          scheduledDateTime.setHours(parseInt(h), parseInt(m), 0, 0);
+        }
         const post = {
           id: Date.now() + Math.random(),
           company: co,
@@ -1697,13 +2046,15 @@ async function runAutoGenerate() {
           photo: null,
           status: 'draft',
           createdAt: new Date().toISOString(),
-          scheduledFor: null
+          scheduledFor: null,
+          suggestedDate: scheduledDateTime.toISOString(),
+          isHoliday: !!holiday
         };
         APP.posts.push(post);
         successCount++;
 
         const row = document.getElementById(rowId);
-        if (row) row.innerHTML = `<span class="post-company-badge badge-${co}">${co.toUpperCase()}</span><span style="font-size:12.5px;color:var(--text2);flex:1">${pillar} · ${audience}</span><span style="color:var(--green);font-size:13px">✓</span>`;
+        if (row) row.innerHTML = `<span class="post-company-badge badge-${co}">${co.toUpperCase()}</span><span style="font-size:12.5px;color:var(--text2);flex:1">${pillar}${holidayTag} · ${audience} <span style="color:var(--text3)">— ${dayLabel}</span></span><span style="color:var(--green);font-size:13px">✓</span>`;
       } catch (err) {
         failCount++;
         const row = document.getElementById(rowId);
