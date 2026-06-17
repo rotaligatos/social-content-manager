@@ -263,6 +263,10 @@ select:focus{border-color:var(--accent-border);}
       <svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1" y="1" width="6" height="5" rx="1"/><rect x="9" y="1" width="6" height="5" rx="1"/><rect x="1" y="8" width="6" height="7" rx="1"/><rect x="9" y="8" width="6" height="7" rx="1"/></svg>
       Photo Library
     </button>
+    <button class="nav-item" onclick="showScreen('performance')">
+      <svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M1.5 14.5h13M3 14.5V9M6.5 14.5V5M10 14.5V8M13.5 14.5V3"/></svg>
+      Performance
+    </button>
   </div>
   <div class="sidebar-section">
     <div class="sidebar-label">Config</div>
@@ -558,6 +562,23 @@ select:focus{border-color:var(--accent-border);}
   </div>
 </div>
 
+<!-- PERFORMANCE -->
+<div id="screen-performance" class="screen">
+  <div class="topbar">
+    <div class="topbar-left"><h1>Performance</h1><p>What's working, by company, pillar, and audience</p></div>
+  </div>
+  <div class="content">
+    <div id="performance-empty-note" style="display:none">
+      <div class="empty-state">
+        <div class="empty-icon">📊</div>
+        <div class="empty-title">No performance data logged yet</div>
+        <div class="empty-sub">Once posts are published, log their results from the Dashboard's Inquiry &amp; Comment Check, or below. Once Facebook access is available, this can pull numbers automatically instead.</div>
+      </div>
+    </div>
+    <div id="performance-content"></div>
+  </div>
+</div>
+
 <!-- AUTO-GENERATE WEEK -->
 <div id="screen-autogen" class="screen">
   <div class="topbar">
@@ -821,13 +842,14 @@ function showScreen(id) {
   document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
   document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
   document.getElementById('screen-' + id).classList.add('active');
-  const map = { dashboard:0, create:1, review:2, calendar:3, autogen:4, library:5, brands:6, settings:7 };
+  const map = { dashboard:0, create:1, review:2, calendar:3, autogen:4, library:5, performance:6, brands:7, settings:8 };
   const items = document.querySelectorAll('.nav-item');
   if (map[id] !== undefined && items[map[id]]) items[map[id]].classList.add('active');
   if (id === 'calendar') renderCalendar();
   if (id === 'review') updateReviewQueue();
   if (id === 'dashboard') updateDashboard();
   if (id === 'create') renderHolidayBanner();
+  if (id === 'performance') renderPerformance();
 }
 
 // COMPANY
@@ -1139,7 +1161,7 @@ Target Audience: ${audience}
 Content Pillar: ${pillar}
 Tone and Voice: ${getToneFor(co, audience)}
 Primary Goal: ${getGoalFor(co)}
-${notes ? 'Notes from manager: ' + notes : ''}
+${notes ? 'Notes from manager: ' + notes : ''}${getPerformanceContextForPrompt()}
 
 Write one complete Facebook post following these rules exactly:
 - 2 to 3 short paragraphs (not bullet points)
@@ -1428,6 +1450,7 @@ function renderInquiryCheck() {
         <span class="post-company-badge badge-${p.company}">${p.company.toUpperCase()}</span>
         <span style="font-size:12.5px;color:var(--text2);flex:1">${p.pillar} · ${p.audience}</span>
         <span style="font-size:11px;color:var(--text3)">${p.publishedAt ? new Date(p.publishedAt).toLocaleDateString() : ''}</span>
+        <button class="btn btn-ghost btn-sm" onclick="openPerformanceLogModal(${p.id})">Log Performance</button>
         <button class="btn btn-ghost btn-sm" onclick="markInquiryChecked(${p.id})">Mark Checked</button>
       </div>
     `).join('')}
@@ -1441,6 +1464,151 @@ function markInquiryChecked(id) {
   saveState();
   renderInquiryCheck();
   showToast('Marked as checked', 'success');
+}
+
+// PERFORMANCE LOGGING (manual entry now; structure ready for live Facebook Insights later)
+function openPerformanceLogModal(id) {
+  const post = APP.posts.find(p => p.id === id);
+  if (!post) return;
+  const existing = post.performance || {};
+  let html = '<div id="perflog-overlay" style="position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:2000;display:flex;align-items:center;justify-content:center" onclick="if(event.target.id===\'perflog-overlay\')closePerformanceLogModal()">';
+  html += '<div style="background:var(--bg2);border:1px solid var(--border2);border-radius:var(--radius-lg);width:440px;max-height:80vh;overflow-y:auto">';
+  html += '<div style="padding:16px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between"><div style="font-size:14px;font-weight:500">Log Performance</div><button class="btn btn-ghost btn-sm" onclick="closePerformanceLogModal()">Close</button></div>';
+  html += '<div style="padding:18px">';
+  html += `<div style="font-size:12px;color:var(--text3);margin-bottom:14px">${post.company.toUpperCase()} · ${post.pillar} · ${post.audience}</div>`;
+  html += '<div style="font-size:11.5px;color:var(--text3);margin-bottom:16px">Pull these numbers from the post on Facebook (tap the post → View Insights, or check reactions/comments directly). This stays manual until Facebook API access is connected.</div>';
+  html += `<div class="form-group"><label class="form-label">Reach</label><input type="text" inputmode="numeric" id="perf-reach" placeholder="e.g. 1200" value="${existing.reach || ''}"></div>`;
+  html += `<div class="form-group"><label class="form-label">Reactions (likes, etc.)</label><input type="text" inputmode="numeric" id="perf-reactions" placeholder="e.g. 35" value="${existing.reactions || ''}"></div>`;
+  html += `<div class="form-group"><label class="form-label">Comments</label><input type="text" inputmode="numeric" id="perf-comments" placeholder="e.g. 8" value="${existing.comments || ''}"></div>`;
+  html += `<div class="form-group"><label class="form-label">Shares</label><input type="text" inputmode="numeric" id="perf-shares" placeholder="e.g. 3" value="${existing.shares || ''}"></div>`;
+  html += `<div class="form-group"><label class="form-label">Inquiries generated (DMs/comments asking about price etc.)</label><input type="text" inputmode="numeric" id="perf-inquiries" placeholder="e.g. 2" value="${existing.inquiries || ''}"></div>`;
+  html += `<div class="form-group"><label class="form-label">Notes (optional)</label><textarea rows="2" id="perf-notes" placeholder="Anything worth remembering about why this did well or poorly">${existing.notes || ''}</textarea></div>`;
+  html += '<button class="btn btn-primary" style="width:100%" onclick="savePerformanceLog('+id+')">Save Performance</button>';
+  html += '</div></div></div>';
+  const div = document.createElement('div');
+  div.id = 'perflog-container';
+  div.innerHTML = html;
+  document.body.appendChild(div);
+}
+
+function closePerformanceLogModal() {
+  const el = document.getElementById('perflog-container');
+  if (el) el.remove();
+}
+
+function savePerformanceLog(id) {
+  const post = APP.posts.find(p => p.id === id);
+  if (!post) return;
+  const num = (v) => { const n = parseInt(v, 10); return isNaN(n) ? 0 : n; };
+  post.performance = {
+    reach: num(document.getElementById('perf-reach').value),
+    reactions: num(document.getElementById('perf-reactions').value),
+    comments: num(document.getElementById('perf-comments').value),
+    shares: num(document.getElementById('perf-shares').value),
+    inquiries: num(document.getElementById('perf-inquiries').value),
+    notes: document.getElementById('perf-notes').value.trim(),
+    loggedAt: new Date().toISOString()
+  };
+  saveState();
+  closePerformanceLogModal();
+  renderInquiryCheck();
+  showToast('Performance logged', 'success');
+}
+
+// Simple engagement score: weights inquiries highest (the actual business goal), then comments/shares, then reactions
+function engagementScore(perf) {
+  if (!perf) return 0;
+  return (perf.inquiries || 0) * 10 + (perf.comments || 0) * 3 + (perf.shares || 0) * 4 + (perf.reactions || 0) * 1;
+}
+
+function renderPerformance() {
+  const logged = APP.posts.filter(p => p.performance);
+  const emptyNote = document.getElementById('performance-empty-note');
+  const content = document.getElementById('performance-content');
+
+  if (!logged.length) {
+    emptyNote.style.display = 'block';
+    content.innerHTML = '';
+    return;
+  }
+  emptyNote.style.display = 'none';
+
+  // Aggregate by company + pillar + audience to find patterns
+  const byPillar = {};
+  const byAudience = {};
+  const byCompany = {};
+  logged.forEach(p => {
+    const score = engagementScore(p.performance);
+    byPillar[p.pillar] = (byPillar[p.pillar] || 0) + score;
+    byAudience[p.audience] = (byAudience[p.audience] || 0) + score;
+    byCompany[p.company] = (byCompany[p.company] || 0) + score;
+  });
+
+  const topPillar = Object.entries(byPillar).sort((a,b) => b[1]-a[1])[0];
+  const topAudience = Object.entries(byAudience).sort((a,b) => b[1]-a[1])[0];
+  const sortedPosts = [...logged].sort((a,b) => engagementScore(b.performance) - engagementScore(a.performance));
+
+  let html = '<div class="grid-3" style="margin-bottom:20px">';
+  html += `<div class="card"><div style="font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px">Posts Logged</div><div style="font-size:28px;font-weight:700;font-family:'Syne',sans-serif">${logged.length}</div></div>`;
+  html += `<div class="card"><div style="font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px">Best Performing Pillar</div><div style="font-size:16px;font-weight:600">${topPillar ? topPillar[0] : '—'}</div></div>`;
+  html += `<div class="card"><div style="font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px">Best Performing Audience</div><div style="font-size:16px;font-weight:600">${topAudience ? topAudience[0] : '—'}</div></div>`;
+  html += '</div>';
+
+  html += '<div class="card" style="margin-bottom:20px">';
+  html += '<div style="font-size:14px;font-weight:500;margin-bottom:14px">Top Posts by Engagement</div>';
+  html += sortedPosts.slice(0, 8).map(p => `
+    <div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-top:1px solid var(--border)">
+      <span class="post-company-badge badge-${p.company}">${p.company.toUpperCase()}</span>
+      <span style="font-size:12.5px;color:var(--text2);flex:1">${p.pillar} · ${p.audience}</span>
+      <span style="font-size:11.5px;color:var(--text3)" title="Reach">👁 ${p.performance.reach||0}</span>
+      <span style="font-size:11.5px;color:var(--text3)" title="Reactions">❤ ${p.performance.reactions||0}</span>
+      <span style="font-size:11.5px;color:var(--text3)" title="Comments">💬 ${p.performance.comments||0}</span>
+      <span style="font-size:11.5px;color:var(--accent2);font-weight:600" title="Inquiries generated">📩 ${p.performance.inquiries||0}</span>
+    </div>
+  `).join('');
+  html += '</div>';
+
+  html += '<div class="card">';
+  html += '<div style="font-size:14px;font-weight:500;margin-bottom:8px">Feeding This Back Into Claude</div>';
+  html += `<div style="font-size:12.5px;color:var(--text2);line-height:1.7">${buildPerformanceSummary()}</div>`;
+  html += '<div style="font-size:11.5px;color:var(--text3);margin-top:10px">This summary is automatically included when generating new posts, so Claude leans toward what has actually worked.</div>';
+  html += '</div>';
+
+  content.innerHTML = html;
+}
+
+// Builds a short natural-language summary of what's worked, to inject into future Claude prompts.
+// This is the actual "self-learning" mechanism: not model retraining, but feeding real outcomes back into the prompt.
+function buildPerformanceSummary() {
+  const logged = APP.posts.filter(p => p.performance);
+  if (logged.length < 3) {
+    return 'Not enough performance data logged yet (need at least 3 posts) to confidently identify patterns. Log more results as posts go live.';
+  }
+  const byPillar = {};
+  logged.forEach(p => {
+    const score = engagementScore(p.performance);
+    if (!byPillar[p.pillar]) byPillar[p.pillar] = { total: 0, count: 0 };
+    byPillar[p.pillar].total += score;
+    byPillar[p.pillar].count += 1;
+  });
+  const ranked = Object.entries(byPillar)
+    .map(([pillar, d]) => ({ pillar, avg: d.total / d.count }))
+    .sort((a, b) => b.avg - a.avg);
+
+  if (!ranked.length) return 'No clear pattern yet.';
+  const best = ranked[0];
+  const worst = ranked[ranked.length - 1];
+  let summary = `Based on ${logged.length} logged posts, "${best.pillar}" content tends to generate the most engagement and inquiries.`;
+  if (ranked.length > 1 && best.pillar !== worst.pillar) {
+    summary += ` "${worst.pillar}" content has performed comparatively weaker.`;
+  }
+  return summary;
+}
+
+function getPerformanceContextForPrompt() {
+  const logged = APP.posts.filter(p => p.performance);
+  if (logged.length < 3) return '';
+  return `\n\nPerformance context from past posts: ${buildPerformanceSummary()} Where it fits naturally, lean into what has worked, without forcing it.`;
 }
 
 // CALENDAR
