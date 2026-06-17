@@ -617,16 +617,16 @@ select:focus{border-color:var(--accent-border);}
     </div>
     <div id="brand-mssi" class="brand-content">
       <div class="card"><div style="font-size:14px;font-weight:500;margin-bottom:14px">Company Identity</div>
-        <div class="form-group"><label class="form-label">Full Name</label><input type="text" value="Module Systems and Services, Inc."></div>
-        <div class="form-group"><label class="form-label">Products</label><textarea rows="2">Modular kitchen cabinets, wardrobes, closets, vanity cabinets, toilet partitions, wall cladding</textarea></div>
-        <div class="form-group"><label class="form-label">Geographic Focus</label><input type="text" value="Multiple Philippine regions"></div>
-        <div class="form-group"><label class="form-label">Facebook Page Name</label><input type="text" placeholder="e.g. MSSI Philippines"></div>
+        <div class="form-group"><label class="form-label">Full Name</label><input type="text" id="bp-mssi-name" value="Module Systems and Services, Inc."></div>
+        <div class="form-group"><label class="form-label">Products</label><textarea rows="2" id="bp-mssi-products">Modular kitchen cabinets, wardrobes, closets, vanity cabinets, toilet partitions, wall cladding</textarea></div>
+        <div class="form-group"><label class="form-label">Geographic Focus</label><input type="text" id="bp-mssi-geo" value="Multiple Philippine regions"></div>
+        <div class="form-group"><label class="form-label">Facebook Page Name</label><input type="text" id="bp-mssi-fbname" placeholder="e.g. MSSI Philippines"></div>
       </div>
       <div class="card"><div style="font-size:14px;font-weight:500;margin-bottom:14px">Brand Voice</div>
-        <div class="form-group"><label class="form-label">B2C Tone</label><select><option selected>Warm, aspirational, solution-oriented</option><option>Friendly and conversational</option><option>Premium and luxury</option></select><div class="voice-tags" style="margin-top:10px"><span class="voice-tag active">aspirational</span><span class="voice-tag active">warm</span><span class="voice-tag active">solution-focused</span><span class="voice-tag">playful</span></div></div>
-        <div class="form-group"><label class="form-label">B2B Tone</label><select><option selected>Professional, efficient, project-focused</option></select></div>
-        <div class="form-group"><label class="form-label">Primary Goal</label><textarea rows="2">Generate inquiries and quotation requests</textarea></div>
-        <div class="form-group"><label class="form-label">Key Differentiators</label><textarea rows="3">Philippine-made. Fast delivery and installation. Custom-fit to any space. Trusted by homeowners and professionals.</textarea></div>
+        <div class="form-group"><label class="form-label">B2C Tone</label><select id="bp-mssi-b2c-tone"><option selected>Warm, aspirational, solution-oriented</option><option>Friendly and conversational</option><option>Premium and luxury</option></select><div class="voice-tags" style="margin-top:10px"><span class="voice-tag active">aspirational</span><span class="voice-tag active">warm</span><span class="voice-tag active">solution-focused</span><span class="voice-tag">playful</span></div></div>
+        <div class="form-group"><label class="form-label">B2B Tone</label><select id="bp-mssi-b2b-tone"><option selected>Professional, efficient, project-focused</option></select></div>
+        <div class="form-group"><label class="form-label">Primary Goal</label><textarea rows="2" id="bp-mssi-goal">Generate inquiries and quotation requests</textarea></div>
+        <div class="form-group"><label class="form-label">Key Differentiators</label><textarea rows="3" id="bp-mssi-diff">Philippine-made. Fast delivery and installation. Custom-fit to any space. Trusted by homeowners and professionals.</textarea></div>
       </div>
       <div class="card" style="grid-column:1 / -1"><div style="font-size:14px;font-weight:500;margin-bottom:14px">Sample Claude Prompt Preview</div>
         <div style="background:var(--bg3);border-radius:var(--radius);padding:14px;font-size:12.5px;color:var(--text2);line-height:1.8;font-family:'Courier New',monospace;border:1px solid var(--border)">You are writing a Facebook post for <strong style="color:var(--mssi)">MSSI — Module Systems and Services, Inc.</strong>, a Philippine modular furniture company.<br>Audience: <strong style="color:var(--text)">B2C Homeowner</strong> | Content: <strong style="color:var(--text)">Product Showcase</strong> | Tone: <strong style="color:var(--text)">Warm, aspirational</strong><br>Goal: Generate quotation inquiries | Notes: [user notes here]<br><br>Write a compelling Facebook caption with 2–3 paragraphs, CTA, and 5–8 hashtags.</div>
@@ -634,28 +634,28 @@ select:focus{border-color:var(--accent-border);}
     </div>
     <div id="brand-wcli" class="brand-content" style="display:none">
       <div class="card"><div style="font-size:14px;font-weight:500;margin-bottom:14px;color:var(--wcli)">WCLI Identity</div>
-        <div class="form-group"><label class="form-label">Full Name</label><input type="text" value="World Class Laminate, Inc."></div>
-        <div class="form-group"><label class="form-label">Products</label><textarea rows="2">Laminated melamine boards — raw material for furniture fabrication</textarea></div>
-        <div class="form-group"><label class="form-label">Geographic Focus</label><input type="text" value="Luzon and national coverage"></div>
-        <div class="form-group"><label class="form-label">Facebook Page Name</label><input type="text" placeholder="e.g. World Class Laminate PH"></div>
+        <div class="form-group"><label class="form-label">Full Name</label><input type="text" id="bp-wcli-name" value="World Class Laminate, Inc."></div>
+        <div class="form-group"><label class="form-label">Products</label><textarea rows="2" id="bp-wcli-products">Laminated melamine boards — raw material for furniture fabrication</textarea></div>
+        <div class="form-group"><label class="form-label">Geographic Focus</label><input type="text" id="bp-wcli-geo" value="Luzon and national coverage"></div>
+        <div class="form-group"><label class="form-label">Facebook Page Name</label><input type="text" id="bp-wcli-fbname" placeholder="e.g. World Class Laminate PH"></div>
       </div>
       <div class="card"><div style="font-size:14px;font-weight:500;margin-bottom:14px">Brand Voice</div>
-        <div class="form-group"><label class="form-label">Primary Tone</label><select><option selected>Authoritative, technical, quality-driven</option></select><div class="voice-tags" style="margin-top:10px"><span class="voice-tag active">authoritative</span><span class="voice-tag active">technical</span><span class="voice-tag active">trade-professional</span><span class="voice-tag active">reliable</span></div></div>
-        <div class="form-group"><label class="form-label">Primary Goal</label><textarea rows="2">Build brand authority. Generate dealer and trade partnership inquiries.</textarea></div>
+        <div class="form-group"><label class="form-label">Primary Tone</label><select id="bp-wcli-tone"><option selected>Authoritative, technical, quality-driven</option></select><div class="voice-tags" style="margin-top:10px"><span class="voice-tag active">authoritative</span><span class="voice-tag active">technical</span><span class="voice-tag active">trade-professional</span><span class="voice-tag active">reliable</span></div></div>
+        <div class="form-group"><label class="form-label">Primary Goal</label><textarea rows="2" id="bp-wcli-goal">Build brand authority. Generate dealer and trade partnership inquiries.</textarea></div>
       </div>
     </div>
     <div id="brand-cwli" class="brand-content" style="display:none">
       <div class="card"><div style="font-size:14px;font-weight:500;margin-bottom:14px;color:var(--cwli)">CWLI Identity</div>
-        <div class="form-group"><label class="form-label">Full Name</label><input type="text" value="Cebu World Laminate, Inc."></div>
-        <div class="form-group"><label class="form-label">Products</label><textarea rows="2">Laminated melamine boards — Visayas and Mindanao focus</textarea></div>
-        <div class="form-group"><label class="form-label">Geographic Focus</label><input type="text" value="Cebu, Visayas, and Mindanao"></div>
+        <div class="form-group"><label class="form-label">Full Name</label><input type="text" id="bp-cwli-name" value="Cebu World Laminate, Inc."></div>
+        <div class="form-group"><label class="form-label">Products</label><textarea rows="2" id="bp-cwli-products">Laminated melamine boards — Visayas and Mindanao focus</textarea></div>
+        <div class="form-group"><label class="form-label">Geographic Focus</label><input type="text" id="bp-cwli-geo" value="Cebu, Visayas, and Mindanao"></div>
         <div class="form-group"><label class="form-label">Regional Language</label>
           <div class="toggle-row" style="padding:8px 0;border:none"><div><div class="toggle-label">Include Bisaya phrases</div><div class="toggle-sub">Adds local trust-building language</div></div><div class="toggle on" id="bisaya-toggle" onclick="toggleSwitch(this)"><div class="toggle-thumb"></div></div></div>
         </div>
       </div>
       <div class="card"><div style="font-size:14px;font-weight:500;margin-bottom:14px">Brand Voice</div>
-        <div class="form-group"><label class="form-label">Primary Tone</label><select><option selected>Technical authority with regional warmth</option></select><div class="voice-tags" style="margin-top:10px"><span class="voice-tag active">authoritative</span><span class="voice-tag active">regional</span><span class="voice-tag active">warm</span><span class="voice-tag active">local-first</span></div></div>
-        <div class="form-group"><label class="form-label">Regional Differentiator</label><textarea rows="2">Local availability, proximity over Manila suppliers, Cebuano/Visayan identity</textarea></div>
+        <div class="form-group"><label class="form-label">Primary Tone</label><select id="bp-cwli-tone"><option selected>Technical authority with regional warmth</option></select><div class="voice-tags" style="margin-top:10px"><span class="voice-tag active">authoritative</span><span class="voice-tag active">regional</span><span class="voice-tag active">warm</span><span class="voice-tag active">local-first</span></div></div>
+        <div class="form-group"><label class="form-label">Regional Differentiator</label><textarea rows="2" id="bp-cwli-diff">Local availability, proximity over Manila suppliers, Cebuano/Visayan identity</textarea></div>
       </div>
     </div>
   </div>
@@ -757,7 +757,8 @@ const APP = {
   apiKeys: {},
   calFilter: 'all',
   libFilter: 'all',
-  autogenCount: 5
+  autogenCount: 5,
+  brandProfiles: {}
 };
 
 function loadState() {
@@ -777,6 +778,7 @@ function loadState() {
     updateReviewQueue();
     renderPhotoLibrary();
     loadFbPages();
+    loadBrandProfiles();
   } catch(e) { console.error(e); }
 }
 
@@ -959,15 +961,45 @@ const TONE_GUIDE = {
   wcli: { default: 'Authoritative, technical, quality-driven. Speak to fabricators\' pride in craftsmanship and need for a reliable material supplier. Confident and trade-professional. Highlight board quality, consistency, and supplier reliability.' },
   cwli: { default: 'Technical authority with regional warmth. Emphasize local availability, proximity advantage over Manila-based suppliers, and regional pride. Occasional short Bisaya phrase welcome for local trust-building (e.g. Libre kwestyon! or Kumpleto ang stock namo!).' }
 };
+
+function getCompanyDescFor(co) {
+  const bp = APP.brandProfiles && APP.brandProfiles[co];
+  if (bp && bp.name && bp.products) {
+    const geoPart = bp.geo ? `, serving ${bp.geo}` : '';
+    return `${bp.name} (${co.toUpperCase()}) — a Philippine company. Products: ${bp.products}${geoPart}`;
+  }
+  return COMPANY_DESC[co];
+}
+
 function getToneFor(co, aud) {
+  const bp = APP.brandProfiles && APP.brandProfiles[co];
+  if (co === 'mssi') {
+    if (bp) {
+      const isB2C = aud === 'Homeowner';
+      const customTone = isB2C ? bp.b2cTone : bp.b2bTone;
+      const diff = bp.diff ? ` Key differentiators to weave in naturally: ${bp.diff}.` : '';
+      const baseAudienceContext = TONE_GUIDE.mssi[aud] || '';
+      if (customTone) return `${customTone}. ${baseAudienceContext}${diff}`;
+    }
+    return TONE_GUIDE.mssi[aud] || 'Professional and engaging';
+  }
+  if (bp && bp.tone) {
+    const diff = bp.diff ? ` Regional differentiator to mention when relevant: ${bp.diff}.` : '';
+    const bisayaNote = co === 'cwli' && bp.bisaya !== false ? ' Occasional short Bisaya phrase welcome for local trust-building (e.g. Libre kwestyon! or Kumpleto ang stock namo!).' : '';
+    return `${bp.tone}.${diff}${bisayaNote}`;
+  }
   const m = TONE_GUIDE[co];
   return (m && m[aud]) || (m && m.default) || 'Professional and engaging';
 }
+
 function getGoalFor(co) {
+  const bp = APP.brandProfiles && APP.brandProfiles[co];
+  if (bp && bp.goal) return bp.goal;
   return co === 'mssi' ? 'Generate quotation inquiries and DM conversations' : 'Build trade authority and generate dealer or partner inquiries';
 }
+
 function buildCaptionPrompt(co, audience, pillar, notes) {
-  return `You are writing a Facebook post for ${COMPANY_DESC[co]}.
+  return `You are writing a Facebook post for ${getCompanyDescFor(co)}.
 
 Target Audience: ${audience}
 Content Pillar: ${pillar}
@@ -1098,10 +1130,11 @@ function updateReviewQueue() {
         </div>
         <div style="display:flex;gap:12px;margin-bottom:12px">
           ${p.photo ? `<img src="${p.photo}" style="width:90px;height:90px;object-fit:cover;border-radius:var(--radius);flex-shrink:0" alt="Post photo">` : `<div style="width:90px;height:90px;border-radius:var(--radius);background:var(--bg4);display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:11px;color:var(--text3);text-align:center;padding:4px">No photo</div>`}
-          <div style="font-size:13.5px;line-height:1.7;color:var(--text2);background:var(--bg3);padding:14px;border-radius:var(--radius);white-space:pre-wrap;flex:1">${p.caption}</div>
+          <textarea id="caption-edit-${p.id}" style="font-size:13.5px;line-height:1.7;color:var(--text);background:var(--bg3);padding:14px;border-radius:var(--radius);white-space:pre-wrap;flex:1;border:1px solid var(--border);font-family:'DM Sans',sans-serif;resize:vertical;min-height:120px" onchange="markCaptionEdited(${p.id})">${p.caption}</textarea>
         </div>
         <div style="display:flex;gap:8px">
           <button class="btn btn-ghost btn-sm" onclick="deletePost(${p.id})" style="color:var(--red)">Delete</button>
+          <button class="btn btn-secondary btn-sm" onclick="copyCaption(${p.id})">Copy Caption</button>
           <input type="datetime-local" class="time-input" style="flex:1;padding:6px 10px;font-size:12px" id="sched-${p.id}">
           <button class="btn btn-primary btn-sm" onclick="schedulePost(${p.id})">Schedule &amp; Approve</button>
         </div>
@@ -1118,6 +1151,7 @@ function updateReviewQueue() {
           <div style="font-size:13px;color:var(--text2)">${p.pillar} · ${p.audience}</div>
           <div style="font-size:11.5px;color:var(--text3)">Scheduled for ${p.scheduledFor ? new Date(p.scheduledFor).toLocaleString() : '—'}</div>
         </div>
+        <button class="btn btn-secondary btn-sm" onclick="copyCaption(${p.id})">Copy Caption</button>
         <button class="btn btn-secondary btn-sm" onclick="deletePost(${p.id})" style="color:var(--red)">Cancel</button>
         <button class="btn btn-primary btn-sm" onclick="publishPostNow(${p.id})">Publish Now</button>
       </div>
@@ -1139,6 +1173,9 @@ function approveAll() {
 function schedulePost(id) {
   const post = APP.posts.find(p => p.id === id);
   if (!post) return;
+  // Capture any inline edits made to the caption before scheduling
+  const editEl = document.getElementById('caption-edit-' + id);
+  if (editEl) post.caption = editEl.value;
   const dt = document.getElementById('sched-' + id)?.value;
   post.scheduledFor = dt || new Date().toISOString();
   post.status = 'scheduled';
@@ -1147,6 +1184,29 @@ function schedulePost(id) {
   updateReviewBadge();
   updateDashboard();
   showToast('Post scheduled!', 'success');
+}
+
+function markCaptionEdited(id) {
+  const post = APP.posts.find(p => p.id === id);
+  const editEl = document.getElementById('caption-edit-' + id);
+  if (post && editEl) {
+    post.caption = editEl.value;
+    saveState();
+    showToast('Edit saved', 'info');
+  }
+}
+
+function copyCaption(id) {
+  const post = APP.posts.find(p => p.id === id);
+  if (!post) return;
+  // Use the live textarea value if it's currently being edited (pending review), otherwise the stored caption
+  const editEl = document.getElementById('caption-edit-' + id);
+  const text = editEl ? editEl.value : post.caption;
+  navigator.clipboard.writeText(text).then(() => {
+    showToast('Caption copied — paste it into Facebook', 'success');
+  }).catch(() => {
+    showToast('Could not copy — select and copy manually', 'error');
+  });
 }
 
 function deletePost(id) {
@@ -1234,7 +1294,75 @@ function switchBrandTab(c) {
   document.getElementById('brand-' + c).style.display = 'grid';
 }
 
-function saveBrandProfile() { showToast('Brand profile saved', 'success'); }
+function saveBrandProfile() {
+  const data = {
+    mssi: {
+      name: document.getElementById('bp-mssi-name')?.value || '',
+      products: document.getElementById('bp-mssi-products')?.value || '',
+      geo: document.getElementById('bp-mssi-geo')?.value || '',
+      fbname: document.getElementById('bp-mssi-fbname')?.value || '',
+      b2cTone: document.getElementById('bp-mssi-b2c-tone')?.value || '',
+      b2bTone: document.getElementById('bp-mssi-b2b-tone')?.value || '',
+      goal: document.getElementById('bp-mssi-goal')?.value || '',
+      diff: document.getElementById('bp-mssi-diff')?.value || ''
+    },
+    wcli: {
+      name: document.getElementById('bp-wcli-name')?.value || '',
+      products: document.getElementById('bp-wcli-products')?.value || '',
+      geo: document.getElementById('bp-wcli-geo')?.value || '',
+      fbname: document.getElementById('bp-wcli-fbname')?.value || '',
+      tone: document.getElementById('bp-wcli-tone')?.value || '',
+      goal: document.getElementById('bp-wcli-goal')?.value || ''
+    },
+    cwli: {
+      name: document.getElementById('bp-cwli-name')?.value || '',
+      products: document.getElementById('bp-cwli-products')?.value || '',
+      geo: document.getElementById('bp-cwli-geo')?.value || '',
+      tone: document.getElementById('bp-cwli-tone')?.value || '',
+      diff: document.getElementById('bp-cwli-diff')?.value || '',
+      bisaya: document.getElementById('bisaya-toggle')?.classList.contains('on') ?? true
+    }
+  };
+  localStorage.setItem('scm_brand_profiles', JSON.stringify(data));
+  APP.brandProfiles = data;
+  showToast('Brand profile saved — Claude will now use this voice', 'success');
+}
+
+function loadBrandProfiles() {
+  try {
+    const data = JSON.parse(localStorage.getItem('scm_brand_profiles') || 'null');
+    if (!data) return;
+    APP.brandProfiles = data;
+    const setVal = (id, val) => { const el = document.getElementById(id); if (el && val !== undefined && val !== '') el.value = val; };
+    if (data.mssi) {
+      setVal('bp-mssi-name', data.mssi.name);
+      setVal('bp-mssi-products', data.mssi.products);
+      setVal('bp-mssi-geo', data.mssi.geo);
+      setVal('bp-mssi-fbname', data.mssi.fbname);
+      setVal('bp-mssi-b2c-tone', data.mssi.b2cTone);
+      setVal('bp-mssi-b2b-tone', data.mssi.b2bTone);
+      setVal('bp-mssi-goal', data.mssi.goal);
+      setVal('bp-mssi-diff', data.mssi.diff);
+    }
+    if (data.wcli) {
+      setVal('bp-wcli-name', data.wcli.name);
+      setVal('bp-wcli-products', data.wcli.products);
+      setVal('bp-wcli-geo', data.wcli.geo);
+      setVal('bp-wcli-fbname', data.wcli.fbname);
+      setVal('bp-wcli-tone', data.wcli.tone);
+      setVal('bp-wcli-goal', data.wcli.goal);
+    }
+    if (data.cwli) {
+      setVal('bp-cwli-name', data.cwli.name);
+      setVal('bp-cwli-products', data.cwli.products);
+      setVal('bp-cwli-geo', data.cwli.geo);
+      setVal('bp-cwli-tone', data.cwli.tone);
+      setVal('bp-cwli-diff', data.cwli.diff);
+      const bisayaEl = document.getElementById('bisaya-toggle');
+      if (bisayaEl) { if (data.cwli.bisaya) bisayaEl.classList.add('on'); else bisayaEl.classList.remove('on'); }
+    }
+  } catch(e) { console.error(e); }
+}
 
 // SETTINGS
 function switchSettingsTab(btn, tab) {
