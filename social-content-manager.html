@@ -722,6 +722,7 @@ select:focus{border-color:var(--accent-border);}
       <div class="settings-nav">
         <button class="settings-nav-item active" onclick="switchSettingsTab(this,'api-keys')">API Keys</button>
         <button class="settings-nav-item" onclick="switchSettingsTab(this,'fb-pages')">Facebook Pages</button>
+        <button class="settings-nav-item" onclick="switchSettingsTab(this,'team')">Team &amp; Notifications</button>
         <button class="settings-nav-item" onclick="switchSettingsTab(this,'schedule')">Auto-Schedule</button>
         <button class="settings-nav-item" onclick="switchSettingsTab(this,'data')">Data &amp; Export</button>
       </div>
@@ -783,6 +784,23 @@ select:focus{border-color:var(--accent-border);}
           <div style="font-size:12px;color:var(--text3);line-height:1.6">This app does not auto-reply to Facebook comments or DMs. Doing that safely requires a server running continuously to watch for new messages — not something a browser-only app can do, and risky for B2B trust if a bot replies with the wrong info. Instead, the Dashboard's <strong style="color:var(--text2)">Inquiry &amp; Comment Check</strong> reminds you which published posts to look at on Facebook directly, so real inquiries get a real reply from you.</div>
         </div>
       </div>
+      <div id="stab-team" style="display:none">
+        <div class="card" style="margin-bottom:16px">
+          <div style="font-size:14px;font-weight:500;margin-bottom:4px">Telegram Bot</div>
+          <div style="font-size:12px;color:var(--text3);margin-bottom:14px">Used to notify staff when a post needs their attention. Free, no approval process — create a bot via Telegram's @BotFather, then paste its token here.</div>
+          <div class="form-group"><label class="form-label">Bot Token</label><input type="password" id="telegram-bot-token" placeholder="123456789:ABC-DEF1234ghIkl-..."></div>
+          <button class="btn btn-secondary btn-sm" onclick="saveTelegramBotToken()">Save Bot Token</button>
+          <div style="font-size:11.5px;color:var(--text3);margin-top:10px;line-height:1.6">
+            To create one: open Telegram, search for <strong style="color:var(--text2)">@BotFather</strong>, send <code>/newbot</code>, follow the prompts, then copy the token it gives you here.
+          </div>
+        </div>
+        <div class="card">
+          <div style="font-size:14px;font-weight:500;margin-bottom:4px">Staff</div>
+          <div style="font-size:12px;color:var(--text3);margin-bottom:14px">Each staff member needs to message your bot once on Telegram first (search for it by username and send any message), so the bot can message them back. Then add them here with their Chat ID — they can get this by messaging <strong style="color:var(--text2)">@userinfobot</strong> on Telegram, which replies with their ID.</div>
+          <div id="staff-list"></div>
+          <button class="btn btn-secondary btn-sm" onclick="addStaffField()">+ Add Staff Member</button>
+        </div>
+      </div>
       <div id="stab-schedule" style="display:none">
         <div class="card">
           <div style="font-size:14px;font-weight:500;margin-bottom:14px">Default Posting Times</div>
@@ -840,6 +858,15 @@ select:focus{border-color:var(--accent-border);}
 // CHANGELOG — a running, hand-maintained log of what's been added to the app.
 // Newest entries go at the top. Each entry should describe what changed in plain language.
 const CHANGELOG = [
+  {
+    date: '2026-06-18',
+    title: 'Staff assignment + Telegram notifications',
+    items: [
+      'Added a Telegram bot integration (free, no approval process) under Settings → Team & Notifications.',
+      'Add staff members with their Telegram Chat ID, then assign them to specific posts on the Inquiry & Comment Check card.',
+      'Click "Notify on Telegram" to send the assigned staff member a message about the post needing attention.'
+    ]
+  },
   {
     date: '2026-06-18',
     title: 'WCLI multi-page support',
@@ -960,6 +987,7 @@ function loadState() {
     loadFbPages();
     loadBrandProfiles();
     loadSchedule();
+    loadTelegramSettings();
   } catch(e) { console.error(e); }
 }
 
@@ -1792,17 +1820,32 @@ function renderInquiryCheck() {
       <div style="font-size:14px;font-weight:500">Inquiry &amp; Comment Check</div>
       <span class="post-company-badge" style="background:var(--amber-bg);color:var(--amber);margin-left:auto">${unchecked.length} to review</span>
     </div>
-    <div style="font-size:12px;color:var(--text3);margin-bottom:12px">Go check Facebook for comments and DMs on these published posts, then mark them reviewed here.</div>
-    ${unchecked.map(p => `
-      <div style="display:flex;align-items:center;gap:10px;padding:9px 12px;background:var(--bg3);border-radius:var(--radius);border:1px solid var(--border);margin-bottom:6px">
-        <span class="post-company-badge badge-${p.company}">${p.company.toUpperCase()}</span>
-        ${p.testPublish ? '<span class="post-company-badge" style="background:var(--bg4);color:var(--text3)" title="Marked published for testing only — not actually on Facebook">TEST</span>' : ''}
-        <span style="font-size:12.5px;color:var(--text2);flex:1">${p.pillar} · ${p.audience}</span>
-        <span style="font-size:11px;color:var(--text3)">${p.publishedAt ? new Date(p.publishedAt).toLocaleDateString() : ''}</span>
-        <button class="btn btn-ghost btn-sm" onclick="openPerformanceLogModal(${p.id})">Log Performance</button>
-        <button class="btn btn-ghost btn-sm" onclick="markInquiryChecked(${p.id})">Mark Checked</button>
+    <div style="font-size:12px;color:var(--text3);margin-bottom:12px">Go check Facebook for comments and DMs on these published posts, then mark them reviewed here. Assign to a staff member to notify them on Telegram.</div>
+    ${unchecked.map(p => {
+      const staff = APP.staff || [];
+      const staffOptions = staff.map(s => `<option value="${s.chatId}" ${p.assignedChatId === s.chatId ? 'selected' : ''}>${s.name}</option>`).join('');
+      return `
+      <div style="background:var(--bg3);border-radius:var(--radius);border:1px solid var(--border);margin-bottom:6px;padding:9px 12px">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:${staff.length ? '8px' : '0'}">
+          <span class="post-company-badge badge-${p.company}">${p.company.toUpperCase()}</span>
+          ${p.testPublish ? '<span class="post-company-badge" style="background:var(--bg4);color:var(--text3)" title="Marked published for testing only — not actually on Facebook">TEST</span>' : ''}
+          <span style="font-size:12.5px;color:var(--text2);flex:1">${p.pillar} · ${p.audience}</span>
+          <span style="font-size:11px;color:var(--text3)">${p.publishedAt ? new Date(p.publishedAt).toLocaleDateString() : ''}</span>
+          <button class="btn btn-ghost btn-sm" onclick="openPerformanceLogModal(${p.id})">Log Performance</button>
+          <button class="btn btn-ghost btn-sm" onclick="markInquiryChecked(${p.id})">Mark Checked</button>
+        </div>
+        ${staff.length ? `
+        <div style="display:flex;align-items:center;gap:8px">
+          <select class="time-input" style="font-size:11.5px;padding:5px 8px;flex:1" onchange="assignStaffToPost(${p.id}, this.value)">
+            <option value="">Assign to...</option>
+            ${staffOptions}
+          </select>
+          <button class="btn btn-secondary btn-sm" onclick="notifyAssignedStaff(${p.id})" ${!p.assignedChatId ? 'disabled' : ''}>Notify on Telegram</button>
+          ${p.notifiedAt ? `<span style="font-size:10.5px;color:var(--green)">✓ Notified</span>` : ''}
+        </div>` : ''}
       </div>
-    `).join('')}
+    `;
+    }).join('')}
   `;
 }
 
@@ -1813,6 +1856,33 @@ function markInquiryChecked(id) {
   saveState();
   renderInquiryCheck();
   showToast('Marked as checked', 'success');
+}
+
+function assignStaffToPost(id, chatId) {
+  const post = APP.posts.find(p => p.id === id);
+  if (!post) return;
+  post.assignedChatId = chatId || null;
+  post.notifiedAt = null; // clear so re-assigning shows "not yet notified" again
+  saveState();
+  renderInquiryCheck();
+}
+
+async function notifyAssignedStaff(id) {
+  const post = APP.posts.find(p => p.id === id);
+  if (!post || !post.assignedChatId) return;
+  const staffMember = (APP.staff || []).find(s => s.chatId === post.assignedChatId);
+  const name = staffMember ? staffMember.name : 'there';
+  const message = `Hi ${name}, a post needs your attention:\n\n${post.company.toUpperCase()} — ${post.pillar} (${post.audience})\nPublished: ${post.publishedAt ? new Date(post.publishedAt).toLocaleString() : 'recently'}\n\nPlease check Facebook for comments/DMs on this post and follow up.`;
+  showToast('Sending Telegram notification...', 'info');
+  const result = await sendTelegramNotification(post.assignedChatId, message);
+  if (result.success) {
+    post.notifiedAt = new Date().toISOString();
+    saveState();
+    renderInquiryCheck();
+    showToast('Staff notified on Telegram', 'success');
+  } else {
+    showToast('Notification failed: ' + result.error, 'error');
+  }
 }
 
 // PERFORMANCE LOGGING (manual entry now; structure ready for live Facebook Insights later)
@@ -2162,7 +2232,7 @@ function loadBrandProfiles() {
 function switchSettingsTab(btn, tab) {
   document.querySelectorAll('.settings-nav-item').forEach(b => b.classList.remove('active'));
   btn.classList.add('active');
-  ['api-keys','fb-pages','schedule','data'].forEach(t => {
+  ['api-keys','fb-pages','team','schedule','data'].forEach(t => {
     const el = document.getElementById('stab-' + t);
     if (el) el.style.display = t === tab ? 'block' : 'none';
   });
@@ -2286,6 +2356,92 @@ function loadFbPages() {
     });
     renderWcliPagesList();
   } catch(e) { console.error(e); }
+}
+
+// TEAM & TELEGRAM NOTIFICATIONS
+function saveTelegramBotToken() {
+  const token = document.getElementById('telegram-bot-token').value.trim();
+  if (!token) { showToast('Enter a bot token first', 'error'); return; }
+  localStorage.setItem('scm_telegram_token', token);
+  APP.telegramToken = token;
+  showToast('Telegram bot token saved', 'success');
+}
+
+function loadTelegramSettings() {
+  try {
+    const token = localStorage.getItem('scm_telegram_token') || '';
+    APP.telegramToken = token;
+    const tokenEl = document.getElementById('telegram-bot-token');
+    if (tokenEl && token) tokenEl.value = token;
+    APP.staff = JSON.parse(localStorage.getItem('scm_staff') || '[]');
+    renderStaffList();
+  } catch(e) { console.error(e); }
+}
+
+function renderStaffList() {
+  const list = document.getElementById('staff-list');
+  if (!list) return;
+  const staff = APP.staff || [];
+  if (!staff.length) {
+    list.innerHTML = staffRowHtml(0, { name: '', chatId: '' });
+    return;
+  }
+  list.innerHTML = staff.map((s, i) => staffRowHtml(i, s)).join('');
+}
+
+function staffRowHtml(index, person) {
+  return `
+    <div style="display:flex;gap:8px;margin-bottom:10px" data-staff-row="${index}">
+      <input type="text" class="staff-name" placeholder="Staff name" value="${person.name || ''}" style="flex:1" onchange="saveStaffList()">
+      <input type="text" class="staff-chatid" placeholder="Telegram Chat ID" value="${person.chatId || ''}" style="flex:1" onchange="saveStaffList()">
+      <button class="btn btn-ghost btn-sm" style="color:var(--red)" onclick="removeStaffField(${index})">Remove</button>
+    </div>`;
+}
+
+function addStaffField() {
+  const list = document.getElementById('staff-list');
+  const newIndex = list.querySelectorAll('[data-staff-row]').length;
+  list.insertAdjacentHTML('beforeend', staffRowHtml(newIndex, { name: '', chatId: '' }));
+}
+
+function collectStaffFields() {
+  const rows = Array.from(document.querySelectorAll('#staff-list [data-staff-row]'));
+  return rows.map(row => ({
+    name: row.querySelector('.staff-name').value.trim(),
+    chatId: row.querySelector('.staff-chatid').value.trim()
+  })).filter(s => s.name || s.chatId);
+}
+
+function removeStaffField(index) {
+  const collected = collectStaffFields().filter((_, i) => i !== index);
+  APP.staff = collected;
+  localStorage.setItem('scm_staff', JSON.stringify(collected));
+  renderStaffList();
+}
+
+function saveStaffList() {
+  const data = collectStaffFields();
+  APP.staff = data;
+  localStorage.setItem('scm_staff', JSON.stringify(data));
+}
+
+// Sends a Telegram message to a specific staff member via their chat ID, using the saved bot token.
+async function sendTelegramNotification(chatId, message) {
+  const token = APP.telegramToken || localStorage.getItem('scm_telegram_token');
+  if (!token) return { success: false, error: 'No Telegram bot token configured in Settings → Team & Notifications.' };
+  if (!chatId) return { success: false, error: 'No Chat ID for this staff member.' };
+  try {
+    const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chat_id: chatId, text: message })
+    });
+    const data = await res.json();
+    if (!data.ok) return { success: false, error: data.description || 'Unknown Telegram error' };
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
 }
 
 // DEFAULT POSTING SCHEDULE (per weekday, used by Auto-Generate Week)
