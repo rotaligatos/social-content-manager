@@ -762,9 +762,10 @@ select:focus{border-color:var(--accent-border);}
             <div class="form-group"><label class="form-label">Page Access Token</label><input type="password" id="fb-mssi-token" placeholder="EAAxxxxxxxx..."></div>
           </div>
           <div style="margin-bottom:20px;padding-bottom:20px;border-bottom:1px solid var(--border)">
-            <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px"><div style="width:8px;height:8px;border-radius:50%;background:var(--wcli)"></div><div style="font-size:13.5px;font-weight:500;color:var(--wcli)">WCLI</div></div>
-            <div class="form-group"><label class="form-label">Page ID</label><input type="text" id="fb-wcli-id" placeholder="123456789012345"></div>
-            <div class="form-group"><label class="form-label">Page Access Token</label><input type="password" id="fb-wcli-token" placeholder="EAAxxxxxxxx..."></div>
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px"><div style="width:8px;height:8px;border-radius:50%;background:var(--wcli)"></div><div style="font-size:13.5px;font-weight:500;color:var(--wcli)">WCLI</div><span style="font-size:11px;color:var(--text3);margin-left:auto">Supports multiple pages</span></div>
+            <div style="font-size:11.5px;color:var(--text3);margin-bottom:12px">WCLI can publish to more than one Facebook Page — useful for regional or pilot pages alongside the official page. Add as many as you need; each post will let you choose which one to publish to.</div>
+            <div id="wcli-pages-list"></div>
+            <button class="btn btn-secondary btn-sm" onclick="addWcliPageField()">+ Add WCLI Page</button>
           </div>
           <div>
             <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px"><div style="width:8px;height:8px;border-radius:50%;background:var(--cwli)"></div><div style="font-size:13.5px;font-weight:500;color:var(--cwli)">CWLI</div></div>
@@ -1538,19 +1539,27 @@ function updateReviewQueue() {
 
   if (scheduled.length) {
     html += '<div style="font-size:13px;font-weight:500;color:var(--text2);margin:20px 0 10px">Scheduled — Ready to Publish</div>';
-    html += scheduled.map(p => `
+    html += scheduled.map(p => {
+      const wcliPages = (p.company === 'wcli' && APP.fbPages && Array.isArray(APP.fbPages.wcli)) ? APP.fbPages.wcli : null;
+      const pageSelectorHtml = (wcliPages && wcliPages.length > 1) ? `
+        <select class="time-input" style="font-size:11.5px;padding:5px 8px;max-width:160px" onchange="setTargetPage(${p.id}, this.value)">
+          ${wcliPages.map((pg, i) => `<option value="${i}" ${p.targetPageIndex === i ? 'selected' : ''}>${pg.name || 'Page ' + (i+1)}</option>`).join('')}
+        </select>` : '';
+      return `
       <div style="background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius-lg);padding:16px 20px;margin-bottom:10px;display:flex;align-items:center;gap:14px">
         <span class="post-company-badge badge-${p.company}">${p.company.toUpperCase()}</span>
         <div style="flex:1">
           <div style="font-size:13px;color:var(--text2)">${p.pillar} · ${p.audience}</div>
           <div style="font-size:11.5px;color:var(--text3)">Scheduled for ${p.scheduledFor ? new Date(p.scheduledFor).toLocaleString() : '—'}</div>
         </div>
+        ${pageSelectorHtml}
         <button class="btn btn-secondary btn-sm" onclick="copyCaption(${p.id})">Copy Caption</button>
         <button class="btn btn-secondary btn-sm" onclick="deletePost(${p.id})" style="color:var(--red)">Cancel</button>
         <button class="btn btn-ghost btn-sm" onclick="markAsPublishedTesting(${p.id})" title="Simulates publishing for testing Performance/Inquiry features — does not post to Facebook">Mark Published (testing)</button>
         <button class="btn btn-primary btn-sm" onclick="publishPostNow(${p.id})">Publish Now</button>
       </div>
-    `).join('');
+    `;
+    }).join('');
   }
 
   el.innerHTML = html;
@@ -2097,11 +2106,59 @@ function updateApiStatusBadges() {
   });
 }
 
+function renderWcliPagesList() {
+  const list = document.getElementById('wcli-pages-list');
+  if (!list) return;
+  const pages = (APP.fbPages && APP.fbPages.wcli && Array.isArray(APP.fbPages.wcli)) ? APP.fbPages.wcli : [];
+  if (!pages.length) {
+    // Always show at least one empty row so there's something to fill in
+    list.innerHTML = wcliPageRowHtml(0, { name: '', id: '', token: '' });
+    return;
+  }
+  list.innerHTML = pages.map((p, i) => wcliPageRowHtml(i, p)).join('');
+}
+
+function wcliPageRowHtml(index, page) {
+  return `
+    <div style="background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius);padding:12px;margin-bottom:10px" data-wcli-row="${index}">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+        <input type="text" class="wcli-page-name" placeholder="Page label (e.g. WCLI Regional Pilot)" value="${page.name || ''}" style="flex:1;font-size:12.5px">
+        ${index > 0 || (APP.fbPages && APP.fbPages.wcli && APP.fbPages.wcli.length > 1) ? `<button class="btn btn-ghost btn-sm" style="color:var(--red)" onclick="removeWcliPageField(${index})">Remove</button>` : ''}
+      </div>
+      <div class="form-group" style="margin-bottom:8px"><label class="form-label">Page ID</label><input type="text" class="wcli-page-id" placeholder="123456789012345" value="${page.id || ''}"></div>
+      <div class="form-group" style="margin-bottom:0"><label class="form-label">Page Access Token</label><input type="password" class="wcli-page-token" placeholder="EAAxxxxxxxx..." value="${page.token || ''}"></div>
+    </div>`;
+}
+
+function addWcliPageField() {
+  const list = document.getElementById('wcli-pages-list');
+  const newIndex = list.querySelectorAll('[data-wcli-row]').length;
+  list.insertAdjacentHTML('beforeend', wcliPageRowHtml(newIndex, { name: '', id: '', token: '' }));
+}
+
+function removeWcliPageField(index) {
+  if (!confirm('Remove this WCLI page? Any drafts already targeting it will need to be reassigned.')) return;
+  const rows = Array.from(document.querySelectorAll('#wcli-pages-list [data-wcli-row]'));
+  const collected = collectWcliPageFields().filter((_, i) => i !== index);
+  APP.fbPages = APP.fbPages || {};
+  APP.fbPages.wcli = collected;
+  renderWcliPagesList();
+}
+
+function collectWcliPageFields() {
+  const rows = Array.from(document.querySelectorAll('#wcli-pages-list [data-wcli-row]'));
+  return rows.map(row => ({
+    name: row.querySelector('.wcli-page-name').value.trim(),
+    id: row.querySelector('.wcli-page-id').value.trim(),
+    token: row.querySelector('.wcli-page-token').value.trim()
+  })).filter(p => p.name || p.id || p.token); // drop fully-empty rows
+}
+
 function saveFbPages() {
   const data = {
     appId: document.getElementById('fb-app-id').value.trim(),
     mssi: { id: document.getElementById('fb-mssi-id').value.trim(), token: document.getElementById('fb-mssi-token').value.trim() },
-    wcli: { id: document.getElementById('fb-wcli-id').value.trim(), token: document.getElementById('fb-wcli-token').value.trim() },
+    wcli: collectWcliPageFields(),
     cwli: { id: document.getElementById('fb-cwli-id').value.trim(), token: document.getElementById('fb-cwli-token').value.trim() }
   };
   localStorage.setItem('scm_fb_pages', JSON.stringify(data));
@@ -2112,10 +2169,14 @@ function saveFbPages() {
 function loadFbPages() {
   try {
     const data = JSON.parse(localStorage.getItem('scm_fb_pages') || '{}');
+    // Migrate old single-object WCLI format (from before multi-page support) into the new array format
+    if (data.wcli && !Array.isArray(data.wcli)) {
+      data.wcli = (data.wcli.id || data.wcli.token) ? [{ name: 'WCLI', id: data.wcli.id || '', token: data.wcli.token || '' }] : [];
+    }
     APP.fbPages = data;
     const appIdEl = document.getElementById('fb-app-id');
     if (appIdEl && data.appId) appIdEl.value = data.appId;
-    ['mssi','wcli','cwli'].forEach(co => {
+    ['mssi','cwli'].forEach(co => {
       if (data[co]) {
         const idEl = document.getElementById('fb-'+co+'-id');
         const tokenEl = document.getElementById('fb-'+co+'-token');
@@ -2123,6 +2184,7 @@ function loadFbPages() {
         if (tokenEl && data[co].token) tokenEl.value = data[co].token;
       }
     });
+    renderWcliPagesList();
   } catch(e) { console.error(e); }
 }
 
@@ -2155,10 +2217,24 @@ function getDefaultTimeForWeekday(dayIndex) {
   return times[dayIndex] || times[String(dayIndex)] || null;
 }
 
+// Resolves which Facebook Page a post should publish to. MSSI and CWLI each have exactly one page
+// (a single {id, token} object). WCLI can have multiple pages (an array) — post.targetPageIndex
+// picks which one. Returns null if nothing is configured yet.
+function resolveFbPageData(post) {
+  const pages = APP.fbPages || JSON.parse(localStorage.getItem('scm_fb_pages') || '{}');
+  const entry = pages[post.company];
+  if (!entry) return null;
+  if (Array.isArray(entry)) {
+    // WCLI (or any future multi-page company): use the post's chosen page, default to the first one
+    const idx = (typeof post.targetPageIndex === 'number') ? post.targetPageIndex : 0;
+    return entry[idx] || entry[0] || null;
+  }
+  return entry; // MSSI/CWLI: single page object
+}
+
 // FACEBOOK GRAPH API PUBLISHING
 async function publishToFacebook(post) {
-  const pages = APP.fbPages || JSON.parse(localStorage.getItem('scm_fb_pages') || '{}');
-  const pageData = pages[post.company];
+  const pageData = resolveFbPageData(post);
   if (!pageData || !pageData.id || !pageData.token) {
     return { success: false, error: 'No Facebook Page ID/Token configured for ' + post.company.toUpperCase() + '. Add it in Settings → Facebook Pages.' };
   }
@@ -2286,6 +2362,13 @@ async function publishPostNow(id) {
 // TESTING ONLY — simulates a post being published so you can test the Inquiry Check and Performance
 // features (manual logging, self-learning summary) before Facebook page access is sorted out.
 // This does NOT post anything to Facebook. Real publishing only happens via publishPostNow above.
+function setTargetPage(id, pageIndex) {
+  const post = APP.posts.find(p => p.id === id);
+  if (!post) return;
+  post.targetPageIndex = parseInt(pageIndex, 10);
+  saveState();
+}
+
 function markAsPublishedTesting(id) {
   const post = APP.posts.find(p => p.id === id);
   if (!post) return;
