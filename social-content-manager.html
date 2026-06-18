@@ -3226,18 +3226,29 @@ async function publishToFacebook(post) {
   }
 
   try {
-    let photoId = null;
-    // If there's a photo, upload it first (unpublished) to get a media fbid
+    // Photo posts: upload the image bytes directly to Facebook in one multipart/form-data call.
+    // Graph API's "source" field accepts raw binary, so the photo + caption + publish all happen
+    // in a single request — no external image host (Drive/Cloudinary/Imgur) needed at all.
     if (post.photo) {
+      const blob = dataUrlToBlob(post.photo);
+      const formData = new FormData();
+      formData.append('source', blob, 'photo.jpg');
+      formData.append('message', post.caption);
+      formData.append('published', 'true');
+      formData.append('access_token', pageData.token);
+
       const photoRes = await fetch(`https://graph.facebook.com/v19.0/${pageData.id}/photos`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: post.photo.startsWith('data:') ? undefined : post.photo, published: false, access_token: pageData.token })
+        body: formData
       });
-      // Note: Graph API photos endpoint needs a public URL or multipart upload for base64 data.
-      // Base64 data URLs cannot be sent directly as "url" - this will be addressed when Cloudinary/Imgur is wired in Phase 2.
+      const photoData = await photoRes.json();
+      if (photoData.error) {
+        return { success: false, error: photoData.error.message };
+      }
+      return { success: true, postId: photoData.post_id || photoData.id };
     }
 
+    // Text-only post (no photo attached)
     const params = new URLSearchParams();
     params.append('message', post.caption);
     params.append('access_token', pageData.token);
@@ -3254,6 +3265,18 @@ async function publishToFacebook(post) {
   } catch (err) {
     return { success: false, error: err.message };
   }
+}
+
+// Converts a base64 data URL (e.g. "data:image/jpeg;base64,...") into a Blob,
+// so it can be sent as raw binary in a multipart/form-data upload.
+function dataUrlToBlob(dataUrl) {
+  const [header, base64] = dataUrl.split(',');
+  const mimeMatch = header.match(/data:(.*?);base64/);
+  const mime = mimeMatch ? mimeMatch[1] : 'image/jpeg';
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return new Blob([bytes], { type: mime });
 }
 
 // FACEBOOK VIDEO PUBLISHING (Resumable Upload API)
