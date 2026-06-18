@@ -796,7 +796,7 @@ select:focus{border-color:var(--accent-border);}
         </div>
         <div class="card">
           <div style="font-size:14px;font-weight:500;margin-bottom:4px">Staff</div>
-          <div style="font-size:12px;color:var(--text3);margin-bottom:14px">Each staff member needs to message your bot once on Telegram first (search for it by username and send any message), so the bot can message them back. Then add them here with their Chat ID — they can get this by messaging <strong style="color:var(--text2)">@userinfobot</strong> on Telegram, which replies with their ID.</div>
+          <div style="font-size:12px;color:var(--text3);margin-bottom:14px">Each staff member needs to message your bot once on Telegram first (search for it by username and send any message), so the bot can message them back. Then add them here with their Chat ID — they can get this by messaging <strong style="color:var(--text2)">@userinfobot</strong> on Telegram, which replies with their ID. Check which companies they're responsible for, and they'll only see posts from those companies.</div>
           <div id="staff-list"></div>
           <button class="btn btn-secondary btn-sm" onclick="addStaffField()">+ Add Staff Member</button>
         </div>
@@ -1823,10 +1823,17 @@ function renderInquiryCheck() {
     <div style="font-size:12px;color:var(--text3);margin-bottom:12px">Go check Facebook for comments and DMs on these published posts, then mark them reviewed here. Assign to a staff member to notify them on Telegram.</div>
     ${unchecked.map(p => {
       const staff = APP.staff || [];
-      const staffOptions = staff.map(s => `<option value="${s.chatId}" ${p.assignedChatId === s.chatId ? 'selected' : ''}>${s.name}</option>`).join('');
+      // Filter staff to only those responsible for this post's company
+      const relevantStaff = staff.filter(s => (s.companies || []).includes(p.company));
+      // Auto-assign if there's exactly one person responsible for this company
+      if (!p.assignedChatId && relevantStaff.length === 1) {
+        p.assignedChatId = relevantStaff[0].chatId;
+        saveState();
+      }
+      const staffOptions = relevantStaff.map(s => `<option value="${s.chatId}" ${p.assignedChatId === s.chatId ? 'selected' : ''}>${s.name}</option>`).join('');
       return `
       <div style="background:var(--bg3);border-radius:var(--radius);border:1px solid var(--border);margin-bottom:6px;padding:9px 12px">
-        <div style="display:flex;align-items:center;gap:10px;margin-bottom:${staff.length ? '8px' : '0'}">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:${relevantStaff.length ? '8px' : '0'}">
           <span class="post-company-badge badge-${p.company}">${p.company.toUpperCase()}</span>
           ${p.testPublish ? '<span class="post-company-badge" style="background:var(--bg4);color:var(--text3)" title="Marked published for testing only — not actually on Facebook">TEST</span>' : ''}
           <span style="font-size:12.5px;color:var(--text2);flex:1">${p.pillar} · ${p.audience}</span>
@@ -1834,7 +1841,7 @@ function renderInquiryCheck() {
           <button class="btn btn-ghost btn-sm" onclick="openPerformanceLogModal(${p.id})">Log Performance</button>
           <button class="btn btn-ghost btn-sm" onclick="markInquiryChecked(${p.id})">Mark Checked</button>
         </div>
-        ${staff.length ? `
+        ${relevantStaff.length ? `
         <div style="display:flex;align-items:center;gap:8px">
           <select class="time-input" style="font-size:11.5px;padding:5px 8px;flex:1" onchange="assignStaffToPost(${p.id}, this.value)">
             <option value="">Assign to...</option>
@@ -1842,7 +1849,7 @@ function renderInquiryCheck() {
           </select>
           <button class="btn btn-secondary btn-sm" onclick="notifyAssignedStaff(${p.id})" ${!p.assignedChatId ? 'disabled' : ''}>Notify on Telegram</button>
           ${p.notifiedAt ? `<span style="font-size:10.5px;color:var(--green)">✓ Notified</span>` : ''}
-        </div>` : ''}
+        </div>` : `<div style="font-size:11.5px;color:var(--text3)">No staff assigned to handle ${p.company.toUpperCase()} — add one in Settings → Team & Notifications.</div>`}
       </div>
     `;
     }).join('')}
@@ -2383,18 +2390,36 @@ function renderStaffList() {
   if (!list) return;
   const staff = APP.staff || [];
   if (!staff.length) {
-    list.innerHTML = staffRowHtml(0, { name: '', chatId: '' });
+    list.innerHTML = staffRowHtml(0, { name: '', chatId: '', companies: [] });
     return;
   }
   list.innerHTML = staff.map((s, i) => staffRowHtml(i, s)).join('');
 }
 
 function staffRowHtml(index, person) {
+  const companies = person.companies || [];
   return `
-    <div style="display:flex;gap:8px;margin-bottom:10px" data-staff-row="${index}">
-      <input type="text" class="staff-name" placeholder="Staff name" value="${person.name || ''}" style="flex:1" onchange="saveStaffList()">
-      <input type="text" class="staff-chatid" placeholder="Telegram Chat ID" value="${person.chatId || ''}" style="flex:1" onchange="saveStaffList()">
-      <button class="btn btn-ghost btn-sm" style="color:var(--red)" onclick="removeStaffField(${index})">Remove</button>
+    <div style="background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius);padding:12px;margin-bottom:10px" data-staff-row="${index}">
+      <div style="display:flex;gap:8px;margin-bottom:10px">
+        <input type="text" class="staff-name" placeholder="Staff name" value="${person.name || ''}" style="flex:1" onchange="saveStaffList()">
+        <input type="text" class="staff-chatid" placeholder="Telegram Chat ID" value="${person.chatId || ''}" style="flex:1" onchange="saveStaffList()">
+        <button class="btn btn-ghost btn-sm" style="color:var(--red)" onclick="removeStaffField(${index})">Remove</button>
+      </div>
+      <div style="font-size:11.5px;color:var(--text3);margin-bottom:8px">Responsible for:</div>
+      <div style="display:flex;gap:12px;margin-bottom:0">
+        <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text2)">
+          <input type="checkbox" class="staff-company-mssi" ${companies.includes('mssi') ? 'checked' : ''} onchange="saveStaffList()">
+          MSSI
+        </label>
+        <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text2)">
+          <input type="checkbox" class="staff-company-wcli" ${companies.includes('wcli') ? 'checked' : ''} onchange="saveStaffList()">
+          WCLI
+        </label>
+        <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text2)">
+          <input type="checkbox" class="staff-company-cwli" ${companies.includes('cwli') ? 'checked' : ''} onchange="saveStaffList()">
+          CWLI
+        </label>
+      </div>
     </div>`;
 }
 
@@ -2408,7 +2433,12 @@ function collectStaffFields() {
   const rows = Array.from(document.querySelectorAll('#staff-list [data-staff-row]'));
   return rows.map(row => ({
     name: row.querySelector('.staff-name').value.trim(),
-    chatId: row.querySelector('.staff-chatid').value.trim()
+    chatId: row.querySelector('.staff-chatid').value.trim(),
+    companies: [
+      row.querySelector('.staff-company-mssi').checked ? 'mssi' : null,
+      row.querySelector('.staff-company-wcli').checked ? 'wcli' : null,
+      row.querySelector('.staff-company-cwli').checked ? 'cwli' : null
+    ].filter(Boolean)
   })).filter(s => s.name || s.chatId);
 }
 
