@@ -1309,6 +1309,7 @@ function updateReviewQueue() {
         </div>
         <button class="btn btn-secondary btn-sm" onclick="copyCaption(${p.id})">Copy Caption</button>
         <button class="btn btn-secondary btn-sm" onclick="deletePost(${p.id})" style="color:var(--red)">Cancel</button>
+        <button class="btn btn-ghost btn-sm" onclick="markAsPublishedTesting(${p.id})" title="Simulates publishing for testing Performance/Inquiry features — does not post to Facebook">Mark Published (testing)</button>
         <button class="btn btn-primary btn-sm" onclick="publishPostNow(${p.id})">Publish Now</button>
       </div>
     `).join('');
@@ -1448,6 +1449,7 @@ function renderInquiryCheck() {
     ${unchecked.map(p => `
       <div style="display:flex;align-items:center;gap:10px;padding:9px 12px;background:var(--bg3);border-radius:var(--radius);border:1px solid var(--border);margin-bottom:6px">
         <span class="post-company-badge badge-${p.company}">${p.company.toUpperCase()}</span>
+        ${p.testPublish ? '<span class="post-company-badge" style="background:var(--bg4);color:var(--text3)" title="Marked published for testing only — not actually on Facebook">TEST</span>' : ''}
         <span style="font-size:12.5px;color:var(--text2);flex:1">${p.pillar} · ${p.audience}</span>
         <span style="font-size:11px;color:var(--text3)">${p.publishedAt ? new Date(p.publishedAt).toLocaleDateString() : ''}</span>
         <button class="btn btn-ghost btn-sm" onclick="openPerformanceLogModal(${p.id})">Log Performance</button>
@@ -1964,6 +1966,23 @@ async function publishPostNow(id) {
   } else {
     showToast('Publish failed: ' + result.error, 'error');
   }
+}
+
+// TESTING ONLY — simulates a post being published so you can test the Inquiry Check and Performance
+// features (manual logging, self-learning summary) before Facebook page access is sorted out.
+// This does NOT post anything to Facebook. Real publishing only happens via publishPostNow above.
+function markAsPublishedTesting(id) {
+  const post = APP.posts.find(p => p.id === id);
+  if (!post) return;
+  if (!confirm('This marks the post as "published" in the app only — it will NOT actually post to Facebook. Use this to test Performance logging. Continue?')) return;
+  post.status = 'published';
+  post.publishedAt = new Date().toISOString();
+  post.testPublish = true;
+  saveState();
+  updateReviewQueue();
+  updateDashboard();
+  renderCalendar();
+  showToast('Marked as published (testing only — not on Facebook)', 'info');
 }
 
 function exportPosts() {
