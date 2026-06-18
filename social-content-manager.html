@@ -723,6 +723,7 @@ select:focus{border-color:var(--accent-border);}
         <button class="settings-nav-item active" onclick="switchSettingsTab(this,'api-keys')">API Keys</button>
         <button class="settings-nav-item" onclick="switchSettingsTab(this,'fb-pages')">Facebook Pages</button>
         <button class="settings-nav-item" onclick="switchSettingsTab(this,'team')">Team &amp; Notifications</button>
+        <button class="settings-nav-item" onclick="switchSettingsTab(this,'sla')">SLA Targets</button>
         <button class="settings-nav-item" onclick="switchSettingsTab(this,'schedule')">Auto-Schedule</button>
         <button class="settings-nav-item" onclick="switchSettingsTab(this,'data')">Data &amp; Export</button>
       </div>
@@ -799,6 +800,45 @@ select:focus{border-color:var(--accent-border);}
           <div style="font-size:12px;color:var(--text3);margin-bottom:14px">Each staff member needs to message your bot once on Telegram first (search for it by username and send any message), so the bot can message them back. Then add them here with their Chat ID — they can get this by messaging <strong style="color:var(--text2)">@userinfobot</strong> on Telegram, which replies with their ID. Check which companies they're responsible for, and they'll only see posts from those companies.</div>
           <div id="staff-list"></div>
           <button class="btn btn-secondary btn-sm" onclick="addStaffField()">+ Add Staff Member</button>
+        </div>
+      </div>
+      <div id="stab-sla" style="display:none">
+        <div class="card" style="margin-bottom:16px">
+          <div style="font-size:14px;font-weight:500;margin-bottom:4px">Global SLA Target</div>
+          <div style="font-size:12px;color:var(--text3);margin-bottom:14px">Default response time target for all companies. Individual companies can override this with their own target.</div>
+          <div style="display:flex;align-items:center;gap:10px">
+            <input type="number" id="sla-global-hours" placeholder="4" min="0" max="168" style="width:80px" value="4">
+            <span style="font-size:12px;color:var(--text2)">hours</span>
+            <button class="btn btn-secondary btn-sm" onclick="saveSlaTargets()">Save</button>
+          </div>
+        </div>
+        <div class="card">
+          <div style="font-size:14px;font-weight:500;margin-bottom:4px">Company-Specific SLA Targets</div>
+          <div style="font-size:12px;color:var(--text3);margin-bottom:14px">Leave blank to use the global target. Set a custom value to override it for this company.</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+            <div>
+              <label class="form-label">MSSI</label>
+              <div style="display:flex;align-items:center;gap:8px">
+                <input type="number" id="sla-mssi-hours" placeholder="(uses global)" min="0" max="168" style="flex:1">
+                <span style="font-size:12px;color:var(--text2)">hours</span>
+              </div>
+            </div>
+            <div>
+              <label class="form-label">WCLI</label>
+              <div style="display:flex;align-items:center;gap:8px">
+                <input type="number" id="sla-wcli-hours" placeholder="(uses global)" min="0" max="168" style="flex:1">
+                <span style="font-size:12px;color:var(--text2)">hours</span>
+              </div>
+            </div>
+            <div>
+              <label class="form-label">CWLI</label>
+              <div style="display:flex;align-items:center;gap:8px">
+                <input type="number" id="sla-cwli-hours" placeholder="(uses global)" min="0" max="168" style="flex:1">
+                <span style="font-size:12px;color:var(--text2)">hours</span>
+              </div>
+            </div>
+          </div>
+          <button class="btn btn-secondary btn-sm" style="margin-top:14px" onclick="saveSlaTargets()">Save SLA Targets</button>
         </div>
       </div>
       <div id="stab-schedule" style="display:none">
@@ -988,6 +1028,7 @@ function loadState() {
     loadBrandProfiles();
     loadSchedule();
     loadTelegramSettings();
+    loadSlaTargets();
   } catch(e) { console.error(e); }
 }
 
@@ -2239,7 +2280,7 @@ function loadBrandProfiles() {
 function switchSettingsTab(btn, tab) {
   document.querySelectorAll('.settings-nav-item').forEach(b => b.classList.remove('active'));
   btn.classList.add('active');
-  ['api-keys','fb-pages','team','schedule','data'].forEach(t => {
+  ['api-keys','fb-pages','team','sla','schedule','data'].forEach(t => {
     const el = document.getElementById('stab-' + t);
     if (el) el.style.display = t === tab ? 'block' : 'none';
   });
@@ -2501,6 +2542,39 @@ function loadSchedule() {
 function getDefaultTimeForWeekday(dayIndex) {
   const times = APP.scheduleTimes || JSON.parse(localStorage.getItem('scm_schedule_times') || '{}');
   return times[dayIndex] || times[String(dayIndex)] || null;
+}
+
+// SLA TARGETS
+function saveSlaTargets() {
+  const global = parseInt(document.getElementById('sla-global-hours').value) || 4;
+  const mssi = document.getElementById('sla-mssi-hours').value ? parseInt(document.getElementById('sla-mssi-hours').value) : null;
+  const wcli = document.getElementById('sla-wcli-hours').value ? parseInt(document.getElementById('sla-wcli-hours').value) : null;
+  const cwli = document.getElementById('sla-cwli-hours').value ? parseInt(document.getElementById('sla-cwli-hours').value) : null;
+  
+  const data = { global, mssi, wcli, cwli };
+  APP.slaTargets = data;
+  localStorage.setItem('scm_sla_targets', JSON.stringify(data));
+  showToast('SLA targets saved', 'success');
+}
+
+function loadSlaTargets() {
+  try {
+    const data = JSON.parse(localStorage.getItem('scm_sla_targets') || 'null');
+    if (!data) {
+      APP.slaTargets = { global: 4, mssi: null, wcli: null, cwli: null };
+      return;
+    }
+    APP.slaTargets = data;
+    document.getElementById('sla-global-hours').value = data.global || 4;
+    if (data.mssi) document.getElementById('sla-mssi-hours').value = data.mssi;
+    if (data.wcli) document.getElementById('sla-wcli-hours').value = data.wcli;
+    if (data.cwli) document.getElementById('sla-cwli-hours').value = data.cwli;
+  } catch(e) { console.error(e); }
+}
+
+function getSlaTargetForCompany(company) {
+  const targets = APP.slaTargets || { global: 4 };
+  return targets[company] !== null && targets[company] !== undefined ? targets[company] : targets.global || 4;
 }
 
 // Resolves which Facebook Page a post should publish to. MSSI and CWLI each have exactly one page
