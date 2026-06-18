@@ -845,7 +845,7 @@ select:focus{border-color:var(--accent-border);}
         </div>
         <div class="card" style="margin-bottom:16px">
           <div style="font-size:14px;font-weight:500;margin-bottom:4px">Working Hours Per Company</div>
-          <div style="font-size:12px;color:var(--text3);margin-bottom:14px">Response time is only counted during these hours, on these days. A post published Friday evening that gets a reply Monday morning won't count the weekend against staff. Set this per company since schedules vary — change anytime.</div>
+          <div style="font-size:12px;color:var(--text3);margin-bottom:14px">Response time is only counted during these hours. Each day can have its own hours and be turned on or off independently — e.g. Mon–Thu 7am–6pm but Fri 8am–5pm. Uncheck a day to exclude it entirely (like weekends). Set this per company since schedules vary — change anytime.</div>
           <div id="working-hours-list"></div>
           <button class="btn btn-secondary btn-sm" style="margin-top:6px" onclick="saveWorkingHours()">Save Working Hours</button>
         </div>
@@ -2690,36 +2690,46 @@ function getSlaTargetForCompany(company) {
 }
 
 // WORKING HOURS PER COMPANY (used to calculate fair business-hours response time)
-const DEFAULT_WORKING_HOURS = { days: ['mon','tue','wed','thu','fri'], start: '08:00', end: '17:00' };
 const WH_DAY_LABELS = [['mon','Mon'],['tue','Tue'],['wed','Wed'],['thu','Thu'],['fri','Fri'],['sat','Sat'],['sun','Sun']];
+const DEFAULT_DAY_SCHEDULE = {
+  mon: { enabled: true, start: '08:00', end: '17:00' },
+  tue: { enabled: true, start: '08:00', end: '17:00' },
+  wed: { enabled: true, start: '08:00', end: '17:00' },
+  thu: { enabled: true, start: '08:00', end: '17:00' },
+  fri: { enabled: true, start: '08:00', end: '17:00' },
+  sat: { enabled: false, start: '08:00', end: '17:00' },
+  sun: { enabled: false, start: '08:00', end: '17:00' }
+};
 
 function renderWorkingHoursList() {
   const container = document.getElementById('working-hours-list');
   if (!container) return;
-  const wh = APP.workingHours || {};
-  container.innerHTML = ['mssi','wcli','cwli'].map(co => workingHoursRowHtml(co, wh[co] || DEFAULT_WORKING_HOURS)).join('');
+  container.innerHTML = ['mssi','wcli','cwli'].map(co => workingHoursRowHtml(co, getWorkingHoursForCompany(co))).join('');
 }
 
-function workingHoursRowHtml(company, cfg) {
-  const days = cfg.days || DEFAULT_WORKING_HOURS.days;
+function workingHoursRowHtml(company, schedule) {
   return `
     <div style="background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius);padding:12px;margin-bottom:10px" data-wh-row="${company}">
-      <div style="font-size:12.5px;font-weight:500;margin-bottom:8px">${company.toUpperCase()}</div>
-      <div style="display:flex;gap:10px;align-items:center;margin-bottom:10px;flex-wrap:wrap">
-        <span style="font-size:11.5px;color:var(--text3)">Hours:</span>
-        <input type="time" class="wh-start" value="${cfg.start || DEFAULT_WORKING_HOURS.start}" style="width:120px">
-        <span style="font-size:11.5px;color:var(--text3)">to</span>
-        <input type="time" class="wh-end" value="${cfg.end || DEFAULT_WORKING_HOURS.end}" style="width:120px">
-      </div>
-      <div style="display:flex;gap:10px;flex-wrap:wrap">
-        ${WH_DAY_LABELS.map(([key,label]) => `
-          <label style="display:flex;align-items:center;gap:5px;font-size:11.5px;color:var(--text2)">
-            <input type="checkbox" class="wh-day" data-day="${key}" ${days.includes(key) ? 'checked' : ''}>
+      <div style="font-size:12.5px;font-weight:500;margin-bottom:10px">${company.toUpperCase()}</div>
+      ${WH_DAY_LABELS.map(([key,label]) => {
+        const d = schedule[key] || DEFAULT_DAY_SCHEDULE[key];
+        return `
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px" data-wh-day="${key}">
+          <label style="display:flex;align-items:center;gap:6px;width:52px;flex-shrink:0;font-size:11.5px;color:var(--text2)">
+            <input type="checkbox" class="wh-day-enabled" ${d.enabled ? 'checked' : ''} onchange="toggleWhDayInputs(this)">
             ${label}
           </label>
-        `).join('')}
-      </div>
+          <input type="time" class="wh-day-start" value="${d.start || '08:00'}" style="width:115px" ${d.enabled ? '' : 'disabled'}>
+          <span style="font-size:11px;color:var(--text3)">to</span>
+          <input type="time" class="wh-day-end" value="${d.end || '17:00'}" style="width:115px" ${d.enabled ? '' : 'disabled'}>
+        </div>`;
+      }).join('')}
     </div>`;
+}
+
+function toggleWhDayInputs(checkbox) {
+  const row = checkbox.closest('[data-wh-day]');
+  row.querySelectorAll('input[type="time"]').forEach(i => i.disabled = !checkbox.checked);
 }
 
 function saveWorkingHours() {
@@ -2727,10 +2737,16 @@ function saveWorkingHours() {
   ['mssi','wcli','cwli'].forEach(co => {
     const row = document.querySelector(`[data-wh-row="${co}"]`);
     if (!row) return;
-    const start = row.querySelector('.wh-start').value || DEFAULT_WORKING_HOURS.start;
-    const end = row.querySelector('.wh-end').value || DEFAULT_WORKING_HOURS.end;
-    const days = Array.from(row.querySelectorAll('.wh-day')).filter(cb => cb.checked).map(cb => cb.dataset.day);
-    data[co] = { days, start, end };
+    const schedule = {};
+    row.querySelectorAll('[data-wh-day]').forEach(dayRow => {
+      const key = dayRow.dataset.whDay;
+      schedule[key] = {
+        enabled: dayRow.querySelector('.wh-day-enabled').checked,
+        start: dayRow.querySelector('.wh-day-start').value || '08:00',
+        end: dayRow.querySelector('.wh-day-end').value || '17:00'
+      };
+    });
+    data[co] = schedule;
   });
   APP.workingHours = data;
   localStorage.setItem('scm_working_hours', JSON.stringify(data));
@@ -2747,9 +2763,21 @@ function loadWorkingHours() {
   renderWorkingHoursList();
 }
 
+// Returns a per-day schedule object for the company: { mon: {enabled,start,end}, tue: {...}, ... }
+// Transparently migrates the old single-time-for-all-days format if older saved data is found.
 function getWorkingHoursForCompany(company) {
   const wh = APP.workingHours || {};
-  return wh[company] || DEFAULT_WORKING_HOURS;
+  const cfg = wh[company];
+  if (!cfg) return DEFAULT_DAY_SCHEDULE;
+  if (Array.isArray(cfg.days)) {
+    // old format: { days: [...], start, end } — migrate to per-day shape
+    const migrated = {};
+    WH_DAY_LABELS.forEach(([key]) => {
+      migrated[key] = { enabled: cfg.days.includes(key), start: cfg.start || '08:00', end: cfg.end || '17:00' };
+    });
+    return migrated;
+  }
+  return cfg;
 }
 
 // HOLIDAYS (shared across all companies, excluded from SLA clock)
@@ -2858,11 +2886,8 @@ function calculateBusinessMinutes(startISO, endISO, company) {
   const end = new Date(endISO);
   if (!startISO || !endISO || isNaN(start) || isNaN(end) || end <= start) return 0;
 
-  const cfg = getWorkingHoursForCompany(company);
-  const dayNames = ['sun','mon','tue','wed','thu','fri','sat'];
-  const [startH, startM] = (cfg.start || '08:00').split(':').map(Number);
-  const [endH, endM] = (cfg.end || '17:00').split(':').map(Number);
-  const workDays = cfg.days || DEFAULT_WORKING_HOURS.days;
+  const schedule = getWorkingHoursForCompany(company);
+  const dayKeys = ['sun','mon','tue','wed','thu','fri','sat'];
   const holidaySet = new Set((APP.holidays || []).map(h => h.date));
 
   let totalMinutes = 0;
@@ -2872,11 +2897,14 @@ function calculateBusinessMinutes(startISO, endISO, company) {
   let safety = 0;
   while (cursor <= endDateOnly && safety < 3650) { // ~10 year cap as a sanity guard
     safety++;
-    const dayName = dayNames[cursor.getDay()];
+    const dayKey = dayKeys[cursor.getDay()];
     const dateStr = formatDateYMD(cursor);
-    const isWorkingDay = workDays.includes(dayName) && !holidaySet.has(dateStr);
+    const daySchedule = schedule[dayKey] || DEFAULT_DAY_SCHEDULE[dayKey];
+    const isWorkingDay = daySchedule.enabled && !holidaySet.has(dateStr);
 
     if (isWorkingDay) {
+      const [startH, startM] = (daySchedule.start || '08:00').split(':').map(Number);
+      const [endH, endM] = (daySchedule.end || '17:00').split(':').map(Number);
       const dayWorkStart = new Date(cursor); dayWorkStart.setHours(startH, startM, 0, 0);
       const dayWorkEnd = new Date(cursor); dayWorkEnd.setHours(endH, endM, 0, 0);
       const overlapStart = new Date(Math.max(start.getTime(), dayWorkStart.getTime()));
