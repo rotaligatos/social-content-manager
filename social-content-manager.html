@@ -278,6 +278,10 @@ select:focus{border-color:var(--accent-border);}
       <svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="2.5"/><path d="M8 1.5v1.5M8 13v1.5M1.5 8h1.5M13 8h1.5M3.7 3.7l1 1M11.3 11.3l1 1M3.7 12.3l1-1M11.3 4.7l1-1"/></svg>
       Settings &amp; API Keys
     </button>
+    <button class="nav-item" onclick="showScreen('changelog')">
+      <svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 1.5h7l3 3v10h-10z"/><path d="M10 1.5v3h3"/><path d="M5.5 8h5M5.5 10.5h5M5.5 5.5h3"/></svg>
+      What's New
+    </button>
   </div>
   <div class="company-pills">
     <div class="sidebar-label" style="padding:0 8px">Companies</div>
@@ -821,10 +825,105 @@ select:focus{border-color:var(--accent-border);}
   </div>
 </div>
 
+<!-- CHANGELOG -->
+<div id="screen-changelog" class="screen">
+  <div class="topbar">
+    <div class="topbar-left"><h1>What's New</h1><p>A running log of what's been added to this app</p></div>
+  </div>
+  <div class="content" id="changelog-content"></div>
+</div>
+
 </main>
 <div class="toast-container" id="toast-container"></div>
 
 <script>
+// CHANGELOG — a running, hand-maintained log of what's been added to the app.
+// Newest entries go at the top. Each entry should describe what changed in plain language.
+const CHANGELOG = [
+  {
+    date: '2026-06-18',
+    title: 'WCLI multi-page support',
+    items: [
+      'WCLI can now have more than one Facebook Page configured (e.g. a regional pilot page alongside the eventual official page) — MSSI and CWLI stay single-page.',
+      'When publishing a WCLI post, you can choose which specific page it goes to if more than one is set up.'
+    ]
+  },
+  {
+    date: '2026-06-18',
+    title: 'AI video generation (Veo 3.1) + company structure update',
+    items: [
+      'Added "AI Generate Video" in Create Post — describe a scene and Google\'s Veo 3.1 generates a short video clip, company-aware prompt suggestions included.',
+      'Brand Profiles now distinguish WCLI (supplies boards, partners with MSSI for fabrication) from CWLI (manufactures boards AND fabricates furniture in-house) — this flows into every generated caption.',
+      'Documented Veo setup: requires a Google Gemini API key with billing enabled.'
+    ]
+  },
+  {
+    date: '2026-06-18',
+    title: 'Video post support',
+    items: [
+      'Create Post now has a Photo/Video tab — upload a video (max 200MB) alongside the existing photo flow.',
+      'Facebook video publishing wired in via the Resumable Upload API (needs a Facebook App ID in Settings, separate from Page ID/Token).',
+      'Added a clear warning when a video draft\'s file is no longer attached after a page reload, since large video files can\'t be saved to browser storage the way photos and captions can.'
+    ]
+  },
+  {
+    date: '2026-06-17',
+    title: 'Performance self-learning',
+    items: [
+      'New Performance screen — manually log reach, reactions, comments, shares, and inquiries on published posts.',
+      'Shows your best-performing content pillar and audience based on logged results.',
+      'New posts now get a short summary of what\'s worked injected into the Claude prompt automatically — the actual "self-learning" loop.',
+      'Added "Mark Published (testing)" so this can be tested before Facebook access is fully set up.'
+    ]
+  },
+  {
+    date: '2026-06-17',
+    title: 'Philippine holidays + inquiry check',
+    items: [
+      'Auto-Generate Week now recognizes 2026 Philippine holidays and swaps in a holiday-themed post instead of the regular weekday pillar.',
+      'Holidays show directly on the Calendar, and Create Post shows a heads-up banner when one is coming up within 7 days.',
+      'Added an Inquiry & Comment Check card to the Dashboard — since true auto-reply to comments isn\'t safe or possible yet, this reminds you which published posts to check on Facebook manually.'
+    ]
+  },
+  {
+    date: '2026-06-17',
+    title: 'AI image generation, Calendar polish, backups',
+    items: [
+      'Added AI Generate Image in Create Post via Ideogram (requires billing on your Ideogram account).',
+      'Calendar now has real month navigation, a Today button, and click-into-day details.',
+      'Settings now has a full backup/restore (.json) covering posts, photos, brand profiles, and API keys.',
+      'Auto-Generate Week now follows the actual Mon-Sun content pillar rotation from the original brand strategy, with real calendar dates.'
+    ]
+  },
+  {
+    date: '2026-06-16',
+    title: 'Phase 1 core fixes',
+    items: [
+      'Fixed the Claude API CORS/header issue blocking generation on GitHub Pages.',
+      'Brand Profiles now actually drive Claude\'s tone and voice per company and audience, not just cosmetic.',
+      'Photo Library now persists across sessions, with a working "Choose from Library" picker in Create Post.',
+      'Facebook Graph API publishing wired in for text/photo posts (pending page access).',
+      'Captions in Review & Schedule are now editable, with a Copy Caption button.'
+    ]
+  }
+];
+
+function renderChangelog() {
+  const el = document.getElementById('changelog-content');
+  if (!el) return;
+  el.innerHTML = CHANGELOG.map(entry => `
+    <div class="card" style="margin-bottom:14px">
+      <div style="display:flex;align-items:baseline;gap:10px;margin-bottom:10px">
+        <div style="font-size:14px;font-weight:600">${entry.title}</div>
+        <div style="font-size:11.5px;color:var(--text3)">${new Date(entry.date).toLocaleDateString('en-PH', { month: 'long', day: 'numeric', year: 'numeric' })}</div>
+      </div>
+      <div style="font-size:12.5px;color:var(--text2);line-height:1.7">
+        ${entry.items.map(item => `<div style="margin-bottom:6px">• ${item}</div>`).join('')}
+      </div>
+    </div>
+  `).join('');
+}
+
 const APP = {
   currentCompany: null,
   currentAudience: null,
@@ -883,7 +982,7 @@ function showScreen(id) {
   document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
   document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
   document.getElementById('screen-' + id).classList.add('active');
-  const map = { dashboard:0, create:1, review:2, calendar:3, autogen:4, library:5, performance:6, brands:7, settings:8 };
+  const map = { dashboard:0, create:1, review:2, calendar:3, autogen:4, library:5, performance:6, brands:7, settings:8, changelog:9 };
   const items = document.querySelectorAll('.nav-item');
   if (map[id] !== undefined && items[map[id]]) items[map[id]].classList.add('active');
   if (id === 'calendar') renderCalendar();
@@ -891,6 +990,7 @@ function showScreen(id) {
   if (id === 'dashboard') updateDashboard();
   if (id === 'create') renderHolidayBanner();
   if (id === 'performance') renderPerformance();
+  if (id === 'changelog') renderChangelog();
 }
 
 // COMPANY
