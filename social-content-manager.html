@@ -1912,7 +1912,7 @@ function renderInquiryCheck() {
         <div style="display:flex;gap:12px;margin-bottom:10px">
           <div>
             <div style="font-size:10.5px;color:var(--text3);margin-bottom:6px">Share with staff:</div>
-            <div id="qr-${p.id}" style="width:120px;height:120px;background:white;border-radius:4px;padding:4px"></div>
+            <div id="qr-${p.id}" style="width:120px;height:120px;background:white;border-radius:4px;padding:4px;overflow:hidden;flex-shrink:0"></div>
           </div>
           <div style="flex:1">
             <div style="font-size:10.5px;color:var(--text3);margin-bottom:6px">Response time:</div>
@@ -2657,7 +2657,7 @@ function generateQrCode(elementId, text) {
   const el = document.getElementById(elementId);
   if (!el) return;
   el.innerHTML = '';
-  new QRCode(elementId, { text, width: 180, height: 180 });
+  new QRCode(elementId, { text, width: 112, height: 112 });
 }
 
 function recordStaffResponse(postId, token) {
