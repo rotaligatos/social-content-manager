@@ -430,17 +430,37 @@ select:focus{border-color:var(--accent-border);}
           </div>
         </div>
         <div class="form-section">
-          <div class="form-section-header"><div class="form-section-num">4</div><div class="form-section-title">Photo</div></div>
+          <div class="form-section-header"><div class="form-section-num">4</div><div class="form-section-title">Media</div></div>
           <div class="form-section-body">
-            <div class="photo-upload-zone" onclick="document.getElementById('photo-file-input').click()">
-              <div style="font-size:24px;opacity:0.4;margin-bottom:8px">🖼</div>
-              <div class="upload-text">Drop a photo or click to upload</div>
-              <div class="upload-sub">JPG, PNG · Max 10MB</div>
+            <div style="display:flex;gap:6px;margin-bottom:14px">
+              <button class="filter-pill active" id="media-tab-photo" onclick="switchMediaTab('photo')">Photo</button>
+              <button class="filter-pill" id="media-tab-video" onclick="switchMediaTab('video')">Video</button>
             </div>
-            <input type="file" id="photo-file-input" accept="image/*" style="display:none" onchange="handlePhotoUpload(event)">
-            <div class="photo-options">
-              <button class="btn btn-secondary btn-sm" onclick="openPhotoPicker()">Choose from Library</button>
-              <button class="btn btn-secondary btn-sm" onclick="openImageGenModal()">✦ AI Generate Image</button>
+
+            <div id="media-photo-panel">
+              <div class="photo-upload-zone" onclick="document.getElementById('photo-file-input').click()">
+                <div style="font-size:24px;opacity:0.4;margin-bottom:8px">🖼</div>
+                <div class="upload-text">Drop a photo or click to upload</div>
+                <div class="upload-sub">JPG, PNG · Max 10MB</div>
+              </div>
+              <input type="file" id="photo-file-input" accept="image/*" style="display:none" onchange="handlePhotoUpload(event)">
+              <div class="photo-options">
+                <button class="btn btn-secondary btn-sm" onclick="openPhotoPicker()">Choose from Library</button>
+                <button class="btn btn-secondary btn-sm" onclick="openImageGenModal()">✦ AI Generate Image</button>
+              </div>
+            </div>
+
+            <div id="media-video-panel" style="display:none">
+              <div class="photo-upload-zone" onclick="document.getElementById('video-file-input').click()">
+                <div style="font-size:24px;opacity:0.4;margin-bottom:8px">🎬</div>
+                <div class="upload-text">Drop a video or click to upload</div>
+                <div class="upload-sub">MP4 recommended · Max 200MB · Under 90 seconds works best for Facebook feed</div>
+              </div>
+              <input type="file" id="video-file-input" accept="video/mp4,video/quicktime,video/x-msvideo" style="display:none" onchange="handleVideoUpload(event)">
+              <div class="photo-options">
+                <button class="btn btn-secondary btn-sm" onclick="openVideoGenModal()">✦ AI Generate Video</button>
+              </div>
+              <div id="video-preview-area" style="margin-top:10px"></div>
             </div>
           </div>
         </div>
@@ -662,7 +682,8 @@ select:focus{border-color:var(--accent-border);}
     <div id="brand-wcli" class="brand-content" style="display:none">
       <div class="card"><div style="font-size:14px;font-weight:500;margin-bottom:14px;color:var(--wcli)">WCLI Identity</div>
         <div class="form-group"><label class="form-label">Full Name</label><input type="text" id="bp-wcli-name" value="World Class Laminate, Inc."></div>
-        <div class="form-group"><label class="form-label">Products</label><textarea rows="2" id="bp-wcli-products">Laminated melamine boards — raw material for furniture fabrication</textarea></div>
+        <div class="form-group"><label class="form-label">Products</label><textarea rows="2" id="bp-wcli-products">Laminated melamine boards (manufactured by WCLI) plus trade items: hardware, edgeband tapes, and laminated boards</textarea></div>
+        <div class="form-group"><label class="form-label">Manufacturing &amp; Fabrication Role</label><textarea rows="2" id="bp-wcli-role">Manufactures and supplies laminated boards. Does NOT fabricate furniture itself — works in tandem with sister company MSSI, which handles fabrication into finished modular furniture.</textarea></div>
         <div class="form-group"><label class="form-label">Geographic Focus</label><input type="text" id="bp-wcli-geo" value="Luzon and national coverage"></div>
         <div class="form-group"><label class="form-label">Facebook Page Name</label><input type="text" id="bp-wcli-fbname" placeholder="e.g. World Class Laminate PH"></div>
       </div>
@@ -674,7 +695,8 @@ select:focus{border-color:var(--accent-border);}
     <div id="brand-cwli" class="brand-content" style="display:none">
       <div class="card"><div style="font-size:14px;font-weight:500;margin-bottom:14px;color:var(--cwli)">CWLI Identity</div>
         <div class="form-group"><label class="form-label">Full Name</label><input type="text" id="bp-cwli-name" value="Cebu World Laminate, Inc."></div>
-        <div class="form-group"><label class="form-label">Products</label><textarea rows="2" id="bp-cwli-products">Laminated melamine boards — Visayas and Mindanao focus</textarea></div>
+        <div class="form-group"><label class="form-label">Products</label><textarea rows="2" id="bp-cwli-products">Laminated melamine boards (manufactured by CWLI) plus trade items: hardware, edgeband tapes, and laminated boards</textarea></div>
+        <div class="form-group"><label class="form-label">Manufacturing &amp; Fabrication Role</label><textarea rows="2" id="bp-cwli-role">Manufactures laminated boards AND fabricates furniture in-house within the company — can speak directly and confidently about its own fabrication quality, unlike WCLI.</textarea></div>
         <div class="form-group"><label class="form-label">Geographic Focus</label><input type="text" id="bp-cwli-geo" value="Cebu, Visayas, and Mindanao"></div>
         <div class="form-group"><label class="form-label">Regional Language</label>
           <div class="toggle-row" style="padding:8px 0;border:none"><div><div class="toggle-label">Include Bisaya phrases</div><div class="toggle-sub">Adds local trust-building language</div></div><div class="toggle on" id="bisaya-toggle" onclick="toggleSwitch(this)"><div class="toggle-thumb"></div></div></div>
@@ -718,9 +740,19 @@ select:focus{border-color:var(--accent-border);}
             <div class="api-key-row"><input class="api-key-input" type="password" id="key-ideogram" placeholder="ideogram-..."><button class="btn btn-secondary btn-sm" onclick="saveApiKey('ideogram')">Save</button></div>
             <div style="font-size:11.5px;color:var(--text3)">Enables AI image generation when no photo is uploaded</div>
           </div>
+          <div>
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px"><label class="form-label" style="margin:0">Google Gemini API (Veo) <span style="color:var(--text3);font-weight:400">(Optional)</span></label><div class="api-status optional" id="status-veo-key"><div style="width:6px;height:6px;border-radius:50%;background:currentColor"></div>Optional</div></div>
+            <div class="api-key-row"><input class="api-key-input" type="password" id="key-veo" placeholder="AIza..."><button class="btn btn-secondary btn-sm" onclick="saveApiKey('veo')">Save</button></div>
+            <div style="font-size:11.5px;color:var(--text3)">Enables AI video generation (Veo 3.1). Get a key at aistudio.google.com/apikey — requires billing enabled on your Google Cloud account.</div>
+          </div>
         </div>
       </div>
       <div id="stab-fb-pages" style="display:none">
+        <div class="card" style="margin-bottom:16px">
+          <div style="font-size:14px;font-weight:500;margin-bottom:4px">Facebook App ID</div>
+          <div style="font-size:12px;color:var(--text3);margin-bottom:14px">Required for video posts only (text/photo posts don't need this). Find it in your Meta App Dashboard → App Settings → Basic.</div>
+          <div class="form-group"><input type="text" id="fb-app-id" placeholder="123456789012345"></div>
+        </div>
         <div class="card">
           <div style="font-size:14px;font-weight:500;margin-bottom:4px">Facebook Pages</div>
           <div style="font-size:12px;color:var(--text3);margin-bottom:20px">Add Page ID and Page Access Token for each company.</div>
@@ -797,6 +829,8 @@ const APP = {
   currentAudience: null,
   currentPillar: null,
   currentPhoto: null,
+  currentVideo: null,
+  mediaType: 'photo',
   currentCaption: null,
   posts: [],
   photos: [],
@@ -834,7 +868,13 @@ function savePhotos() {
 }
 
 function saveState() {
-  localStorage.setItem('scm_posts', JSON.stringify(APP.posts));
+  // Strip in-memory-only fields (like the raw video File object) before persisting to localStorage —
+  // they can't survive serialization and aren't needed for the saved record itself.
+  const serializable = APP.posts.map(p => {
+    const { _videoFileRef, ...rest } = p;
+    return rest;
+  });
+  localStorage.setItem('scm_posts', JSON.stringify(serializable));
 }
 
 // NAVIGATION
@@ -889,6 +929,191 @@ function handlePhotoUpload(e) {
     document.getElementById('preview-image').innerHTML = '<img src="'+ev.target.result+'" style="width:100%;height:200px;object-fit:cover" alt="Post photo">';
   };
   r.readAsDataURL(file);
+}
+
+// MEDIA TYPE TABS (Photo vs Video) in Create Post
+function switchMediaTab(type) {
+  APP.mediaType = type;
+  document.getElementById('media-tab-photo').classList.toggle('active', type === 'photo');
+  document.getElementById('media-tab-video').classList.toggle('active', type === 'video');
+  document.getElementById('media-photo-panel').style.display = type === 'photo' ? 'block' : 'none';
+  document.getElementById('media-video-panel').style.display = type === 'video' ? 'block' : 'none';
+  // Clear the other media type so a post never accidentally carries both
+  if (type === 'video') {
+    APP.currentPhoto = null;
+  } else {
+    APP.currentVideo = null;
+    document.getElementById('video-preview-area').innerHTML = '';
+  }
+  refreshPreviewMedia();
+}
+
+function refreshPreviewMedia() {
+  const previewEl = document.getElementById('preview-image');
+  if (APP.mediaType === 'video' && APP.currentVideo) {
+    previewEl.innerHTML = '<video src="'+APP.currentVideo.dataUrl+'" controls style="width:100%;height:200px;object-fit:cover;background:#000"></video>';
+  } else if (APP.mediaType === 'photo' && APP.currentPhoto) {
+    previewEl.innerHTML = '<img src="'+APP.currentPhoto+'" style="width:100%;height:200px;object-fit:cover" alt="Post photo">';
+  } else {
+    previewEl.innerHTML = '<span style="opacity:0.4">No '+(APP.mediaType === 'video' ? 'video' : 'photo')+' selected</span>';
+  }
+}
+
+// VIDEO UPLOAD (Create Post)
+// Stored as a Blob URL for preview (videos are too large for localStorage as base64) — the actual File
+// object is kept in memory for the Facebook Resumable Upload flow when publishing.
+function handleVideoUpload(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  const maxSize = 200 * 1024 * 1024; // 200MB
+  if (file.size > maxSize) {
+    showToast('Video is too large (max 200MB). Try compressing it first.', 'error');
+    e.target.value = '';
+    return;
+  }
+  const dataUrl = URL.createObjectURL(file);
+  APP.currentVideo = { file: file, dataUrl: dataUrl, name: file.name, size: file.size };
+  document.getElementById('video-preview-area').innerHTML = `
+    <video src="${dataUrl}" controls style="width:100%;max-height:200px;border-radius:var(--radius);background:#000"></video>
+    <div style="font-size:11.5px;color:var(--text3);margin-top:6px">${file.name} · ${(file.size/1024/1024).toFixed(1)}MB</div>
+  `;
+  refreshPreviewMedia();
+  showToast('Video attached to post', 'success');
+}
+
+// AI VIDEO GENERATION (Google Veo 3.1, via the Gemini API)
+function openVideoGenModal() {
+  if (!APP.currentCompany) { showToast('Select a company first so the prompt can be tailored', 'error'); return; }
+  const suggestedPrompt = buildVideoPromptSuggestion(APP.currentCompany, APP.currentPillar);
+  let html = '<div id="vidgen-overlay" style="position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:2000;display:flex;align-items:center;justify-content:center" onclick="if(event.target.id===\'vidgen-overlay\')closeVideoGenModal()">';
+  html += '<div style="background:var(--bg2);border:1px solid var(--border2);border-radius:var(--radius-lg);width:540px;max-height:85vh;display:flex;flex-direction:column;overflow:hidden">';
+  html += '<div style="padding:16px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between"><div style="font-size:14px;font-weight:500">AI Generate Video — '+APP.currentCompany.toUpperCase()+'</div><button class="btn btn-ghost btn-sm" onclick="closeVideoGenModal()">Close</button></div>';
+  html += '<div style="padding:18px;overflow-y:auto;flex:1">';
+  html += '<label class="form-label">Describe the video</label>';
+  html += '<textarea id="vidgen-prompt" rows="4" style="margin-bottom:12px">'+suggestedPrompt+'</textarea>';
+  html += '<div style="font-size:11.5px;color:var(--text3);margin-bottom:14px">Tip: describe the subject, what it\'s doing, the camera movement, and the mood. This generates an AI-imagined scene, not your literal product — for showing a specific real project or exact item, use a real photo or uploaded video instead.</div>';
+  html += '<div style="display:flex;gap:10px;margin-bottom:14px">';
+  html += '<div style="flex:1"><label class="form-label">Aspect Ratio</label><select id="vidgen-aspect"><option value="9:16" selected>Portrait (9:16) — best for Facebook feed/Reels</option><option value="16:9">Landscape (16:9)</option></select></div>';
+  html += '</div>';
+  html += '<button class="generate-btn" id="vidgen-btn" onclick="runVideoGen()" style="margin-bottom:8px"><svg style="width:16px;height:16px" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 1v3M8 12v3M1 8h3M12 8h3"/><circle cx="8" cy="8" r="3"/></svg> Generate Video</button>';
+  html += '<div style="font-size:11px;color:var(--text3);margin-bottom:14px">Takes about 1-3 minutes. You can\'t navigate away while this runs.</div>';
+  html += '<div id="vidgen-progress" style="font-size:12.5px;color:var(--text2)"></div>';
+  html += '<div id="vidgen-result"></div>';
+  html += '</div></div></div>';
+  const div = document.createElement('div');
+  div.id = 'vidgen-container';
+  div.innerHTML = html;
+  document.body.appendChild(div);
+}
+
+function closeVideoGenModal() {
+  const el = document.getElementById('vidgen-container');
+  if (el) el.remove();
+}
+
+function buildVideoPromptSuggestion(co, pillar) {
+  const base = {
+    mssi: 'A warm, cinematic slow pan across a beautifully finished modular kitchen in a bright Filipino home, golden hour light streaming through a window, cabinet doors gently catching the light. Calm, aspirational mood, soft ambient room tone, no dialogue.',
+    wcli: 'A close, cinematic tracking shot moving slowly across stacked laminated melamine boards in a clean industrial workshop, light raking across the textured surface to show finish quality. Confident, professional mood, quiet ambient workshop sound, no dialogue.',
+    cwli: 'A close, cinematic tracking shot moving slowly across stacked laminated melamine boards in a sunlit workshop, light raking across the textured surface to show finish quality. Warm, confident mood with a sense of local craftsmanship, quiet ambient workshop sound, no dialogue.'
+  };
+  return base[co] || 'A professional, cinematic product showcase video';
+}
+
+async function runVideoGen() {
+  const apiKey = APP.apiKeys.veo || localStorage.getItem('scm_veo_key');
+  if (!apiKey) {
+    showToast('Add your Google Gemini API key in Settings first', 'error');
+    closeVideoGenModal();
+    showScreen('settings');
+    return;
+  }
+  const prompt = document.getElementById('vidgen-prompt').value.trim();
+  if (!prompt) { showToast('Describe the video first', 'error'); return; }
+  const aspectRatio = document.getElementById('vidgen-aspect').value;
+
+  const btn = document.getElementById('vidgen-btn');
+  const progressEl = document.getElementById('vidgen-progress');
+  btn.innerHTML = '<div class="spinner" style="width:18px;height:18px;border-width:2px"></div> Starting...';
+  btn.disabled = true;
+  document.getElementById('vidgen-result').innerHTML = '';
+
+  const BASE_URL = 'https://generativelanguage.googleapis.com/v1beta';
+  const MODEL = 'veo-3.1-fast-generate-preview'; // Fast tier: built for quick, business-use social content
+
+  try {
+    // Step 1: start the long-running generation job
+    progressEl.textContent = 'Submitting request to Veo...';
+    const startRes = await fetch(`${BASE_URL}/models/${MODEL}:predictLongRunning`, {
+      method: 'POST',
+      headers: { 'x-goog-api-key': apiKey, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        instances: [{ prompt: prompt }],
+        parameters: { aspectRatio: aspectRatio }
+      })
+    });
+    const startData = await startRes.json();
+    if (startData.error) throw new Error(startData.error.message);
+    const operationName = startData.name;
+    if (!operationName) throw new Error('No operation returned from Veo');
+
+    // Step 2: poll until done (Google's docs note this can take 11 seconds to 6 minutes)
+    let done = false;
+    let attempts = 0;
+    let statusData = null;
+    while (!done && attempts < 40) { // cap at ~40 polls (~6-7 min) so it can't hang forever
+      await new Promise(r => setTimeout(r, 10000));
+      attempts++;
+      progressEl.textContent = `Generating video... (checking status, ${attempts * 10}s elapsed)`;
+      const statusRes = await fetch(`${BASE_URL}/${operationName}`, {
+        headers: { 'x-goog-api-key': apiKey }
+      });
+      statusData = await statusRes.json();
+      done = statusData.done === true;
+    }
+    if (!done) throw new Error('Video generation timed out. Try again, or try a shorter/simpler prompt.');
+    if (statusData.error) throw new Error(statusData.error.message);
+
+    const videoUri = statusData.response?.generateVideoResponse?.generatedSamples?.[0]?.video?.uri;
+    if (!videoUri) throw new Error('Video generation completed but no video was returned (it may have been blocked by safety filters).');
+
+    // Step 3: download the actual video bytes
+    progressEl.textContent = 'Downloading generated video...';
+    const videoRes = await fetch(videoUri, { headers: { 'x-goog-api-key': apiKey } });
+    const videoBlob = await videoRes.blob();
+    const videoFile = new File([videoBlob], 'veo-generated-' + Date.now() + '.mp4', { type: 'video/mp4' });
+    const objectUrl = URL.createObjectURL(videoFile);
+
+    progressEl.textContent = '';
+    document.getElementById('vidgen-result').innerHTML = `
+      <video src="${objectUrl}" controls style="width:100%;border-radius:var(--radius);margin-bottom:10px;background:#000"></video>
+      <button class="btn btn-primary" style="width:100%" onclick="useGeneratedVideo()">Use This Video</button>
+    `;
+    // Stash on a temp holder so the button click (which can't pass a File through HTML) can pick it up
+    window._pendingGeneratedVideo = { file: videoFile, dataUrl: objectUrl, name: videoFile.name, size: videoFile.size };
+    showToast('Video generated!', 'success');
+  } catch (err) {
+    progressEl.textContent = '';
+    document.getElementById('vidgen-result').innerHTML = `<div style="color:var(--red);font-size:12.5px">Error: ${err.message}</div>`;
+    showToast('Video generation failed: ' + err.message, 'error');
+  }
+
+  btn.innerHTML = '<svg style="width:16px;height:16px" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 1v3M8 12v3M1 8h3M12 8h3"/><circle cx="8" cy="8" r="3"/></svg> Generate Video';
+  btn.disabled = false;
+}
+
+function useGeneratedVideo() {
+  const v = window._pendingGeneratedVideo;
+  if (!v) return;
+  APP.currentVideo = v;
+  document.getElementById('video-preview-area').innerHTML = `
+    <video src="${v.dataUrl}" controls style="width:100%;max-height:200px;border-radius:var(--radius);background:#000"></video>
+    <div style="font-size:11.5px;color:var(--text3);margin-top:6px">${v.name} · ${(v.size/1024/1024).toFixed(1)}MB · AI-generated</div>
+  `;
+  refreshPreviewMedia();
+  closeVideoGenModal();
+  window._pendingGeneratedVideo = null;
+  showToast('Video applied to post', 'success');
 }
 
 function handleLibraryUpload(e) {
@@ -1102,9 +1327,9 @@ function saveGeneratedToLibrary(base64) {
 // GENERATE POST
 // SHARED BRAND/PROMPT LOGIC (used by both manual Create Post and Auto-Generate Week)
 const COMPANY_DESC = {
-  mssi: 'Module Systems and Services, Inc. (MSSI) — a Philippine company that manufactures and sells modular furniture including kitchen cabinets, wardrobes, closets, vanity cabinets, toilet partitions, and wall cladding',
-  wcli: 'World Class Laminate, Inc. (WCLI) — a Philippine supplier of laminated melamine boards, the raw material used in furniture fabrication, serving the Luzon and national market',
-  cwli: 'Cebu World Laminate, Inc. (CWLI) — a Philippine supplier of laminated melamine boards serving Cebu, Visayas, and Mindanao, emphasizing local availability and regional identity'
+  mssi: 'Module Systems and Services, Inc. (MSSI) — a Philippine company that manufactures and sells modular furniture including kitchen cabinets, wardrobes, closets, vanity cabinets, toilet partitions, and wall cladding. MSSI works closely with sister company WCLI, which supplies the laminated boards used in MSSI\'s fabrication',
+  wcli: 'World Class Laminate, Inc. (WCLI) — a Philippine manufacturer and supplier of laminated melamine boards, serving the Luzon and national market. WCLI manufactures and supplies boards but does not fabricate furniture itself — for finished modular furniture, WCLI works in tandem with sister company MSSI, which handles fabrication. WCLI also trades and distributes hardware, edgeband tapes, and laminated boards beyond its own-brand product line',
+  cwli: 'Cebu World Laminate, Inc. (CWLI) — a Philippine manufacturer of laminated melamine boards serving Cebu, Visayas, and Mindanao. Unlike WCLI, CWLI both manufactures boards AND fabricates furniture in-house within the company, so CWLI can speak directly to its own fabrication quality and capability. CWLI also trades and distributes hardware, edgeband tapes, and laminated boards beyond its own-brand product line, emphasizing local availability and regional identity'
 };
 const TONE_GUIDE = {
   mssi: {
@@ -1114,15 +1339,16 @@ const TONE_GUIDE = {
     'Cabinet Maker / Fabricator': 'Trade-to-trade respect. Technical quality, ease of installation, consistent supply.',
     'Hardware Store / Dealer': 'Business partnership. Margins, availability, fast-moving product, dealer support.'
   },
-  wcli: { default: 'Authoritative, technical, quality-driven. Speak to fabricators\' pride in craftsmanship and need for a reliable material supplier. Confident and trade-professional. Highlight board quality, consistency, and supplier reliability.' },
-  cwli: { default: 'Technical authority with regional warmth. Emphasize local availability, proximity advantage over Manila-based suppliers, and regional pride. Occasional short Bisaya phrase welcome for local trust-building (e.g. Libre kwestyon! or Kumpleto ang stock namo!).' }
+  wcli: { default: 'Authoritative, technical, quality-driven. Speak to fabricators\' pride in craftsmanship and need for a reliable material supplier. Confident and trade-professional. Highlight board quality, consistency, and supplier reliability. When relevant, mention the broader trade catalog (hardware, edgeband tapes, laminated boards) and the fabrication partnership with sister company MSSI — but never claim WCLI itself fabricates furniture.' },
+  cwli: { default: 'Technical authority with regional warmth. Emphasize local availability, proximity advantage over Manila-based suppliers, and regional pride. Occasional short Bisaya phrase welcome for local trust-building (e.g. Libre kwestyon! or Kumpleto ang stock namo!). CWLI can speak directly and confidently about its own in-house fabrication quality, since it manufactures boards and fabricates furniture itself. When relevant, mention the broader trade catalog too (hardware, edgeband tapes, laminated boards).' }
 };
 
 function getCompanyDescFor(co) {
   const bp = APP.brandProfiles && APP.brandProfiles[co];
   if (bp && bp.name && bp.products) {
     const geoPart = bp.geo ? `, serving ${bp.geo}` : '';
-    return `${bp.name} (${co.toUpperCase()}) — a Philippine company. Products: ${bp.products}${geoPart}`;
+    const rolePart = bp.role ? `. ${bp.role}` : '';
+    return `${bp.name} (${co.toUpperCase()}) — a Philippine company. Products: ${bp.products}${geoPart}${rolePart}`;
   }
   return COMPANY_DESC[co];
 }
@@ -1242,13 +1468,21 @@ function resetGenerateBtn() {
 
 function saveDraft() {
   if (!APP.currentCaption) { showToast('Generate a post first', 'error'); return; }
+  const hasVideo = APP.mediaType === 'video' && APP.currentVideo;
   const post = {
     id: Date.now(),
     company: APP.currentCompany,
     audience: APP.currentAudience,
     pillar: APP.currentPillar,
     caption: APP.currentCaption,
-    photo: APP.currentPhoto,
+    photo: hasVideo ? null : APP.currentPhoto,
+    mediaType: hasVideo ? 'video' : 'photo',
+    // Video files cannot be stored in localStorage (too large) and Blob URLs don't survive a page reload.
+    // We keep the actual File object in memory only for this session — if the page is closed before
+    // publishing, the video needs to be re-attached. videoMeta keeps the filename/size so the post still
+    // shows what was attached even after a reload.
+    videoMeta: hasVideo ? { name: APP.currentVideo.name, size: APP.currentVideo.size } : null,
+    _videoFileRef: hasVideo ? APP.currentVideo.file : null,
     status: 'draft',
     createdAt: new Date().toISOString(),
     scheduledFor: null
@@ -1257,7 +1491,11 @@ function saveDraft() {
   saveState();
   updateDashboard();
   updateReviewBadge();
-  showToast('Saved to review queue', 'success');
+  if (hasVideo) {
+    showToast('Saved with video — publish in this session, since video files don\'t persist after closing the browser', 'info');
+  } else {
+    showToast('Saved to review queue', 'success');
+  }
 }
 
 // REVIEW QUEUE
@@ -1285,7 +1523,7 @@ function updateReviewQueue() {
           <span style="font-size:11px;color:var(--text3);margin-left:auto">${new Date(p.createdAt).toLocaleDateString()}</span>
         </div>
         <div style="display:flex;gap:12px;margin-bottom:12px">
-          ${p.photo ? `<img src="${p.photo}" style="width:90px;height:90px;object-fit:cover;border-radius:var(--radius);flex-shrink:0" alt="Post photo">` : `<div style="width:90px;height:90px;border-radius:var(--radius);background:var(--bg4);display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:11px;color:var(--text3);text-align:center;padding:4px">No photo</div>`}
+          ${p.mediaType === 'video' ? `<div style="width:90px;height:90px;border-radius:var(--radius);background:var(--bg4);display:flex;flex-direction:column;align-items:center;justify-content:center;flex-shrink:0;font-size:20px" title="${p.videoMeta ? p.videoMeta.name : 'Video'}">🎬<span style="font-size:9px;color:var(--text3);margin-top:4px">Video</span></div>` : p.photo ? `<img src="${p.photo}" style="width:90px;height:90px;object-fit:cover;border-radius:var(--radius);flex-shrink:0" alt="Post photo">` : `<div style="width:90px;height:90px;border-radius:var(--radius);background:var(--bg4);display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:11px;color:var(--text3);text-align:center;padding:4px">No photo</div>`}
           <textarea id="caption-edit-${p.id}" style="font-size:13.5px;line-height:1.7;color:var(--text);background:var(--bg3);padding:14px;border-radius:var(--radius);white-space:pre-wrap;flex:1;border:1px solid var(--border);font-family:'DM Sans',sans-serif;resize:vertical;min-height:120px" onchange="markCaptionEdited(${p.id})">${p.caption}</textarea>
         </div>
         <div style="display:flex;gap:8px">
@@ -1752,6 +1990,7 @@ function saveBrandProfile() {
     wcli: {
       name: document.getElementById('bp-wcli-name')?.value || '',
       products: document.getElementById('bp-wcli-products')?.value || '',
+      role: document.getElementById('bp-wcli-role')?.value || '',
       geo: document.getElementById('bp-wcli-geo')?.value || '',
       fbname: document.getElementById('bp-wcli-fbname')?.value || '',
       tone: document.getElementById('bp-wcli-tone')?.value || '',
@@ -1760,6 +1999,7 @@ function saveBrandProfile() {
     cwli: {
       name: document.getElementById('bp-cwli-name')?.value || '',
       products: document.getElementById('bp-cwli-products')?.value || '',
+      role: document.getElementById('bp-cwli-role')?.value || '',
       geo: document.getElementById('bp-cwli-geo')?.value || '',
       tone: document.getElementById('bp-cwli-tone')?.value || '',
       diff: document.getElementById('bp-cwli-diff')?.value || '',
@@ -1790,6 +2030,7 @@ function loadBrandProfiles() {
     if (data.wcli) {
       setVal('bp-wcli-name', data.wcli.name);
       setVal('bp-wcli-products', data.wcli.products);
+      setVal('bp-wcli-role', data.wcli.role);
       setVal('bp-wcli-geo', data.wcli.geo);
       setVal('bp-wcli-fbname', data.wcli.fbname);
       setVal('bp-wcli-tone', data.wcli.tone);
@@ -1798,6 +2039,7 @@ function loadBrandProfiles() {
     if (data.cwli) {
       setVal('bp-cwli-name', data.cwli.name);
       setVal('bp-cwli-products', data.cwli.products);
+      setVal('bp-cwli-role', data.cwli.role);
       setVal('bp-cwli-geo', data.cwli.geo);
       setVal('bp-cwli-tone', data.cwli.tone);
       setVal('bp-cwli-diff', data.cwli.diff);
@@ -1843,7 +2085,7 @@ async function testApiKey(service) {
 }
 
 function updateApiStatusBadges() {
-  const map = { anthropic:'status-anthropic-key', facebook:'status-facebook-key', ideogram:'status-ideogram-key' };
+  const map = { anthropic:'status-anthropic-key', facebook:'status-facebook-key', ideogram:'status-ideogram-key', veo:'status-veo-key' };
   Object.entries(map).forEach(([k, id]) => {
     const el = document.getElementById(id);
     if (!el) return;
@@ -1857,6 +2099,7 @@ function updateApiStatusBadges() {
 
 function saveFbPages() {
   const data = {
+    appId: document.getElementById('fb-app-id').value.trim(),
     mssi: { id: document.getElementById('fb-mssi-id').value.trim(), token: document.getElementById('fb-mssi-token').value.trim() },
     wcli: { id: document.getElementById('fb-wcli-id').value.trim(), token: document.getElementById('fb-wcli-token').value.trim() },
     cwli: { id: document.getElementById('fb-cwli-id').value.trim(), token: document.getElementById('fb-cwli-token').value.trim() }
@@ -1870,6 +2113,8 @@ function loadFbPages() {
   try {
     const data = JSON.parse(localStorage.getItem('scm_fb_pages') || '{}');
     APP.fbPages = data;
+    const appIdEl = document.getElementById('fb-app-id');
+    if (appIdEl && data.appId) appIdEl.value = data.appId;
     ['mssi','wcli','cwli'].forEach(co => {
       if (data[co]) {
         const idEl = document.getElementById('fb-'+co+'-id');
@@ -1918,6 +2163,10 @@ async function publishToFacebook(post) {
     return { success: false, error: 'No Facebook Page ID/Token configured for ' + post.company.toUpperCase() + '. Add it in Settings → Facebook Pages.' };
   }
 
+  if (post.mediaType === 'video') {
+    return await publishVideoToFacebook(post, pageData);
+  }
+
   try {
     let photoId = null;
     // If there's a photo, upload it first (unpublished) to get a media fbid
@@ -1949,9 +2198,75 @@ async function publishToFacebook(post) {
   }
 }
 
+// FACEBOOK VIDEO PUBLISHING (Resumable Upload API)
+// Video posting is a genuinely different flow from photo/text: the file has to be uploaded to Meta's
+// servers first via the Resumable Upload API (in case of large files), which hands back a file handle,
+// and only then can that handle be posted to /PAGE_ID/videos to actually publish it.
+// Requires a Facebook App ID (separate from the Page ID/Token already collected) — see Settings → Facebook Pages.
+async function publishVideoToFacebook(post, pageData) {
+  const file = post._videoFileRef;
+  if (!file) {
+    return { success: false, error: 'The video file is no longer available in memory. Videos must be published in the same browser session they were attached in — please re-attach the video and try again.' };
+  }
+
+  const appId = (APP.fbPages && APP.fbPages.appId) || JSON.parse(localStorage.getItem('scm_fb_pages') || '{}').appId;
+  if (!appId) {
+    return { success: false, error: 'No Facebook App ID configured. Add it in Settings → Facebook Pages — this is required for video uploads (separate from the Page ID/Token).' };
+  }
+
+  try {
+    // Step 1: Start a resumable upload session
+    const startParams = new URLSearchParams({
+      file_name: file.name,
+      file_length: file.size,
+      file_type: file.type || 'video/mp4',
+      access_token: pageData.token
+    });
+    const startRes = await fetch(`https://graph.facebook.com/v21.0/${appId}/uploads?${startParams.toString()}`, { method: 'POST' });
+    const startData = await startRes.json();
+    if (startData.error) return { success: false, error: 'Upload session failed: ' + startData.error.message };
+    const uploadSessionId = startData.id; // formatted as "upload:<id>"
+
+    // Step 2: Upload the actual file bytes
+    const uploadRes = await fetch(`https://graph.facebook.com/v21.0/${uploadSessionId}`, {
+      method: 'POST',
+      headers: {
+        'Authorization': 'OAuth ' + pageData.token,
+        'file_offset': '0'
+      },
+      body: file
+    });
+    const uploadData = await uploadRes.json();
+    if (uploadData.error) return { success: false, error: 'Video upload failed: ' + uploadData.error.message };
+    const fileHandle = uploadData.h;
+    if (!fileHandle) return { success: false, error: 'Video upload did not return a file handle.' };
+
+    // Step 3: Publish the uploaded video to the Page using the file handle
+    const publishParams = new URLSearchParams();
+    publishParams.append('access_token', pageData.token);
+    publishParams.append('description', post.caption);
+    publishParams.append('fbuploader_video_file_chunk', fileHandle);
+
+    const publishRes = await fetch(`https://graph.facebook.com/v21.0/${pageData.id}/videos`, {
+      method: 'POST',
+      body: publishParams
+    });
+    const publishData = await publishRes.json();
+    if (publishData.error) return { success: false, error: 'Video publish failed: ' + publishData.error.message };
+
+    return { success: true, postId: publishData.id };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+}
+
 async function publishPostNow(id) {
   const post = APP.posts.find(p => p.id === id);
   if (!post) return;
+  if (post.mediaType === 'video' && !post._videoFileRef) {
+    showToast('Video file is no longer attached (likely lost after a page reload). Re-attach the video in Create Post and try again.', 'error');
+    return;
+  }
   showToast('Publishing to Facebook...', 'info');
   const result = await publishToFacebook(post);
   if (result.success) {
