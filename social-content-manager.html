@@ -885,6 +885,7 @@ select:focus{border-color:var(--accent-border);}
             <button class="btn btn-secondary" style="flex:1" onclick="document.getElementById('backup-restore-input').click()">Restore from Backup</button>
           </div>
           <div style="font-size:11px;color:var(--text3);margin-top:8px">Restoring replaces all current data in this browser. Back up first if unsure.</div>
+          <div id="storage-usage-display" style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border)"></div>
         </div>
         <div class="card" style="margin-bottom:16px">
           <div style="font-size:14px;font-weight:500;margin-bottom:4px">Spreadsheet Export</div>
@@ -1067,7 +1068,14 @@ function loadState() {
 }
 
 function savePhotos() {
-  localStorage.setItem('scm_photos', JSON.stringify(APP.photos));
+  try {
+    localStorage.setItem('scm_photos', JSON.stringify(APP.photos));
+    return true;
+  } catch (e) {
+    showToast('Storage is full — delete some older photos from the Photo Library to free up space, then try again.', 'error');
+    console.error('savePhotos failed:', e);
+    return false;
+  }
 }
 
 function saveState() {
@@ -1077,7 +1085,41 @@ function saveState() {
     const { _videoFileRef, ...rest } = p;
     return rest;
   });
-  localStorage.setItem('scm_posts', JSON.stringify(serializable));
+  try {
+    localStorage.setItem('scm_posts', JSON.stringify(serializable));
+    return true;
+  } catch (e) {
+    showToast('Storage is full — your browser has a limited amount of space and it\'s been used up, likely by photos. Delete some older photos from the Photo Library to free up space, then try saving again.', 'error');
+    console.error('saveState failed:', e);
+    return false;
+  }
+}
+
+// Rough estimate of how much of the browser's local storage quota this app is using.
+// Browsers typically allow 5-10MB per site — base64-encoded photos are the main driver of growth here,
+// since they're roughly a third larger than the original file. This is approximate, not exact.
+function getStorageUsageEstimate() {
+  let totalChars = 0;
+  for (const key in localStorage) {
+    if (Object.prototype.hasOwnProperty.call(localStorage, key) && key.startsWith('scm_')) {
+      totalChars += (localStorage[key] || '').length;
+    }
+  }
+  const approxMB = (totalChars * 2) / (1024 * 1024); // browsers store strings as UTF-16, ~2 bytes/char
+  return approxMB;
+}
+
+function renderStorageUsage() {
+  const el = document.getElementById('storage-usage-display');
+  if (!el) return;
+  const usedMB = getStorageUsageEstimate();
+  const photoCount = (APP.photos || []).length;
+  const isHigh = usedMB > 4; // most browsers cap around 5-10MB, so flag well before the likely ceiling
+  el.innerHTML = `
+    <div style="font-size:12px;color:${isHigh ? 'var(--red)' : 'var(--text3)'}">
+      ~${usedMB.toFixed(2)} MB used across ${photoCount} library photo${photoCount === 1 ? '' : 's'} and ${(APP.posts||[]).length} posts.
+      ${isHigh ? ' This is getting close to most browsers\' storage limit — consider deleting older photos from the Photo Library, or download a backup and clear data to start fresh.' : ''}
+    </div>`;
 }
 
 // NAVIGATION
@@ -2370,6 +2412,7 @@ function switchSettingsTab(btn, tab) {
     const el = document.getElementById('stab-' + t);
     if (el) el.style.display = t === tab ? 'block' : 'none';
   });
+  if (tab === 'data') renderStorageUsage();
 }
 
 function saveApiKey(service) {
