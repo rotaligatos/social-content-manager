@@ -1986,7 +1986,8 @@ async function notifyAssignedStaff(id) {
   if (!post || !post.assignedChatId) return;
   const staffMember = (APP.staff || []).find(s => s.chatId === post.assignedChatId);
   const name = staffMember ? staffMember.name : 'there';
-  const message = `Hi ${name}, a post needs your attention:\n\n${post.company.toUpperCase()} — ${post.pillar} (${post.audience})\nPublished: ${post.publishedAt ? new Date(post.publishedAt).toLocaleString() : 'recently'}\n\nPlease check Facebook for comments/DMs on this post and follow up.`;
+  const respondUrl = getResponseUrl(post.id, post.responseToken);
+  const message = `Hi ${name}, a post needs your attention:\n\n${post.company.toUpperCase()} — ${post.pillar} (${post.audience})\nPublished: ${post.publishedAt ? new Date(post.publishedAt).toLocaleString() : 'recently'}\n\nPlease check Facebook for comments/DMs on this post and follow up.\n\nOnce you've responded, tap this link to confirm:\n${respondUrl}`;
   showToast('Sending Telegram notification...', 'info');
   const result = await sendTelegramNotification(post.assignedChatId, message);
   if (result.success) {
