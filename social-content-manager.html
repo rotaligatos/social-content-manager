@@ -294,6 +294,7 @@ select:focus{border-color:var(--accent-border);}
       <svg style="width:14px;height:14px" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="7"/><line x1="8" y1="5" x2="8" y2="8"/><circle cx="8" cy="11" r="0.5" fill="currentColor"/></svg>
       Help &amp; Documentation
     </button>
+    <div id="creator-credit" style="display:none"></div>
   </div>
 </nav>
 
@@ -318,6 +319,7 @@ select:focus{border-color:var(--accent-border);}
     <div id="holiday-year-reminder"></div>
     <div class="dash-companies">
       <div class="company-card mssi">
+        <div id="dash-logo-mssi" style="width:32px;height:32px;margin-bottom:8px;display:none"></div>
         <div class="company-card-name">MSSI</div>
         <div class="company-card-sub">Module Systems &amp; Services</div>
         <div class="company-stat"><span class="company-stat-num" style="color:var(--mssi)" id="dash-mssi-count">0</span><span class="company-stat-label">posts this week</span></div>
@@ -325,6 +327,7 @@ select:focus{border-color:var(--accent-border);}
         <div class="company-card-status"><div class="status-dot amber" id="dot-mssi"></div><span id="status-mssi">Facebook not connected yet</span></div>
       </div>
       <div class="company-card wcli">
+        <div id="dash-logo-wcli" style="width:32px;height:32px;margin-bottom:8px;display:none"></div>
         <div class="company-card-name">WCLI</div>
         <div class="company-card-sub">World Class Laminate</div>
         <div class="company-stat"><span class="company-stat-num" style="color:var(--wcli)" id="dash-wcli-count">0</span><span class="company-stat-label">posts this week</span></div>
@@ -332,6 +335,7 @@ select:focus{border-color:var(--accent-border);}
         <div class="company-card-status"><div class="status-dot amber" id="dot-wcli"></div><span id="status-wcli">Facebook not connected yet</span></div>
       </div>
       <div class="company-card cwli">
+        <div id="dash-logo-cwli" style="width:32px;height:32px;margin-bottom:8px;display:none"></div>
         <div class="company-card-name">CWLI</div>
         <div class="company-card-sub">Cebu World Laminate</div>
         <div class="company-stat"><span class="company-stat-num" style="color:var(--cwli)" id="dash-cwli-count">0</span><span class="company-stat-label">posts this week</span></div>
@@ -670,6 +674,19 @@ select:focus{border-color:var(--accent-border);}
       <button class="brand-tab" id="btab-cwli" onclick="switchBrandTab('cwli')"><div style="width:8px;height:8px;border-radius:50%;background:var(--cwli)"></div>CWLI</button>
     </div>
     <div id="brand-mssi" class="brand-content">
+      <div class="card"><div style="font-size:14px;font-weight:500;margin-bottom:14px">Company Logo</div>
+        <div style="display:flex;align-items:center;gap:16px">
+          <div id="logo-preview-mssi" style="width:72px;height:72px;border-radius:var(--radius);background:var(--bg3);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;overflow:hidden;flex-shrink:0">
+            <span style="font-size:11px;color:var(--text3)">No logo</span>
+          </div>
+          <div style="flex:1">
+            <input type="file" id="logo-file-mssi" accept="image/*" style="display:none" onchange="handleLogoUpload('mssi', event)">
+            <button class="btn btn-secondary btn-sm" onclick="document.getElementById('logo-file-mssi').click()">Upload Logo</button>
+            <button class="btn btn-ghost btn-sm" onclick="removeLogo('mssi')">Remove</button>
+            <div style="font-size:11px;color:var(--text3);margin-top:8px">Shown on the Dashboard and used as a visual reference across the app. PNG with a transparent background works best.</div>
+          </div>
+        </div>
+      </div>
       <div class="card"><div style="font-size:14px;font-weight:500;margin-bottom:14px">Company Identity</div>
         <div class="form-group"><label class="form-label">Full Name</label><input type="text" id="bp-mssi-name" value="Module Systems and Services, Inc."></div>
         <div class="form-group"><label class="form-label">Products</label><textarea rows="2" id="bp-mssi-products">Modular kitchen cabinets, wardrobes, closets, vanity cabinets, toilet partitions, wall cladding</textarea></div>
@@ -687,6 +704,19 @@ select:focus{border-color:var(--accent-border);}
       </div>
     </div>
     <div id="brand-wcli" class="brand-content" style="display:none">
+      <div class="card"><div style="font-size:14px;font-weight:500;margin-bottom:14px">Company Logo</div>
+        <div style="display:flex;align-items:center;gap:16px">
+          <div id="logo-preview-wcli" style="width:72px;height:72px;border-radius:var(--radius);background:var(--bg3);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;overflow:hidden;flex-shrink:0">
+            <span style="font-size:11px;color:var(--text3)">No logo</span>
+          </div>
+          <div style="flex:1">
+            <input type="file" id="logo-file-wcli" accept="image/*" style="display:none" onchange="handleLogoUpload('wcli', event)">
+            <button class="btn btn-secondary btn-sm" onclick="document.getElementById('logo-file-wcli').click()">Upload Logo</button>
+            <button class="btn btn-ghost btn-sm" onclick="removeLogo('wcli')">Remove</button>
+            <div style="font-size:11px;color:var(--text3);margin-top:8px">Shown on the Dashboard and used as a visual reference across the app. PNG with a transparent background works best.</div>
+          </div>
+        </div>
+      </div>
       <div class="card"><div style="font-size:14px;font-weight:500;margin-bottom:14px;color:var(--wcli)">WCLI Identity</div>
         <div class="form-group"><label class="form-label">Full Name</label><input type="text" id="bp-wcli-name" value="World Class Laminate, Inc."></div>
         <div class="form-group"><label class="form-label">Products</label><textarea rows="2" id="bp-wcli-products">Laminated melamine boards (manufactured by WCLI) plus trade items: hardware, edgeband tapes, and laminated boards</textarea></div>
@@ -700,6 +730,19 @@ select:focus{border-color:var(--accent-border);}
       </div>
     </div>
     <div id="brand-cwli" class="brand-content" style="display:none">
+      <div class="card"><div style="font-size:14px;font-weight:500;margin-bottom:14px">Company Logo</div>
+        <div style="display:flex;align-items:center;gap:16px">
+          <div id="logo-preview-cwli" style="width:72px;height:72px;border-radius:var(--radius);background:var(--bg3);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;overflow:hidden;flex-shrink:0">
+            <span style="font-size:11px;color:var(--text3)">No logo</span>
+          </div>
+          <div style="flex:1">
+            <input type="file" id="logo-file-cwli" accept="image/*" style="display:none" onchange="handleLogoUpload('cwli', event)">
+            <button class="btn btn-secondary btn-sm" onclick="document.getElementById('logo-file-cwli').click()">Upload Logo</button>
+            <button class="btn btn-ghost btn-sm" onclick="removeLogo('cwli')">Remove</button>
+            <div style="font-size:11px;color:var(--text3);margin-top:8px">Shown on the Dashboard and used as a visual reference across the app. PNG with a transparent background works best.</div>
+          </div>
+        </div>
+      </div>
       <div class="card"><div style="font-size:14px;font-weight:500;margin-bottom:14px;color:var(--cwli)">CWLI Identity</div>
         <div class="form-group"><label class="form-label">Full Name</label><input type="text" id="bp-cwli-name" value="Cebu World Laminate, Inc."></div>
         <div class="form-group"><label class="form-label">Products</label><textarea rows="2" id="bp-cwli-products">Laminated melamine boards (manufactured by CWLI) plus trade items: hardware, edgeband tapes, and laminated boards</textarea></div>
@@ -877,6 +920,26 @@ select:focus{border-color:var(--accent-border);}
       </div>
       <div id="stab-data" style="display:none">
         <div class="card" style="margin-bottom:16px">
+          <div style="font-size:14px;font-weight:500;margin-bottom:4px">Developer Credit (optional)</div>
+          <div style="font-size:12px;color:var(--text3);margin-bottom:14px">A small, optional credit for whoever built this app — separate from the MSSI/WCLI/CWLI logos. Hidden by default; nothing changes unless you turn it on below.</div>
+          <div style="display:flex;align-items:center;gap:16px;margin-bottom:14px">
+            <div id="logo-preview-creator" style="width:60px;height:60px;border-radius:var(--radius);background:var(--bg3);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;overflow:hidden;flex-shrink:0">
+              <span style="font-size:10px;color:var(--text3)">No logo</span>
+            </div>
+            <div style="flex:1">
+              <input type="file" id="logo-file-creator" accept="image/*" style="display:none" onchange="handleCreatorLogoUpload(event)">
+              <button class="btn btn-secondary btn-sm" onclick="document.getElementById('logo-file-creator').click()">Upload Logo</button>
+              <button class="btn btn-ghost btn-sm" onclick="removeCreatorLogo()">Remove</button>
+            </div>
+          </div>
+          <div class="form-group"><label class="form-label">Name to display</label><input type="text" id="creator-name" placeholder="e.g. RTmo Digital Solutions"></div>
+          <div class="toggle-row" style="padding:8px 0;border:none">
+            <div><div class="toggle-label">Show this credit in the sidebar</div><div class="toggle-sub">Off by default — a small, easy-to-miss line at the bottom of the sidebar</div></div>
+            <div class="toggle" id="creator-show-toggle" onclick="toggleSwitch(this)"><div class="toggle-thumb"></div></div>
+          </div>
+          <button class="btn btn-secondary btn-sm" style="margin-top:10px" onclick="saveCreatorBrand()">Save</button>
+        </div>
+        <div class="card" style="margin-bottom:16px">
           <div style="font-size:14px;font-weight:500;margin-bottom:4px">Full Backup</div>
           <div style="font-size:12px;color:var(--text3);margin-bottom:14px">Saves everything — posts, photos, brand profiles, Facebook page settings, and API keys — into one file you can restore later or move to another computer.</div>
           <button class="btn btn-primary" style="margin-bottom:10px;width:100%" onclick="exportFullBackup()">Download Full Backup (.json)</button>
@@ -1038,7 +1101,9 @@ const APP = {
   calFilter: 'all',
   libFilter: 'all',
   autogenCount: 5,
-  brandProfiles: {}
+  brandProfiles: {},
+  logoPreview: { mssi: null, wcli: null, cwli: null },
+  creatorBrand: { name: '', logo: null, showInApp: false }
 };
 
 function loadState() {
@@ -1064,6 +1129,7 @@ function loadState() {
     loadSlaTargets();
     loadWorkingHours();
     loadHolidays();
+    loadCreatorBrand();
   } catch(e) { console.error(e); }
 }
 
@@ -1904,6 +1970,7 @@ function updateDashboard() {
   renderSlaMetricsCard();
   renderHolidayBanner();
   renderHolidayYearReminder();
+  renderDashboardLogos();
 }
 
 // INQUIRY / COMMENT CHECK
@@ -2330,6 +2397,121 @@ function switchBrandTab(c) {
   document.getElementById('brand-' + c).style.display = 'grid';
 }
 
+function handleLogoUpload(company, e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = function(ev) {
+    APP.logoPreview[company] = ev.target.result;
+    renderLogoPreview(company);
+  };
+  reader.readAsDataURL(file);
+}
+
+function removeLogo(company) {
+  APP.logoPreview[company] = null;
+  renderLogoPreview(company);
+}
+
+function renderLogoPreview(company) {
+  const el = document.getElementById('logo-preview-' + company);
+  if (!el) return;
+  const logo = APP.logoPreview[company];
+  el.innerHTML = logo
+    ? `<img src="${logo}" style="width:100%;height:100%;object-fit:contain;background:white" alt="${company.toUpperCase()} logo">`
+    : '<span style="font-size:11px;color:var(--text3)">No logo</span>';
+}
+
+// Reflects saved logos onto the small badges next to each company name on the Dashboard.
+function renderDashboardLogos() {
+  ['mssi','wcli','cwli'].forEach(co => {
+    const el = document.getElementById('dash-logo-' + co);
+    if (!el) return;
+    const logo = APP.logoPreview[co] || (APP.brandProfiles[co] && APP.brandProfiles[co].logo);
+    el.innerHTML = logo
+      ? `<img src="${logo}" style="width:100%;height:100%;object-fit:contain;background:white;border-radius:6px" alt="${co.toUpperCase()} logo">`
+      : '';
+    el.style.display = logo ? 'block' : 'none';
+  });
+}
+
+// DEVELOPER CREDIT — separate from the per-company logos above. Off by default; only shows
+// anywhere in the app if explicitly turned on in Settings → Data & Export.
+function handleCreatorLogoUpload(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = function(ev) {
+    APP.creatorBrand.logo = ev.target.result;
+    renderCreatorLogoPreview();
+  };
+  reader.readAsDataURL(file);
+}
+
+function removeCreatorLogo() {
+  APP.creatorBrand.logo = null;
+  renderCreatorLogoPreview();
+}
+
+function renderCreatorLogoPreview() {
+  const el = document.getElementById('logo-preview-creator');
+  if (!el) return;
+  el.innerHTML = APP.creatorBrand.logo
+    ? `<img src="${APP.creatorBrand.logo}" style="width:100%;height:100%;object-fit:contain;background:white" alt="Developer logo">`
+    : '<span style="font-size:10px;color:var(--text3)">No logo</span>';
+}
+
+function saveCreatorBrand() {
+  const name = document.getElementById('creator-name')?.value.trim() || '';
+  const showInApp = document.getElementById('creator-show-toggle')?.classList.contains('on') || false;
+  APP.creatorBrand.name = name;
+  APP.creatorBrand.showInApp = showInApp;
+  try {
+    localStorage.setItem('scm_creator_brand', JSON.stringify(APP.creatorBrand));
+  } catch (e) {
+    showToast('Storage is full — try a smaller logo file, or free up space first.', 'error');
+    console.error('saveCreatorBrand failed:', e);
+    return;
+  }
+  renderCreatorCredit();
+  showToast('Saved', 'success');
+}
+
+function loadCreatorBrand() {
+  try {
+    const data = JSON.parse(localStorage.getItem('scm_creator_brand') || 'null');
+    if (!data) return;
+    APP.creatorBrand = { name: data.name || '', logo: data.logo || null, showInApp: !!data.showInApp };
+    const nameEl = document.getElementById('creator-name');
+    if (nameEl && APP.creatorBrand.name) nameEl.value = APP.creatorBrand.name;
+    const toggleEl = document.getElementById('creator-show-toggle');
+    if (toggleEl) { if (APP.creatorBrand.showInApp) toggleEl.classList.add('on'); else toggleEl.classList.remove('on'); }
+    renderCreatorLogoPreview();
+    renderCreatorCredit();
+  } catch(e) { console.error(e); }
+}
+
+// Renders (or hides) the small sidebar credit line — only visible if showInApp is explicitly true.
+function renderCreatorCredit() {
+  const el = document.getElementById('creator-credit');
+  if (!el) return;
+  const { name, logo, showInApp } = APP.creatorBrand;
+  if (!showInApp || (!name && !logo)) {
+    el.style.display = 'none';
+    el.innerHTML = '';
+    return;
+  }
+  el.style.display = 'flex';
+  el.style.alignItems = 'center';
+  el.style.gap = '6px';
+  el.style.padding = '8px 4px 2px';
+  el.style.opacity = '0.55';
+  el.innerHTML = `
+    ${logo ? `<img src="${logo}" style="width:14px;height:14px;object-fit:contain" alt="">` : ''}
+    <span style="font-size:10px;color:var(--text3)">${name ? 'Built by ' + name : ''}</span>
+  `;
+}
+
 function saveBrandProfile() {
   const data = {
     mssi: {
@@ -2340,7 +2522,8 @@ function saveBrandProfile() {
       b2cTone: document.getElementById('bp-mssi-b2c-tone')?.value || '',
       b2bTone: document.getElementById('bp-mssi-b2b-tone')?.value || '',
       goal: document.getElementById('bp-mssi-goal')?.value || '',
-      diff: document.getElementById('bp-mssi-diff')?.value || ''
+      diff: document.getElementById('bp-mssi-diff')?.value || '',
+      logo: APP.logoPreview.mssi || null
     },
     wcli: {
       name: document.getElementById('bp-wcli-name')?.value || '',
@@ -2349,7 +2532,8 @@ function saveBrandProfile() {
       geo: document.getElementById('bp-wcli-geo')?.value || '',
       fbname: document.getElementById('bp-wcli-fbname')?.value || '',
       tone: document.getElementById('bp-wcli-tone')?.value || '',
-      goal: document.getElementById('bp-wcli-goal')?.value || ''
+      goal: document.getElementById('bp-wcli-goal')?.value || '',
+      logo: APP.logoPreview.wcli || null
     },
     cwli: {
       name: document.getElementById('bp-cwli-name')?.value || '',
@@ -2358,11 +2542,19 @@ function saveBrandProfile() {
       geo: document.getElementById('bp-cwli-geo')?.value || '',
       tone: document.getElementById('bp-cwli-tone')?.value || '',
       diff: document.getElementById('bp-cwli-diff')?.value || '',
-      bisaya: document.getElementById('bisaya-toggle')?.classList.contains('on') ?? true
+      bisaya: document.getElementById('bisaya-toggle')?.classList.contains('on') ?? true,
+      logo: APP.logoPreview.cwli || null
     }
   };
-  localStorage.setItem('scm_brand_profiles', JSON.stringify(data));
+  try {
+    localStorage.setItem('scm_brand_profiles', JSON.stringify(data));
+  } catch (e) {
+    showToast('Storage is full — the logo image may be too large, or local storage needs freeing up. Try a smaller logo file, or delete some older photos from the Photo Library.', 'error');
+    console.error('saveBrandProfile failed:', e);
+    return;
+  }
   APP.brandProfiles = data;
+  renderDashboardLogos();
   showToast('Brand profile saved — Claude will now use this voice', 'success');
 }
 
@@ -2381,6 +2573,8 @@ function loadBrandProfiles() {
       setVal('bp-mssi-b2b-tone', data.mssi.b2bTone);
       setVal('bp-mssi-goal', data.mssi.goal);
       setVal('bp-mssi-diff', data.mssi.diff);
+      APP.logoPreview.mssi = data.mssi.logo || null;
+      renderLogoPreview('mssi');
     }
     if (data.wcli) {
       setVal('bp-wcli-name', data.wcli.name);
@@ -2390,6 +2584,8 @@ function loadBrandProfiles() {
       setVal('bp-wcli-fbname', data.wcli.fbname);
       setVal('bp-wcli-tone', data.wcli.tone);
       setVal('bp-wcli-goal', data.wcli.goal);
+      APP.logoPreview.wcli = data.wcli.logo || null;
+      renderLogoPreview('wcli');
     }
     if (data.cwli) {
       setVal('bp-cwli-name', data.cwli.name);
@@ -2400,7 +2596,10 @@ function loadBrandProfiles() {
       setVal('bp-cwli-diff', data.cwli.diff);
       const bisayaEl = document.getElementById('bisaya-toggle');
       if (bisayaEl) { if (data.cwli.bisaya) bisayaEl.classList.add('on'); else bisayaEl.classList.remove('on'); }
+      APP.logoPreview.cwli = data.cwli.logo || null;
+      renderLogoPreview('cwli');
     }
+    renderDashboardLogos();
   } catch(e) { console.error(e); }
 }
 
