@@ -315,6 +315,7 @@ select:focus{border-color:var(--accent-border);}
     </div>
   </div>
   <div class="content">
+    <div id="holiday-year-reminder"></div>
     <div class="dash-companies">
       <div class="company-card mssi">
         <div class="company-card-name">MSSI</div>
@@ -807,14 +808,14 @@ select:focus{border-color:var(--accent-border);}
       <div id="stab-sla" style="display:none">
         <div class="card" style="margin-bottom:16px">
           <div style="font-size:14px;font-weight:500;margin-bottom:4px">Global SLA Target</div>
-          <div style="font-size:12px;color:var(--text3);margin-bottom:14px">Default response time target for all companies. Individual companies can override this with their own target.</div>
+          <div style="font-size:12px;color:var(--text3);margin-bottom:14px">Default response time target for all companies. Individual companies can override this with their own target. Measured in business hours — nights, non-working days, and holidays don't count against staff.</div>
           <div style="display:flex;align-items:center;gap:10px">
             <input type="number" id="sla-global-hours" placeholder="4" min="0" max="168" style="width:80px" value="4">
             <span style="font-size:12px;color:var(--text2)">hours</span>
             <button class="btn btn-secondary btn-sm" onclick="saveSlaTargets()">Save</button>
           </div>
         </div>
-        <div class="card">
+        <div class="card" style="margin-bottom:16px">
           <div style="font-size:14px;font-weight:500;margin-bottom:4px">Company-Specific SLA Targets</div>
           <div style="font-size:12px;color:var(--text3);margin-bottom:14px">Leave blank to use the global target. Set a custom value to override it for this company.</div>
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
@@ -841,6 +842,21 @@ select:focus{border-color:var(--accent-border);}
             </div>
           </div>
           <button class="btn btn-secondary btn-sm" style="margin-top:14px" onclick="saveSlaTargets()">Save SLA Targets</button>
+        </div>
+        <div class="card" style="margin-bottom:16px">
+          <div style="font-size:14px;font-weight:500;margin-bottom:4px">Working Hours Per Company</div>
+          <div style="font-size:12px;color:var(--text3);margin-bottom:14px">Response time is only counted during these hours, on these days. A post published Friday evening that gets a reply Monday morning won't count the weekend against staff. Set this per company since schedules vary — change anytime.</div>
+          <div id="working-hours-list"></div>
+          <button class="btn btn-secondary btn-sm" style="margin-top:6px" onclick="saveWorkingHours()">Save Working Hours</button>
+        </div>
+        <div class="card">
+          <div style="font-size:14px;font-weight:500;margin-bottom:4px">Holidays (excluded from SLA clock)</div>
+          <div style="font-size:12px;color:var(--text3);margin-bottom:14px">Applies to all companies. Add or remove dates as needed — these often shift year to year (movable holidays, special proclamations), so review this list periodically.</div>
+          <div id="holidays-list" style="margin-bottom:10px"></div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <button class="btn btn-secondary btn-sm" onclick="addHolidayField()">+ Add Holiday</button>
+            <button class="btn btn-ghost btn-sm" onclick="loadDefaultPhHolidays(2026)">Load 2026 PH Holidays</button>
+          </div>
         </div>
       </div>
       <div id="stab-schedule" style="display:none">
@@ -1045,6 +1061,8 @@ function loadState() {
     loadSchedule();
     loadTelegramSettings();
     loadSlaTargets();
+    loadWorkingHours();
+    loadHolidays();
   } catch(e) { console.error(e); }
 }
 
@@ -1843,6 +1861,7 @@ function updateDashboard() {
   renderInquiryCheck();
   renderSlaMetricsCard();
   renderHolidayBanner();
+  renderHolidayYearReminder();
 }
 
 // INQUIRY / COMMENT CHECK
@@ -2511,6 +2530,7 @@ function staffRowHtml(index, person) {
       <div style="display:flex;gap:8px;margin-bottom:10px">
         <input type="text" class="staff-name" placeholder="Staff name" value="${person.name || ''}" style="flex:1" onchange="saveStaffList()">
         <input type="text" class="staff-chatid" placeholder="Telegram Chat ID" value="${person.chatId || ''}" style="flex:1" onchange="saveStaffList()">
+        <button class="btn btn-secondary btn-sm" onclick="sendStaffTestMessage(${index}, this)">Test</button>
         <button class="btn btn-ghost btn-sm" style="color:var(--red)" onclick="removeStaffField(${index})">Remove</button>
       </div>
       <div style="font-size:11.5px;color:var(--text3);margin-bottom:8px">Responsible for:</div>
@@ -2528,6 +2548,7 @@ function staffRowHtml(index, person) {
           CWLI
         </label>
       </div>
+      <div class="staff-test-result" style="font-size:11px;margin-top:8px;display:none"></div>
     </div>`;
 }
 
@@ -2579,6 +2600,30 @@ async function sendTelegramNotification(chatId, message) {
     return { success: true };
   } catch (err) {
     return { success: false, error: err.message };
+  }
+}
+
+async function sendStaffTestMessage(index, btnEl) {
+  const row = btnEl.closest('[data-staff-row]');
+  const name = row.querySelector('.staff-name').value.trim() || 'there';
+  const chatId = row.querySelector('.staff-chatid').value.trim();
+  const resultEl = row.querySelector('.staff-test-result');
+
+  resultEl.style.display = 'block';
+  resultEl.style.color = 'var(--text3)';
+  resultEl.textContent = 'Sending test message...';
+  btnEl.disabled = true;
+
+  const message = `Hi ${name}, this is a test message from the Social Content Manager. If you received this, your Telegram notifications are set up correctly. ✅`;
+  const result = await sendTelegramNotification(chatId, message);
+
+  btnEl.disabled = false;
+  if (result.success) {
+    resultEl.style.color = 'var(--green)';
+    resultEl.textContent = '✓ Test message sent — ask them to confirm it arrived on Telegram.';
+  } else {
+    resultEl.style.color = 'var(--red)';
+    resultEl.textContent = '✗ Failed: ' + result.error;
   }
 }
 
@@ -2644,6 +2689,208 @@ function getSlaTargetForCompany(company) {
   return targets[company] !== null && targets[company] !== undefined ? targets[company] : targets.global || 4;
 }
 
+// WORKING HOURS PER COMPANY (used to calculate fair business-hours response time)
+const DEFAULT_WORKING_HOURS = { days: ['mon','tue','wed','thu','fri'], start: '08:00', end: '17:00' };
+const WH_DAY_LABELS = [['mon','Mon'],['tue','Tue'],['wed','Wed'],['thu','Thu'],['fri','Fri'],['sat','Sat'],['sun','Sun']];
+
+function renderWorkingHoursList() {
+  const container = document.getElementById('working-hours-list');
+  if (!container) return;
+  const wh = APP.workingHours || {};
+  container.innerHTML = ['mssi','wcli','cwli'].map(co => workingHoursRowHtml(co, wh[co] || DEFAULT_WORKING_HOURS)).join('');
+}
+
+function workingHoursRowHtml(company, cfg) {
+  const days = cfg.days || DEFAULT_WORKING_HOURS.days;
+  return `
+    <div style="background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius);padding:12px;margin-bottom:10px" data-wh-row="${company}">
+      <div style="font-size:12.5px;font-weight:500;margin-bottom:8px">${company.toUpperCase()}</div>
+      <div style="display:flex;gap:10px;align-items:center;margin-bottom:10px;flex-wrap:wrap">
+        <span style="font-size:11.5px;color:var(--text3)">Hours:</span>
+        <input type="time" class="wh-start" value="${cfg.start || DEFAULT_WORKING_HOURS.start}" style="width:120px">
+        <span style="font-size:11.5px;color:var(--text3)">to</span>
+        <input type="time" class="wh-end" value="${cfg.end || DEFAULT_WORKING_HOURS.end}" style="width:120px">
+      </div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap">
+        ${WH_DAY_LABELS.map(([key,label]) => `
+          <label style="display:flex;align-items:center;gap:5px;font-size:11.5px;color:var(--text2)">
+            <input type="checkbox" class="wh-day" data-day="${key}" ${days.includes(key) ? 'checked' : ''}>
+            ${label}
+          </label>
+        `).join('')}
+      </div>
+    </div>`;
+}
+
+function saveWorkingHours() {
+  const data = {};
+  ['mssi','wcli','cwli'].forEach(co => {
+    const row = document.querySelector(`[data-wh-row="${co}"]`);
+    if (!row) return;
+    const start = row.querySelector('.wh-start').value || DEFAULT_WORKING_HOURS.start;
+    const end = row.querySelector('.wh-end').value || DEFAULT_WORKING_HOURS.end;
+    const days = Array.from(row.querySelectorAll('.wh-day')).filter(cb => cb.checked).map(cb => cb.dataset.day);
+    data[co] = { days, start, end };
+  });
+  APP.workingHours = data;
+  localStorage.setItem('scm_working_hours', JSON.stringify(data));
+  showToast('Working hours saved', 'success');
+}
+
+function loadWorkingHours() {
+  try {
+    const data = JSON.parse(localStorage.getItem('scm_working_hours') || 'null');
+    APP.workingHours = data || {};
+  } catch(e) {
+    APP.workingHours = {};
+  }
+  renderWorkingHoursList();
+}
+
+function getWorkingHoursForCompany(company) {
+  const wh = APP.workingHours || {};
+  return wh[company] || DEFAULT_WORKING_HOURS;
+}
+
+// HOLIDAYS (shared across all companies, excluded from SLA clock)
+function renderHolidaysList() {
+  const container = document.getElementById('holidays-list');
+  if (!container) return;
+  const holidays = (APP.holidays || []).slice().sort((a,b) => a.date.localeCompare(b.date));
+  if (!holidays.length) {
+    container.innerHTML = `<div style="font-size:11.5px;color:var(--text3)">No holidays added yet.</div>`;
+    return;
+  }
+  container.innerHTML = holidays.map((h, i) => holidayRowHtml(i, h)).join('');
+}
+
+function holidayRowHtml(index, h) {
+  return `
+    <div style="display:flex;gap:8px;align-items:center;margin-bottom:6px" data-holiday-row="${index}">
+      <input type="date" class="holiday-date" value="${h.date || ''}" style="width:150px" onchange="saveHolidayField(${index}, this)">
+      <input type="text" class="holiday-name" placeholder="Holiday name" value="${h.name || ''}" style="flex:1" onchange="saveHolidayField(${index}, this)">
+      <button class="btn btn-ghost btn-sm" style="color:var(--red)" onclick="removeHolidayField(${index})">Remove</button>
+    </div>`;
+}
+
+function saveHolidayField(index) {
+  const row = document.querySelector(`[data-holiday-row="${index}"]`);
+  if (!row) return;
+  const holidays = APP.holidays || [];
+  holidays[index] = {
+    date: row.querySelector('.holiday-date').value,
+    name: row.querySelector('.holiday-name').value.trim()
+  };
+  APP.holidays = holidays;
+  localStorage.setItem('scm_holidays', JSON.stringify(holidays));
+}
+
+function addHolidayField() {
+  APP.holidays = APP.holidays || [];
+  APP.holidays.push({ date: '', name: '' });
+  localStorage.setItem('scm_holidays', JSON.stringify(APP.holidays));
+  renderHolidaysList();
+}
+
+function removeHolidayField(index) {
+  APP.holidays = (APP.holidays || []).filter((_, i) => i !== index);
+  localStorage.setItem('scm_holidays', JSON.stringify(APP.holidays));
+  renderHolidaysList();
+}
+
+function loadHolidays() {
+  try {
+    const data = JSON.parse(localStorage.getItem('scm_holidays') || 'null');
+    APP.holidays = data || [];
+  } catch(e) {
+    APP.holidays = [];
+  }
+  renderHolidaysList();
+}
+
+// Official Philippine holidays per Proclamation No. 1006 (2026). Eid'l Adha not yet confirmed at time of writing — add manually once announced.
+function loadDefaultPhHolidays(year) {
+  const presets = {
+    2026: [
+      { date: '2026-01-01', name: "New Year's Day" },
+      { date: '2026-02-17', name: 'Chinese New Year' },
+      { date: '2026-03-20', name: "Eid'l Fitr" },
+      { date: '2026-04-02', name: 'Maundy Thursday' },
+      { date: '2026-04-03', name: 'Good Friday' },
+      { date: '2026-04-04', name: 'Black Saturday' },
+      { date: '2026-04-09', name: 'Araw ng Kagitingan' },
+      { date: '2026-05-01', name: 'Labor Day' },
+      { date: '2026-06-12', name: 'Independence Day' },
+      { date: '2026-08-21', name: 'Ninoy Aquino Day' },
+      { date: '2026-08-31', name: 'National Heroes Day' },
+      { date: '2026-11-01', name: "All Saints' Day" },
+      { date: '2026-11-02', name: "All Souls' Day" },
+      { date: '2026-11-30', name: 'Bonifacio Day' },
+      { date: '2026-12-08', name: 'Feast of the Immaculate Conception' },
+      { date: '2026-12-24', name: 'Christmas Eve' },
+      { date: '2026-12-25', name: 'Christmas Day' },
+      { date: '2026-12-30', name: 'Rizal Day' },
+      { date: '2026-12-31', name: 'Last Day of the Year' }
+    ]
+  };
+  const preset = presets[year];
+  if (!preset) { showToast('No preset available for ' + year, 'error'); return; }
+  const existing = APP.holidays || [];
+  const existingDates = new Set(existing.map(h => h.date));
+  const merged = existing.concat(preset.filter(h => !existingDates.has(h.date)));
+  APP.holidays = merged;
+  localStorage.setItem('scm_holidays', JSON.stringify(merged));
+  renderHolidaysList();
+  showToast(year + ' Philippine holidays loaded', 'success');
+}
+
+function formatDateYMD(d) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+// Calculates elapsed minutes counting ONLY business hours for the given company —
+// excludes nights, non-working days (per that company's schedule), and holidays.
+function calculateBusinessMinutes(startISO, endISO, company) {
+  const start = new Date(startISO);
+  const end = new Date(endISO);
+  if (!startISO || !endISO || isNaN(start) || isNaN(end) || end <= start) return 0;
+
+  const cfg = getWorkingHoursForCompany(company);
+  const dayNames = ['sun','mon','tue','wed','thu','fri','sat'];
+  const [startH, startM] = (cfg.start || '08:00').split(':').map(Number);
+  const [endH, endM] = (cfg.end || '17:00').split(':').map(Number);
+  const workDays = cfg.days || DEFAULT_WORKING_HOURS.days;
+  const holidaySet = new Set((APP.holidays || []).map(h => h.date));
+
+  let totalMinutes = 0;
+  let cursor = new Date(start.getFullYear(), start.getMonth(), start.getDate());
+  const endDateOnly = new Date(end.getFullYear(), end.getMonth(), end.getDate());
+
+  let safety = 0;
+  while (cursor <= endDateOnly && safety < 3650) { // ~10 year cap as a sanity guard
+    safety++;
+    const dayName = dayNames[cursor.getDay()];
+    const dateStr = formatDateYMD(cursor);
+    const isWorkingDay = workDays.includes(dayName) && !holidaySet.has(dateStr);
+
+    if (isWorkingDay) {
+      const dayWorkStart = new Date(cursor); dayWorkStart.setHours(startH, startM, 0, 0);
+      const dayWorkEnd = new Date(cursor); dayWorkEnd.setHours(endH, endM, 0, 0);
+      const overlapStart = new Date(Math.max(start.getTime(), dayWorkStart.getTime()));
+      const overlapEnd = new Date(Math.min(end.getTime(), dayWorkEnd.getTime()));
+      if (overlapEnd > overlapStart) {
+        totalMinutes += (overlapEnd.getTime() - overlapStart.getTime()) / 60000;
+      }
+    }
+    cursor.setDate(cursor.getDate() + 1);
+  }
+
+  return Math.round(totalMinutes);
+}
+
 // RESPONSE TIME TRACKING
 function generateResponseToken() {
   return Math.random().toString(36).substr(2, 12);
@@ -2672,19 +2919,17 @@ function recordStaffResponse(postId, token) {
 }
 
 function getResponseTimeMinutes(post) {
-  // Use override if set, otherwise calculate from claimed response
+  // Manual "minutes" override is a literal value Rommel typed in directly — used as-is, no recalculation.
   if (post.responseOverrideMinutes !== null && post.responseOverrideMinutes !== undefined) {
     return post.responseOverrideMinutes;
   }
+  // Manual "timestamp" override and the normal staff-claimed response both get counted
+  // in business minutes only — nights, non-working days, and holidays don't count against staff.
   if (post.responseOverrideTimestamp) {
-    const pub = new Date(post.publishedAt).getTime();
-    const resp = new Date(post.responseOverrideTimestamp).getTime();
-    return Math.round((resp - pub) / 60000);
+    return calculateBusinessMinutes(post.publishedAt, post.responseOverrideTimestamp, post.company);
   }
   if (post.responseTimestamp) {
-    const pub = new Date(post.publishedAt).getTime();
-    const resp = new Date(post.responseTimestamp).getTime();
-    return Math.round((resp - pub) / 60000);
+    return calculateBusinessMinutes(post.publishedAt, post.responseTimestamp, post.company);
   }
   return null;
 }
@@ -3235,6 +3480,44 @@ function renderHolidayBanner() {
       <span style="font-size:16px">🇵🇭</span>
       <span style="font-size:13px;color:var(--text2)"><strong style="color:var(--amber)">${upcoming.name}</strong> is ${whenLabel}. Consider mentioning it in your notes below for a timely, relevant post.</span>
     </div>`;
+}
+
+// Yearly nudge: every December, if next year's PH holidays haven't been added yet, remind Rommel
+// to load them — so the SLA business-hours calculation doesn't silently miss next year's holidays.
+function renderHolidayYearReminder() {
+  const banner = document.getElementById('holiday-year-reminder');
+  if (!banner) return;
+  const now = new Date();
+  const currentYear = now.getFullYear();
+  const nextYear = currentYear + 1;
+
+  if (now.getMonth() !== 11) { banner.innerHTML = ''; return; } // only show in December
+
+  const dismissedYear = localStorage.getItem('scm_holiday_reminder_dismissed');
+  if (dismissedYear === String(nextYear)) { banner.innerHTML = ''; return; }
+
+  const holidays = APP.holidays || [];
+  const hasNextYear = holidays.some(h => h.date && h.date.startsWith(String(nextYear)));
+  if (hasNextYear) { banner.innerHTML = ''; return; }
+
+  banner.innerHTML = `
+    <div style="background:var(--amber-bg);border:1px solid rgba(245,166,35,0.3);border-radius:var(--radius);padding:12px 16px;margin-bottom:16px;display:flex;align-items:center;gap:12px">
+      <span style="font-size:16px">📅</span>
+      <span style="font-size:13px;color:var(--text2);flex:1">No ${nextYear} Philippine holidays added yet. The official proclamation is usually out by now — add them in Settings → SLA Targets so next year's response-time tracking stays accurate.</span>
+      <button class="btn btn-secondary btn-sm" onclick="goToSlaSettings()">Go to Settings</button>
+      <button class="btn btn-ghost btn-sm" onclick="dismissHolidayYearReminder(${nextYear})">Dismiss</button>
+    </div>`;
+}
+
+function goToSlaSettings() {
+  showScreen('settings');
+  const slaBtn = Array.from(document.querySelectorAll('.settings-nav-item')).find(b => b.textContent.trim() === 'SLA Targets');
+  if (slaBtn) switchSettingsTab(slaBtn, 'sla');
+}
+
+function dismissHolidayYearReminder(year) {
+  localStorage.setItem('scm_holiday_reminder_dismissed', String(year));
+  document.getElementById('holiday-year-reminder').innerHTML = '';
 }
 
 const WEEKDAY_PILLARS = {
