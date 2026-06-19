@@ -1232,13 +1232,23 @@ function selectPillar(btn) {
 }
 
 // PHOTO
+// Central place to set the active post photo. Keeps an unwatermarked original around so the
+// watermark toggle can be switched on/off without needing to re-upload, and resets the toggle
+// whenever a genuinely new photo is chosen.
+function setCurrentPhoto(dataUrl) {
+  APP.currentPhotoOriginal = dataUrl;
+  APP.currentPhoto = dataUrl;
+  document.getElementById('preview-image').innerHTML = '<img src="'+dataUrl+'" style="width:100%;height:200px;object-fit:cover" alt="Post photo">';
+  const wmToggle = document.getElementById('watermark-toggle');
+  if (wmToggle) wmToggle.checked = false;
+}
+
 function handlePhotoUpload(e) {
   const file = e.target.files[0];
   if (!file) return;
   const r = new FileReader();
   r.onload = function(ev) {
-    APP.currentPhoto = ev.target.result;
-    document.getElementById('preview-image').innerHTML = '<img src="'+ev.target.result+'" style="width:100%;height:200px;object-fit:cover" alt="Post photo">';
+    setCurrentPhoto(ev.target.result);
   };
   r.readAsDataURL(file);
 }
@@ -1518,8 +1528,7 @@ function openPhotoPicker() {
 function pickPhoto(id) {
   const photo = APP.photos.find(p => p.id === id);
   if (!photo) return;
-  APP.currentPhoto = photo.data;
-  document.getElementById('preview-image').innerHTML = '<img src="'+photo.data+'" style="width:100%;height:200px;object-fit:cover" alt="Post photo">';
+  setCurrentPhoto(photo.data);
   closePhotoPicker();
   showToast('Photo selected', 'success');
 }
@@ -1617,8 +1626,7 @@ async function runImageGen() {
 }
 
 function useGeneratedImage(base64) {
-  APP.currentPhoto = base64;
-  document.getElementById('preview-image').innerHTML = '<img src="'+base64+'" style="width:100%;height:200px;object-fit:cover" alt="Post photo">';
+  setCurrentPhoto(base64);
   closeImageGenModal();
   showToast('Photo applied to post', 'success');
 }
@@ -1798,6 +1806,10 @@ function saveDraft() {
     status: 'draft',
     createdAt: new Date().toISOString(),
     scheduledFor: null,
+    // Watermark: off by default, manually toggled per post in Review & Schedule.
+    // photoOriginal preserves the un-watermarked image so toggling off restores it cleanly.
+    watermark: false,
+    photoOriginal: null,
     // Response time tracking
     responseToken: generateResponseToken(),
     responseTimestamp: null,
@@ -1840,7 +1852,10 @@ function updateReviewQueue() {
           <span style="font-size:11px;color:var(--text3);margin-left:auto">${new Date(p.createdAt).toLocaleDateString()}</span>
         </div>
         <div style="display:flex;gap:12px;margin-bottom:12px">
-          ${p.mediaType === 'video' ? `<div style="width:90px;height:90px;border-radius:var(--radius);background:var(--bg4);display:flex;flex-direction:column;align-items:center;justify-content:center;flex-shrink:0;font-size:20px" title="${p.videoMeta ? p.videoMeta.name : 'Video'}">🎬<span style="font-size:9px;color:var(--text3);margin-top:4px">Video</span></div>` : p.photo ? `<img src="${p.photo}" style="width:90px;height:90px;object-fit:cover;border-radius:var(--radius);flex-shrink:0" alt="Post photo">` : `<div style="width:90px;height:90px;border-radius:var(--radius);background:var(--bg4);display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:11px;color:var(--text3);text-align:center;padding:4px">No photo</div>`}
+          ${p.mediaType === 'video' ? `<div style="width:90px;height:90px;border-radius:var(--radius);background:var(--bg4);display:flex;flex-direction:column;align-items:center;justify-content:center;flex-shrink:0;font-size:20px" title="${p.videoMeta ? p.videoMeta.name : 'Video'}">🎬<span style="font-size:9px;color:var(--text3);margin-top:4px">Video</span></div>` : p.photo ? `<div style="flex-shrink:0;display:flex;flex-direction:column;gap:6px;align-items:center">
+            <img src="${p.photo}" style="width:90px;height:90px;object-fit:cover;border-radius:var(--radius)" alt="Post photo">
+            <button class="btn btn-ghost btn-sm" style="font-size:9.5px;padding:3px 8px;white-space:nowrap;${p.watermark ? 'color:var(--green)' : 'color:var(--text3)'}" onclick="toggleWatermark(${p.id})" title="Adds the ${p.company.toUpperCase()} logo at a random corner">🏷 ${p.watermark ? 'Watermark: On' : 'Watermark: Off'}</button>
+          </div>` : `<div style="width:90px;height:90px;border-radius:var(--radius);background:var(--bg4);display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:11px;color:var(--text3);text-align:center;padding:4px">No photo</div>`}
           <textarea id="caption-edit-${p.id}" style="font-size:13.5px;line-height:1.7;color:var(--text);background:var(--bg3);padding:14px;border-radius:var(--radius);white-space:pre-wrap;flex:1;border:1px solid var(--border);font-family:'DM Sans',sans-serif;resize:vertical;min-height:120px" onchange="markCaptionEdited(${p.id})">${p.caption}</textarea>
         </div>
         <div style="display:flex;gap:8px">
@@ -3521,6 +3536,93 @@ function dataUrlToBlob(dataUrl) {
   return new Blob([bytes], { type: mime });
 }
 
+// PHOTO WATERMARK — manual per-post toggle (off by default), using the matching company's
+// Brand Profile logo, placed at a random corner each time it's applied. No personal/creator logo involved.
+function getCompanyLogo(company) {
+  return (APP.brandProfiles[company] && APP.brandProfiles[company].logo) || APP.logoPreview[company] || null;
+}
+
+function loadImageFromDataUrl(dataUrl) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error('Could not load image'));
+    img.src = dataUrl;
+  });
+}
+
+async function applyWatermarkToPost(post) {
+  const logoSrc = getCompanyLogo(post.company);
+  if (!logoSrc) {
+    showToast('No logo found for ' + post.company.toUpperCase() + ' — upload one in Brand Profiles first.', 'error');
+    return false;
+  }
+  if (!post.photoOriginal) post.photoOriginal = post.photo;
+
+  try {
+    const [photoImg, logoImg] = await Promise.all([
+      loadImageFromDataUrl(post.photoOriginal),
+      loadImageFromDataUrl(logoSrc)
+    ]);
+
+    const canvas = document.createElement('canvas');
+    canvas.width = photoImg.naturalWidth;
+    canvas.height = photoImg.naturalHeight;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(photoImg, 0, 0);
+
+    // Size the logo as a fraction of the shorter side, so it stays a mark rather than dominating the photo
+    const targetSize = Math.min(canvas.width, canvas.height) * 0.18;
+    const logoAspect = logoImg.naturalWidth / logoImg.naturalHeight || 1;
+    let logoW, logoH;
+    if (logoAspect >= 1) { logoW = targetSize; logoH = targetSize / logoAspect; }
+    else { logoH = targetSize; logoW = targetSize * logoAspect; }
+
+    const margin = Math.min(canvas.width, canvas.height) * 0.04;
+    const corners = [
+      { x: margin, y: margin },                                              // top-left
+      { x: canvas.width - logoW - margin, y: margin },                       // top-right
+      { x: margin, y: canvas.height - logoH - margin },                      // bottom-left
+      { x: canvas.width - logoW - margin, y: canvas.height - logoH - margin } // bottom-right
+    ];
+    const pick = corners[Math.floor(Math.random() * corners.length)];
+
+    ctx.globalAlpha = 0.9;
+    ctx.drawImage(logoImg, pick.x, pick.y, logoW, logoH);
+    ctx.globalAlpha = 1;
+
+    post.photo = canvas.toDataURL('image/jpeg', 0.92);
+    post.watermark = true;
+    return true;
+  } catch (err) {
+    showToast('Could not apply watermark: ' + err.message, 'error');
+    return false;
+  }
+}
+
+function removeWatermarkFromPost(post) {
+  if (post.photoOriginal) post.photo = post.photoOriginal;
+  post.watermark = false;
+}
+
+async function toggleWatermark(id) {
+  const post = APP.posts.find(p => p.id === id);
+  if (!post || (!post.photo && !post.photoOriginal)) return;
+
+  if (post.watermark) {
+    removeWatermarkFromPost(post);
+    saveState();
+    updateReviewQueue();
+    showToast('Watermark removed', 'info');
+  } else {
+    const ok = await applyWatermarkToPost(post);
+    if (!ok) return;
+    saveState();
+    updateReviewQueue();
+    showToast('Watermark applied', 'success');
+  }
+}
+
 // FACEBOOK VIDEO PUBLISHING (Resumable Upload API)
 // Video posting is a genuinely different flow from photo/text: the file has to be uploaded to Meta's
 // servers first via the Resumable Upload API (in case of large files), which hands back a file handle,
@@ -3914,6 +4016,8 @@ async function runAutoGenerate() {
           pillar: pillar,
           caption: fullText,
           photo: null,
+          watermark: false,
+          photoOriginal: null,
           status: 'draft',
           createdAt: new Date().toISOString(),
           scheduledFor: null,
