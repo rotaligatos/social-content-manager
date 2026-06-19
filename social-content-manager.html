@@ -1113,10 +1113,12 @@ function loadState() {
     APP.apiKeys.anthropic = localStorage.getItem('scm_anthropic_key') || '';
     APP.apiKeys.facebook = localStorage.getItem('scm_facebook_key') || '';
     APP.apiKeys.ideogram = localStorage.getItem('scm_ideogram_key') || '';
+    APP.apiKeys.veo = localStorage.getItem('scm_veo_key') || '';
     // Populate saved keys back into input fields
     if (APP.apiKeys.anthropic) { const el = document.getElementById('key-anthropic'); if(el) el.value = APP.apiKeys.anthropic; }
     if (APP.apiKeys.facebook) { const el = document.getElementById('key-facebook'); if(el) el.value = APP.apiKeys.facebook; }
     if (APP.apiKeys.ideogram) { const el = document.getElementById('key-ideogram'); if(el) el.value = APP.apiKeys.ideogram; }
+    if (APP.apiKeys.veo) { const el = document.getElementById('key-veo'); if(el) el.value = APP.apiKeys.veo; }
     updateApiStatusBadges();
     updateDashboard();
     renderCalendar();
