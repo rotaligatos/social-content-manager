@@ -641,8 +641,11 @@ select:focus{border-color:var(--accent-border);}
           <div style="font-size:12px;color:var(--text3);margin-bottom:16px">Distribute content across audience types</div>
           <div class="toggle-row"><div><div class="toggle-label">Include B2C content</div><div class="toggle-sub">Homeowner-focused posts (MSSI)</div></div><div class="toggle on" id="autogen-toggle-b2c" onclick="toggleSwitch(this)"><div class="toggle-thumb"></div></div></div>
           <div class="toggle-row"><div><div class="toggle-label">Include B2B trade content</div><div class="toggle-sub">Fabricators, dealers, contractors</div></div><div class="toggle on" id="autogen-toggle-b2b" onclick="toggleSwitch(this)"><div class="toggle-thumb"></div></div></div>
-          <div class="toggle-row" style="border-bottom:none"><div><div class="toggle-label">Auto-rotate content pillars</div><div class="toggle-sub">Follow Mon–Sun pillar schedule</div></div><div class="toggle on" id="autogen-toggle-rotate" onclick="toggleSwitch(this)"><div class="toggle-thumb"></div></div></div>
+          <div class="toggle-row"><div><div class="toggle-label">Auto-rotate content pillars</div><div class="toggle-sub">Follow Mon–Sun pillar schedule</div></div><div class="toggle on" id="autogen-toggle-rotate" onclick="toggleSwitch(this)"><div class="toggle-thumb"></div></div></div>
+          <div class="toggle-row"><div><div class="toggle-label">Generate images from captions</div><div class="toggle-sub">~4 AI images per company · costs Ideogram credits</div></div><div class="toggle on" id="autogen-toggle-images" onclick="toggleSwitch(this)"><div class="toggle-thumb"></div></div></div>
+          <div class="toggle-row" style="border-bottom:none"><div><div class="toggle-label">Generate 1 video per company</div><div class="toggle-sub">One post becomes an 8s Veo clip · costs ~$0.24–$1.44 each · slow</div></div><div class="toggle" id="autogen-toggle-video" onclick="toggleSwitch(this)"><div class="toggle-thumb"></div></div></div>
         </div>
+        <div style="font-size:11px;color:var(--text3);margin-bottom:10px;line-height:1.5">Media generation spends real API credits. Images and video are built from each post's caption so they stay on-topic. Video is off by default since each clip has a real per-clip cost and takes time to generate.</div>
         <button class="generate-btn" id="autogen-btn" onclick="runAutoGenerate()">
           <svg style="width:16px;height:16px" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 1v3M8 12v3M1 8h3M12 8h3"/><circle cx="8" cy="8" r="3"/></svg>
           Generate This Week's Posts
@@ -1703,6 +1706,57 @@ async function generateImageViaProxy(prompt) {
     throw new Error(data.error || ('Proxy returned status ' + res.status));
   }
   return data.image;
+}
+
+// Asks Claude to distill an approved caption into a concise visual scene description.
+// Shared by both image and video generation so the media relates to the caption.
+async function captionToVisualDescription(apiKey, caption, forVideo) {
+  const { body } = splitCaptionTags(caption);
+  const medium = forVideo ? 'an 8-second marketing video' : 'a photorealistic marketing image';
+  const motionNote = forVideo ? ' Describe gentle, realistic motion or camera movement suitable for a short clip.' : '';
+  const descPrompt = `Based on this Facebook post caption for a Philippine furniture/laminate company, write a single concise scene description (one sentence, under 40 words) for ${medium} that would pair well with it. Describe only the visual scene — product, setting, mood.${motionNote} Do not include any text, words, logos, or watermarks. Output ONLY the description, nothing else.\n\nCaption:\n${body}`;
+  const desc = await callClaude(apiKey, descPrompt, 200);
+  return desc.trim();
+}
+
+// Headless Veo video generation from a prompt — returns { file, dataUrl, name, size } or throws.
+// Same API flow as the manual generator, but with no UI dependencies so the batch can call it.
+async function generateVideoHeadless(prompt, aspectRatio, onProgress) {
+  const apiKey = APP.apiKeys.veo || localStorage.getItem('scm_veo_key');
+  if (!apiKey) throw new Error('No Google Gemini (Veo) API key configured in Settings');
+  const BASE_URL = 'https://generativelanguage.googleapis.com/v1beta';
+  const MODEL = 'veo-3.1-fast-generate-preview';
+
+  const startRes = await fetch(`${BASE_URL}/models/${MODEL}:predictLongRunning`, {
+    method: 'POST',
+    headers: { 'x-goog-api-key': apiKey, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ instances: [{ prompt: prompt }], parameters: { aspectRatio: aspectRatio || '16:9' } })
+  });
+  const startData = await startRes.json();
+  if (startData.error) throw new Error(startData.error.message);
+  const operationName = startData.name;
+  if (!operationName) throw new Error('No operation returned from Veo');
+
+  let done = false, attempts = 0, statusData = null;
+  while (!done && attempts < 40) {
+    await new Promise(r => setTimeout(r, 10000));
+    attempts++;
+    if (onProgress) onProgress(attempts * 10);
+    const statusRes = await fetch(`${BASE_URL}/${operationName}`, { headers: { 'x-goog-api-key': apiKey } });
+    statusData = await statusRes.json();
+    done = statusData.done === true;
+  }
+  if (!done) throw new Error('Video generation timed out');
+  if (statusData.error) throw new Error(statusData.error.message);
+
+  const videoUri = statusData.response?.generateVideoResponse?.generatedSamples?.[0]?.video?.uri;
+  if (!videoUri) throw new Error('No video returned (may have been blocked by safety filters)');
+
+  const videoRes = await fetch(videoUri, { headers: { 'x-goog-api-key': apiKey } });
+  const videoBlob = await videoRes.blob();
+  const videoFile = new File([videoBlob], 'veo-' + Date.now() + '.mp4', { type: 'video/mp4' });
+  const objectUrl = URL.createObjectURL(videoFile);
+  return { file: videoFile, dataUrl: objectUrl, name: videoFile.name, size: videoFile.size };
 }
 
 // Builds an image-generation prompt from the post context, so the auto-flow can create
@@ -4002,7 +4056,19 @@ async function runAutoGenerate() {
   const includeB2C = document.getElementById('autogen-toggle-b2c')?.classList.contains('on');
   const includeB2B = document.getElementById('autogen-toggle-b2b')?.classList.contains('on');
   const useWeekdayRotation = document.getElementById('autogen-toggle-rotate')?.classList.contains('on') ?? true;
+  const genImages = document.getElementById('autogen-toggle-images')?.classList.contains('on');
+  const genVideo = document.getElementById('autogen-toggle-video')?.classList.contains('on');
   const postCount = APP.autogenCount || 5;
+
+  // Guard: if image/video generation is on, make sure the supporting setup exists before spending a long run
+  if (genImages && !(APP.apiKeys.imgproxy || localStorage.getItem('scm_imgproxy_key'))) {
+    showToast('Image generation is on but no Image Proxy URL is set in Settings. Turn it off or add the URL.', 'error');
+    return;
+  }
+  if (genVideo && !(APP.apiKeys.veo || localStorage.getItem('scm_veo_key'))) {
+    showToast('Video generation is on but no Veo API key is set in Settings. Turn it off or add the key.', 'error');
+    return;
+  }
 
   const fallbackPillars = ['Product Showcase','Education','Social Proof','Sales Push','Aspiration / Lifestyle','Brand Story','Engagement'];
   const audiencesByCompany = {
@@ -4023,6 +4089,8 @@ async function runAutoGenerate() {
 
   let successCount = 0;
   let failCount = 0;
+  let videoCount = 0;
+  let imageCount = 0;
 
   for (const co of companies) {
     const audiences = audiencesByCompany[co];
@@ -4030,6 +4098,17 @@ async function runAutoGenerate() {
 
     // Assign each post to a real upcoming calendar date so the pillar rotation and scheduling make sense
     const dates = getNextWeekdays(postCount);
+
+    // Media plan for this company:
+    // - exactly ONE post becomes a video (the last post, if video generation is on)
+    // - up to 4 of the remaining posts get an AI image (if image generation is on)
+    const videoIndex = genVideo ? (postCount - 1) : -1;
+    const imageIndices = new Set();
+    if (genImages) {
+      for (let k = 0; k < postCount && imageIndices.size < 4; k++) {
+        if (k !== videoIndex) imageIndices.add(k);
+      }
+    }
 
     for (let i = 0; i < postCount; i++) {
       const postDate = dates[i];
@@ -4048,6 +4127,9 @@ async function runAutoGenerate() {
         <span style="font-size:12.5px;color:var(--text2);flex:1">${pillar}${holidayTag} · ${audience} <span style="color:var(--text3)">— ${dayLabel}</span></span>
         <div class="spinner" style="width:14px;height:14px;border-width:2px"></div>
       </div>`;
+
+      const isVideoPost = (i === videoIndex);
+      const isImagePost = imageIndices.has(i);
 
       try {
         const notes = holiday ? `Today is ${holiday.name}, a Philippine holiday. Write this post around the holiday — tie it naturally to the company's products or trade relevance (e.g. greeting, reflection, or a relevant offer), rather than a generic pillar post. Keep it warm and appropriate to the occasion.` : '';
@@ -4069,6 +4151,9 @@ async function runAutoGenerate() {
           photo: null,
           watermark: false,
           photoOriginal: null,
+          mediaType: isVideoPost ? 'video' : 'photo',
+          video: null,
+          videoMeta: null,
           status: 'draft',
           createdAt: new Date().toISOString(),
           scheduledFor: null,
@@ -4078,8 +4163,43 @@ async function runAutoGenerate() {
         APP.posts.push(post);
         successCount++;
 
+        // Caption is done and saved. Now layer media on top — derived from the caption so it relates.
+        // Media is a bonus: if it fails, the post still stands with its caption.
         const row = document.getElementById(rowId);
-        if (row) row.innerHTML = `<span class="post-company-badge badge-${co}">${co.toUpperCase()}</span><span style="font-size:12.5px;color:var(--text2);flex:1">${pillar}${holidayTag} · ${audience} <span style="color:var(--text3)">— ${dayLabel}</span></span><span style="color:var(--green);font-size:13px">✓</span>`;
+        const baseRowHtml = `<span class="post-company-badge badge-${co}">${co.toUpperCase()}</span><span style="font-size:12.5px;color:var(--text2);flex:1">${pillar}${holidayTag} · ${audience} <span style="color:var(--text3)">— ${dayLabel}</span></span>`;
+
+        if (isVideoPost && genVideo) {
+          if (row) row.innerHTML = baseRowHtml + `<span style="font-size:11px;color:var(--text3)">🎬 video…</span>`;
+          try {
+            const visualDesc = await captionToVisualDescription(apiKey, fullText, true);
+            const vidPrompt = `Professional 8-second marketing video for a Philippine furniture/laminate company. ${visualDesc} Cinematic, bright, high-quality commercial style with natural lighting. No text, words, logos, or watermarks.`;
+            const vid = await generateVideoHeadless(vidPrompt, '16:9');
+            // Store the generated video on the post. Note: object URLs don't survive a page reload —
+            // the user should review/publish generated videos in the same session, or regenerate.
+            post.video = vid.dataUrl;
+            post.videoMeta = { name: vid.name, size: vid.size };
+            post._videoFileRef = vid.file;
+            videoCount++;
+            if (row) row.innerHTML = baseRowHtml + `<span style="color:var(--green);font-size:13px">✓ 🎬</span>`;
+          } catch (vErr) {
+            if (row) row.innerHTML = baseRowHtml + `<span style="color:var(--amber);font-size:11px" title="${vErr.message}">✓ caption · video failed</span>`;
+          }
+        } else if (isImagePost && genImages) {
+          if (row) row.innerHTML = baseRowHtml + `<span style="font-size:11px;color:var(--text3)">🖼 image…</span>`;
+          try {
+            const visualDesc = await captionToVisualDescription(apiKey, fullText, false);
+            const imgPrompt = `Professional, photorealistic marketing photograph. ${visualDesc} Bright, clean, high-quality commercial photography with natural lighting and sharp focus. Absolutely no text, words, logos, or watermarks in the image.`;
+            const base64 = await generateImageViaProxy(imgPrompt);
+            post.photo = base64;
+            post.photoOriginal = base64;
+            imageCount++;
+            if (row) row.innerHTML = baseRowHtml + `<span style="color:var(--green);font-size:13px">✓ 🖼</span>`;
+          } catch (iErr) {
+            if (row) row.innerHTML = baseRowHtml + `<span style="color:var(--amber);font-size:11px" title="${iErr.message}">✓ caption · image failed</span>`;
+          }
+        } else {
+          if (row) row.innerHTML = baseRowHtml + `<span style="color:var(--green);font-size:13px">✓</span>`;
+        }
       } catch (err) {
         failCount++;
         const row = document.getElementById(rowId);
@@ -4096,7 +4216,11 @@ async function runAutoGenerate() {
   updateReviewQueue();
   renderCalendar();
 
-  showToast(successCount + ' posts generated' + (failCount ? ', ' + failCount + ' failed' : '') + ' — review them in Review & Schedule', 'success');
+  const mediaParts = [];
+  if (imageCount) mediaParts.push(imageCount + ' image' + (imageCount === 1 ? '' : 's'));
+  if (videoCount) mediaParts.push(videoCount + ' video' + (videoCount === 1 ? '' : 's'));
+  const mediaMsg = mediaParts.length ? ' (incl. ' + mediaParts.join(' + ') + ')' : '';
+  showToast(successCount + ' posts generated' + mediaMsg + (failCount ? ', ' + failCount + ' failed' : '') + ' — review them in Review & Schedule', 'success');
   btn.innerHTML = '<svg style="width:16px;height:16px" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 1v3M8 12v3M1 8h3M12 8h3"/><circle cx="8" cy="8" r="3"/></svg> Generate This Week\'s Posts';
   btn.disabled = false;
 }
