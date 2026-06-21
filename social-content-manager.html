@@ -228,6 +228,8 @@ select:focus{border-color:var(--accent-border);}
 </head>
 <body>
 
+<div id="creator-logo-badge" style="position:fixed;top:16px;right:20px;z-index:500;display:none;align-items:center;justify-content:center;width:40px;height:40px;border-radius:8px;background:white;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.25)"></div>
+
 <nav class="sidebar">
   <div class="sidebar-logo">
     <div class="logo-mark">Social Content<br>Manager</div>
@@ -294,7 +296,6 @@ select:focus{border-color:var(--accent-border);}
       <svg style="width:14px;height:14px" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="7"/><line x1="8" y1="5" x2="8" y2="8"/><circle cx="8" cy="11" r="0.5" fill="currentColor"/></svg>
       Help &amp; Documentation
     </button>
-    <div id="creator-credit" style="display:none"></div>
   </div>
 </nav>
 
@@ -920,9 +921,9 @@ select:focus{border-color:var(--accent-border);}
       </div>
       <div id="stab-data" style="display:none">
         <div class="card" style="margin-bottom:16px">
-          <div style="font-size:14px;font-weight:500;margin-bottom:4px">Developer Credit (optional)</div>
-          <div style="font-size:12px;color:var(--text3);margin-bottom:14px">A small, optional credit for whoever built this app — separate from the MSSI/WCLI/CWLI logos. Hidden by default; nothing changes unless you turn it on below.</div>
-          <div style="display:flex;align-items:center;gap:16px;margin-bottom:14px">
+          <div style="font-size:14px;font-weight:500;margin-bottom:4px">App Logo (top-right)</div>
+          <div style="font-size:12px;color:var(--text3);margin-bottom:14px">Shown in the top-right corner of the app on every screen. Upload a new image anytime to replace it — no separate visibility setting, it's just always there once you've uploaded one.</div>
+          <div style="display:flex;align-items:center;gap:16px">
             <div id="logo-preview-creator" style="width:60px;height:60px;border-radius:var(--radius);background:var(--bg3);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;overflow:hidden;flex-shrink:0">
               <span style="font-size:10px;color:var(--text3)">No logo</span>
             </div>
@@ -932,12 +933,6 @@ select:focus{border-color:var(--accent-border);}
               <button class="btn btn-ghost btn-sm" onclick="removeCreatorLogo()">Remove</button>
             </div>
           </div>
-          <div class="form-group"><label class="form-label">Name to display</label><input type="text" id="creator-name" placeholder="e.g. RTmo Digital Solutions"></div>
-          <div class="toggle-row" style="padding:8px 0;border:none">
-            <div><div class="toggle-label">Show this credit in the sidebar</div><div class="toggle-sub">Off by default — a small, easy-to-miss line at the bottom of the sidebar</div></div>
-            <div class="toggle" id="creator-show-toggle" onclick="toggleSwitch(this)"><div class="toggle-thumb"></div></div>
-          </div>
-          <button class="btn btn-secondary btn-sm" style="margin-top:10px" onclick="saveCreatorBrand()">Save</button>
         </div>
         <div class="card" style="margin-bottom:16px">
           <div style="font-size:14px;font-weight:500;margin-bottom:4px">Full Backup</div>
@@ -1103,7 +1098,7 @@ const APP = {
   autogenCount: 5,
   brandProfiles: {},
   logoPreview: { mssi: null, wcli: null, cwli: null },
-  creatorBrand: { name: '', logo: null, showInApp: false }
+  creatorBrand: { logo: null }
 };
 
 function loadState() {
@@ -2452,8 +2447,8 @@ function renderDashboardLogos() {
   });
 }
 
-// DEVELOPER CREDIT — separate from the per-company logos above. Off by default; only shows
-// anywhere in the app if explicitly turned on in Settings → Data & Export.
+// APP LOGO (top-right) — your own/RTmo branding, separate from the per-company MSSI/WCLI/CWLI logos.
+// Always visible once uploaded, on every screen. No visibility toggle — just upload to set, upload again to replace.
 function handleCreatorLogoUpload(e) {
   const file = e.target.files[0];
   if (!file) return;
@@ -2461,6 +2456,8 @@ function handleCreatorLogoUpload(e) {
   reader.onload = function(ev) {
     APP.creatorBrand.logo = ev.target.result;
     renderCreatorLogoPreview();
+    saveCreatorBrand();
+    showToast('App logo updated', 'success');
   };
   reader.readAsDataURL(file);
 }
@@ -2468,21 +2465,19 @@ function handleCreatorLogoUpload(e) {
 function removeCreatorLogo() {
   APP.creatorBrand.logo = null;
   renderCreatorLogoPreview();
+  saveCreatorBrand();
+  showToast('App logo removed', 'info');
 }
 
 function renderCreatorLogoPreview() {
   const el = document.getElementById('logo-preview-creator');
   if (!el) return;
   el.innerHTML = APP.creatorBrand.logo
-    ? `<img src="${APP.creatorBrand.logo}" style="width:100%;height:100%;object-fit:contain;background:white" alt="Developer logo">`
+    ? `<img src="${APP.creatorBrand.logo}" style="width:100%;height:100%;object-fit:contain;background:white" alt="App logo">`
     : '<span style="font-size:10px;color:var(--text3)">No logo</span>';
 }
 
 function saveCreatorBrand() {
-  const name = document.getElementById('creator-name')?.value.trim() || '';
-  const showInApp = document.getElementById('creator-show-toggle')?.classList.contains('on') || false;
-  APP.creatorBrand.name = name;
-  APP.creatorBrand.showInApp = showInApp;
   try {
     localStorage.setItem('scm_creator_brand', JSON.stringify(APP.creatorBrand));
   } catch (e) {
@@ -2490,43 +2485,31 @@ function saveCreatorBrand() {
     console.error('saveCreatorBrand failed:', e);
     return;
   }
-  renderCreatorCredit();
-  showToast('Saved', 'success');
+  renderCreatorLogoBadge();
 }
 
 function loadCreatorBrand() {
   try {
     const data = JSON.parse(localStorage.getItem('scm_creator_brand') || 'null');
     if (!data) return;
-    APP.creatorBrand = { name: data.name || '', logo: data.logo || null, showInApp: !!data.showInApp };
-    const nameEl = document.getElementById('creator-name');
-    if (nameEl && APP.creatorBrand.name) nameEl.value = APP.creatorBrand.name;
-    const toggleEl = document.getElementById('creator-show-toggle');
-    if (toggleEl) { if (APP.creatorBrand.showInApp) toggleEl.classList.add('on'); else toggleEl.classList.remove('on'); }
+    APP.creatorBrand = { logo: data.logo || null };
     renderCreatorLogoPreview();
-    renderCreatorCredit();
+    renderCreatorLogoBadge();
   } catch(e) { console.error(e); }
 }
 
-// Renders (or hides) the small sidebar credit line — only visible if showInApp is explicitly true.
-function renderCreatorCredit() {
-  const el = document.getElementById('creator-credit');
+// Renders (or hides) the fixed top-right logo badge, visible on every screen.
+function renderCreatorLogoBadge() {
+  const el = document.getElementById('creator-logo-badge');
   if (!el) return;
-  const { name, logo, showInApp } = APP.creatorBrand;
-  if (!showInApp || (!name && !logo)) {
+  const logo = APP.creatorBrand.logo;
+  if (!logo) {
     el.style.display = 'none';
     el.innerHTML = '';
     return;
   }
   el.style.display = 'flex';
-  el.style.alignItems = 'center';
-  el.style.gap = '6px';
-  el.style.padding = '8px 4px 2px';
-  el.style.opacity = '0.55';
-  el.innerHTML = `
-    ${logo ? `<img src="${logo}" style="width:14px;height:14px;object-fit:contain" alt="">` : ''}
-    <span style="font-size:10px;color:var(--text3)">${name ? 'Built by ' + name : ''}</span>
-  `;
+  el.innerHTML = `<img src="${logo}" style="width:100%;height:100%;object-fit:contain" alt="App logo">`;
 }
 
 function saveBrandProfile() {
