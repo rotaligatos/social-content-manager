@@ -229,8 +229,8 @@ select:focus{border-color:var(--accent-border);}
 <body>
 
 <nav class="sidebar">
-  <div class="sidebar-logo">
-    <div id="creator-logo-badge" style="display:none;align-items:center;justify-content:center;width:48px;height:48px;border-radius:10px;background:white;overflow:hidden;margin-bottom:10px"></div>
+  <div class="sidebar-logo" style="position:relative;padding-top:0">
+    <div id="creator-logo-badge" style="display:none;width:calc(100% + 40px);margin:0 -20px 12px;align-items:center;justify-content:center;overflow:hidden"></div>
     <div class="logo-mark">Social Content<br>Manager</div>
     <div class="logo-sub">MSSI · WCLI · CWLI</div>
   </div>
@@ -1585,10 +1585,17 @@ async function runImageGen() {
   document.getElementById('imggen-result').innerHTML = '';
 
   try {
+    // Ideogram's v3 endpoint requires multipart/form-data, not JSON — using FormData here
+    // (and letting the browser set the Content-Type with the correct boundary automatically)
+    const formData = new FormData();
+    formData.append('prompt', prompt);
+    formData.append('aspect_ratio', '1x1');
+    formData.append('rendering_speed', 'DEFAULT');
+
     const res = await fetch('https://api.ideogram.ai/v1/ideogram-v3/generate', {
       method: 'POST',
-      headers: { 'Api-Key': apiKey, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ prompt: prompt, aspect_ratio: '1x1', rendering_speed: 'DEFAULT' })
+      headers: { 'Api-Key': apiKey },
+      body: formData
     });
     const data = await res.json();
     if (data.error || !data.data || !data.data.length) {
@@ -2508,7 +2515,8 @@ function renderCreatorLogoBadge() {
     return;
   }
   el.style.display = 'flex';
-  el.innerHTML = `<img src="${logo}" style="width:100%;height:100%;object-fit:contain" alt="App logo">`;
+  el.style.height = '90px';
+  el.innerHTML = `<img src="${logo}" style="width:100%;height:100%;object-fit:cover" alt="App logo">`;
 }
 
 function saveBrandProfile() {
