@@ -790,7 +790,12 @@ select:focus{border-color:var(--accent-border);}
           <div style="margin-bottom:20px">
             <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px"><label class="form-label" style="margin:0">Ideogram API <span style="color:var(--text3);font-weight:400">(Optional)</span></label><div class="api-status optional" id="status-ideogram-key"><div style="width:6px;height:6px;border-radius:50%;background:currentColor"></div>Optional</div></div>
             <div class="api-key-row"><input class="api-key-input" type="password" id="key-ideogram" placeholder="ideogram-..."><button class="btn btn-secondary btn-sm" onclick="saveApiKey('ideogram')">Save</button></div>
-            <div style="font-size:11.5px;color:var(--text3)">Enables AI image generation when no photo is uploaded</div>
+            <div style="font-size:11.5px;color:var(--text3)">Your Ideogram key now lives securely in your Supabase function as a secret — you can leave this field blank. AI image generation runs through the proxy URL below.</div>
+          </div>
+          <div style="margin-bottom:20px">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px"><label class="form-label" style="margin:0">Image Generation Proxy URL <span style="color:var(--text3);font-weight:400">(Supabase)</span></label><div class="api-status optional" id="status-imgproxy-key"><div style="width:6px;height:6px;border-radius:50%;background:currentColor"></div>Optional</div></div>
+            <div class="api-key-row"><input class="api-key-input" type="text" id="key-imgproxy" placeholder="https://xxxx.supabase.co/functions/v1/generate-image"><button class="btn btn-secondary btn-sm" onclick="saveApiKey('imgproxy')">Save</button></div>
+            <div style="font-size:11.5px;color:var(--text3)">The URL of your deployed Supabase Edge Function that generates images. Required for AI image generation to work.</div>
           </div>
           <div>
             <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px"><label class="form-label" style="margin:0">Google Gemini API (Veo) <span style="color:var(--text3);font-weight:400">(Optional)</span></label><div class="api-status optional" id="status-veo-key"><div style="width:6px;height:6px;border-radius:50%;background:currentColor"></div>Optional</div></div>
@@ -1108,11 +1113,13 @@ function loadState() {
     APP.apiKeys.facebook = localStorage.getItem('scm_facebook_key') || '';
     APP.apiKeys.ideogram = localStorage.getItem('scm_ideogram_key') || '';
     APP.apiKeys.veo = localStorage.getItem('scm_veo_key') || '';
+    APP.apiKeys.imgproxy = localStorage.getItem('scm_imgproxy_key') || '';
     // Populate saved keys back into input fields
     if (APP.apiKeys.anthropic) { const el = document.getElementById('key-anthropic'); if(el) el.value = APP.apiKeys.anthropic; }
     if (APP.apiKeys.facebook) { const el = document.getElementById('key-facebook'); if(el) el.value = APP.apiKeys.facebook; }
     if (APP.apiKeys.ideogram) { const el = document.getElementById('key-ideogram'); if(el) el.value = APP.apiKeys.ideogram; }
     if (APP.apiKeys.veo) { const el = document.getElementById('key-veo'); if(el) el.value = APP.apiKeys.veo; }
+    if (APP.apiKeys.imgproxy) { const el = document.getElementById('key-imgproxy'); if(el) el.value = APP.apiKeys.imgproxy; }
     updateApiStatusBadges();
     updateDashboard();
     renderCalendar();
@@ -1569,9 +1576,9 @@ function buildImagePromptSuggestion(co, pillar) {
 }
 
 async function runImageGen() {
-  const apiKey = APP.apiKeys.ideogram || localStorage.getItem('scm_ideogram_key');
-  if (!apiKey) {
-    showToast('Add your Ideogram API key in Settings first', 'error');
+  const proxyUrl = APP.apiKeys.imgproxy || localStorage.getItem('scm_imgproxy_key');
+  if (!proxyUrl) {
+    showToast('Add your Image Generation Proxy URL in Settings first', 'error');
     closeImageGenModal();
     showScreen('settings');
     return;
@@ -1585,40 +1592,26 @@ async function runImageGen() {
   document.getElementById('imggen-result').innerHTML = '';
 
   try {
-    // Ideogram's v3 endpoint requires multipart/form-data, not JSON — using FormData here
-    // (and letting the browser set the Content-Type with the correct boundary automatically)
-    const formData = new FormData();
-    formData.append('prompt', prompt);
-    formData.append('aspect_ratio', '1x1');
-    formData.append('rendering_speed', 'DEFAULT');
-
-    const res = await fetch('https://api.ideogram.ai/v1/ideogram-v3/generate', {
+    // Calls our Supabase Edge Function, which holds the Ideogram key server-side,
+    // calls Ideogram, and returns the finished image already as a base64 data URL.
+    const res = await fetch(proxyUrl, {
       method: 'POST',
-      headers: { 'Api-Key': apiKey },
-      body: formData
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prompt: prompt, aspect_ratio: '1x1', rendering_speed: 'DEFAULT' })
     });
     const data = await res.json();
-    if (data.error || !data.data || !data.data.length) {
-      throw new Error((data.error && data.error.message) || 'No image returned');
+    if (!res.ok || data.error || !data.image) {
+      throw new Error(data.error || ('Proxy returned status ' + res.status));
     }
-    const imageUrl = data.data[0].url;
-
-    // Fetch the image and convert to base64 so it persists (Ideogram URLs expire)
-    const imgRes = await fetch(imageUrl);
-    const blob = await imgRes.blob();
-    const reader = new FileReader();
-    reader.onload = function(ev) {
-      const base64 = ev.target.result;
-      document.getElementById('imggen-result').innerHTML = `
-        <img src="${base64}" style="width:100%;border-radius:var(--radius);margin-bottom:10px" alt="Generated image">
-        <div style="display:flex;gap:8px">
-          <button class="btn btn-secondary btn-sm" style="flex:1" onclick='saveGeneratedToLibrary(${JSON.stringify(base64)})'>Save to Library</button>
-          <button class="btn btn-primary btn-sm" style="flex:1" onclick='useGeneratedImage(${JSON.stringify(base64)})'>Use This Image</button>
-        </div>
-      `;
-      showToast('Image generated!', 'success');
-    };
-    reader.readAsDataURL(blob);
+    const base64 = data.image;
+    document.getElementById('imggen-result').innerHTML = `
+      <img src="${base64}" style="width:100%;border-radius:var(--radius);margin-bottom:10px" alt="Generated image">
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-secondary btn-sm" style="flex:1" onclick='saveGeneratedToLibrary(${JSON.stringify(base64)})'>Save to Library</button>
+        <button class="btn btn-primary btn-sm" style="flex:1" onclick='useGeneratedImage(${JSON.stringify(base64)})'>Use This Image</button>
+      </div>
+    `;
+    showToast('Image generated!', 'success');
   } catch (err) {
     document.getElementById('imggen-result').innerHTML = `<div style="color:var(--red);font-size:12.5px">Error: ${err.message}</div>`;
     showToast('Image generation failed: ' + err.message, 'error');
