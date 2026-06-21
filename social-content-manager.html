@@ -505,6 +505,7 @@ select:focus{border-color:var(--accent-border);}
           </div>
           <div class="preview-actions">
             <button class="btn btn-ghost btn-sm" id="btn-regenerate" style="display:none" onclick="generatePost()">Regenerate</button>
+            <button class="btn btn-secondary btn-sm" id="btn-gen-image-from-caption" style="display:none" onclick="generateImageFromCaption()">✦ Generate Image from Caption</button>
             <button class="btn btn-secondary btn-sm" style="flex:1;display:none" id="btn-approve" onclick="saveDraft()">Save Draft</button>
             <button class="btn btn-primary btn-sm" style="flex:1;display:none" id="btn-schedule" onclick="showScreen('review')">Schedule →</button>
           </div>
@@ -1244,6 +1245,9 @@ function setCurrentPhoto(dataUrl) {
   document.getElementById('preview-image').innerHTML = '<img src="'+dataUrl+'" style="width:100%;height:200px;object-fit:cover" alt="Post photo">';
   const wmToggle = document.getElementById('watermark-toggle');
   if (wmToggle) wmToggle.checked = false;
+  // Once a photo is attached, hide the caption→image button (regenerating the caption brings it back).
+  const imgGenBtn = document.getElementById('btn-gen-image-from-caption');
+  if (imgGenBtn) imgGenBtn.style.display = 'none';
 }
 
 function handlePhotoUpload(e) {
@@ -1592,18 +1596,7 @@ async function runImageGen() {
   document.getElementById('imggen-result').innerHTML = '';
 
   try {
-    // Calls our Supabase Edge Function, which holds the Ideogram key server-side,
-    // calls Ideogram, and returns the finished image already as a base64 data URL.
-    const res = await fetch(proxyUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ prompt: prompt, aspect_ratio: '1x1', rendering_speed: 'DEFAULT' })
-    });
-    const data = await res.json();
-    if (!res.ok || data.error || !data.image) {
-      throw new Error(data.error || ('Proxy returned status ' + res.status));
-    }
-    const base64 = data.image;
+    const base64 = await generateImageViaProxy(prompt);
     document.getElementById('imggen-result').innerHTML = `
       <img src="${base64}" style="width:100%;border-radius:var(--radius);margin-bottom:10px" alt="Generated image">
       <div style="display:flex;gap:8px">
@@ -1696,6 +1689,36 @@ function getGoalFor(co) {
   return co === 'mssi' ? 'Generate quotation inquiries and DM conversations' : 'Build trade authority and generate dealer or partner inquiries';
 }
 
+// Shared helper: calls the Supabase image proxy and returns a base64 data URL (or throws).
+async function generateImageViaProxy(prompt) {
+  const proxyUrl = APP.apiKeys.imgproxy || localStorage.getItem('scm_imgproxy_key');
+  if (!proxyUrl) throw new Error('No image proxy URL configured in Settings');
+  const res = await fetch(proxyUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ prompt: prompt, aspect_ratio: '1x1', rendering_speed: 'DEFAULT' })
+  });
+  const data = await res.json();
+  if (!res.ok || data.error || !data.image) {
+    throw new Error(data.error || ('Proxy returned status ' + res.status));
+  }
+  return data.image;
+}
+
+// Builds an image-generation prompt from the post context, so the auto-flow can create
+// a relevant on-brand photo without the user having to describe it manually.
+function buildImagePrompt(co, audience, pillar, notes) {
+  const bp = APP.brandProfiles && APP.brandProfiles[co];
+  const products = (bp && bp.products) ? bp.products : (co === 'mssi'
+    ? 'modular kitchen cabinets, wardrobes, and built-in furniture'
+    : 'stacked laminated melamine boards in various wood-grain and solid finishes');
+  const subject = co === 'mssi'
+    ? `a beautifully finished interior featuring ${products}`
+    : `${products} shown in a clean professional setting that conveys material quality and finish`;
+  const notesPart = notes ? ` Incorporate this context where natural: ${notes}.` : '';
+  return `Professional, photorealistic marketing photograph for a Facebook post by a Philippine furniture/laminate company. Subject: ${subject}. Content theme: ${pillar}. Bright, clean, high-quality commercial photography style with natural lighting and sharp focus. No text, no words, no logos, no watermarks in the image.${notesPart}`;
+}
+
 function buildCaptionPrompt(co, audience, pillar, notes) {
   return `You are writing a Facebook post for ${getCompanyDescFor(co)}.
 
@@ -1740,6 +1763,43 @@ function splitCaptionTags(fullText) {
   return { body, tags, full: fullText };
 }
 
+// Generates an image built FROM the approved caption, so the two are actually connected.
+// Claude first distills the caption into a concise visual description, then that drives the image.
+async function generateImageFromCaption() {
+  if (!APP.currentCaption) { showToast('Generate a caption first', 'error'); return; }
+  const proxyUrl = APP.apiKeys.imgproxy || localStorage.getItem('scm_imgproxy_key');
+  if (!proxyUrl) {
+    showToast('Add your Image Generation Proxy URL in Settings first', 'error');
+    showScreen('settings');
+    return;
+  }
+  const apiKey = APP.apiKeys.anthropic || localStorage.getItem('scm_anthropic_key');
+  if (!apiKey) { showToast('Add your Anthropic API key in Settings first', 'error'); return; }
+
+  const btn = document.getElementById('btn-gen-image-from-caption');
+  const originalHtml = btn.innerHTML;
+  btn.innerHTML = '<div class="spinner" style="width:14px;height:14px;border-width:2px"></div> Generating image...';
+  btn.disabled = true;
+
+  try {
+    // Step 1: ask Claude to turn the caption into a concrete visual description (no text/logos in image)
+    const { body } = splitCaptionTags(APP.currentCaption);
+    const descPrompt = `Based on this Facebook post caption for a Philippine furniture/laminate company, write a single concise photo description (one sentence, under 40 words) for a photorealistic marketing image that would pair well with it. Describe only the visual scene — product, setting, mood. Do not include any text, words, logos, or watermarks in the described image. Output ONLY the description, nothing else.\n\nCaption:\n${body}`;
+    const visualDesc = await callClaude(apiKey, descPrompt, 200);
+
+    // Step 2: generate the image from that caption-derived description
+    const imgPrompt = `Professional, photorealistic marketing photograph. ${visualDesc.trim()} Bright, clean, high-quality commercial photography with natural lighting and sharp focus. Absolutely no text, words, logos, or watermarks in the image.`;
+    const base64 = await generateImageViaProxy(imgPrompt);
+    setCurrentPhoto(base64);
+    showToast('Image generated from your caption!', 'success');
+  } catch (err) {
+    showToast('Image generation failed: ' + err.message, 'error');
+  }
+
+  btn.innerHTML = originalHtml;
+  btn.disabled = false;
+}
+
 async function generatePost() {
   if (!APP.currentCompany) { showToast('Select a company first', 'error'); return; }
   if (!APP.currentAudience) { showToast('Select an audience', 'error'); return; }
@@ -1769,6 +1829,12 @@ async function generatePost() {
     document.getElementById('btn-schedule').style.display = 'inline-flex';
 
     showToast('Caption generated!', 'success');
+
+    // Surface the image-generation button now that there's an approved caption to base it on.
+    // Image generation is a separate, deliberate step — the user regenerates the caption until
+    // happy, then generates an image built from that caption (see openImageGenModal).
+    const imgGenBtn = document.getElementById('btn-gen-image-from-caption');
+    if (imgGenBtn && APP.mediaType !== 'video') imgGenBtn.style.display = 'inline-flex';
   } catch(err) {
     showToast('Error: ' + err.message, 'error');
     console.error('API Error:', err);
