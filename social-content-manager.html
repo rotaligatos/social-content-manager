@@ -1263,29 +1263,26 @@ function setCurrentPhoto(dataUrl) {
 async function handlePhotoUpload(e) {
   const file = e.target.files[0];
   if (!file) return;
-  const reader = new FileReader();
-  reader.onload = async function(ev) {
-    const dataUrl = ev.target.result;
-    // Show the local preview immediately for responsiveness
-    setCurrentPhoto(dataUrl);
-    // Then upload to Supabase Storage so it's not stored as base64 in browser localStorage
-    // (which overflows). Watermark server-side if the toggle is on and the company has a logo.
-    const proxyUrl = APP.apiKeys.imgproxy || localStorage.getItem('scm_imgproxy_key');
-    if (!proxyUrl) {
-      showToast('Photo shown, but no image proxy URL is set — it can\'t be saved to storage. Add it in Settings.', 'error');
-      return;
-    }
-    showToast('Uploading photo...', 'info');
-    try {
-      const opts = getWatermarkOpts(APP.currentCompany);
-      const url = await uploadImageToStorage(dataUrl, opts);
-      setCurrentPhoto(url);
-      showToast('Photo uploaded' + (opts ? ' and watermarked' : ''), 'success');
-    } catch (err) {
-      showToast('Upload failed: ' + err.message, 'error');
-    }
-  };
-  reader.readAsDataURL(file);
+  // Correct EXIF rotation before uploading — phone photos often embed orientation metadata
+  // that canvas ignores, causing sideways/upside-down images after server-side re-encoding.
+  const dataUrl = await correctImageOrientation(file);
+  // Show the local preview immediately for responsiveness
+  setCurrentPhoto(dataUrl);
+  // Then upload to Supabase Storage so it's not stored as base64 in browser localStorage
+  const proxyUrl = APP.apiKeys.imgproxy || localStorage.getItem('scm_imgproxy_key');
+  if (!proxyUrl) {
+    showToast('Photo shown, but no image proxy URL is set — it can\'t be saved to storage. Add it in Settings.', 'error');
+    return;
+  }
+  showToast('Uploading photo...', 'info');
+  try {
+    const opts = getWatermarkOpts(APP.currentCompany);
+    const url = await uploadImageToStorage(dataUrl, opts);
+    setCurrentPhoto(url);
+    showToast('Photo uploaded' + (opts ? ' and watermarked' : ''), 'success');
+  } catch (err) {
+    showToast('Upload failed: ' + err.message, 'error');
+  }
 }
 
 // MEDIA TYPE TABS (Photo vs Video) in Create Post
@@ -1488,12 +1485,7 @@ async function handleLibraryUpload(e) {
   // Upload sequentially so we don't hammer the function; each photo becomes a stored URL, not base64.
   for (const file of files) {
     try {
-      const dataUrl = await new Promise((resolve, reject) => {
-        const r = new FileReader();
-        r.onload = ev => resolve(ev.target.result);
-        r.onerror = () => reject(new Error('Could not read ' + file.name));
-        r.readAsDataURL(file);
-      });
+      const dataUrl = await correctImageOrientation(file);
       const opts = getWatermarkOpts(tagCompany);
       const url = await uploadImageToStorage(dataUrl, opts);
       APP.photos.unshift({
@@ -1531,17 +1523,95 @@ function renderPhotoLibrary() {
   }
   grid.innerHTML = filtered.map(p => `
     <div class="photo-card">
-      <img src="${p.data}" style="width:100%;height:130px;object-fit:cover" alt="${p.name}">
+      <img src="${p.data}" style="width:100%;height:130px;object-fit:cover;cursor:zoom-in" alt="${p.name}" onclick="openPhotoLightbox(${JSON.stringify(p.data)}, ${JSON.stringify(p.name)})">
       <div class="photo-meta">
         <div class="photo-name">${p.name}</div>
         <div style="display:flex;align-items:center;gap:6px;margin-top:4px">
           <span class="post-company-badge badge-${p.company}" style="font-size:9px">${p.company.toUpperCase()}</span>
-          <span style="font-size:10.5px;color:var(--text3)">${(p.size/1024).toFixed(0)}KB</span>
-          <button class="icon-btn reject" style="margin-left:auto;width:22px;height:22px" onclick="deletePhoto(${JSON.stringify(p.id)})" title="Delete">×</button>
+          <span style="font-size:10.5px;color:var(--text3)">${p.size ? (p.size/1024).toFixed(0)+'KB' : 'stored'}</span>
+          <button class="icon-btn reject" style="margin-left:auto;width:22px;height:22px" onclick="event.stopPropagation();deletePhoto(${JSON.stringify(p.id)})" title="Delete">×</button>
         </div>
       </div>
     </div>
   `).join('');
+}
+
+function openPhotoLightbox(src, name) {
+  const existing = document.getElementById('photo-lightbox-overlay');
+  if (existing) existing.remove();
+  const div = document.createElement('div');
+  div.id = 'photo-lightbox-overlay';
+  div.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.88);z-index:3000;display:flex;flex-direction:column;align-items:center;justify-content:center;cursor:zoom-out';
+  div.onclick = () => div.remove();
+  div.innerHTML = `
+    <div style="font-size:11px;color:rgba(255,255,255,0.5);margin-bottom:10px">${name} &nbsp;·&nbsp; click anywhere to close</div>
+    <img src="${src}" style="max-width:90vw;max-height:85vh;object-fit:contain;border-radius:6px;box-shadow:0 8px 40px rgba(0,0,0,0.6)" alt="${name}">
+  `;
+  document.body.appendChild(div);
+}
+
+// Reads the EXIF orientation tag from a JPEG's raw bytes and returns the rotation in degrees.
+// Phone cameras embed orientation metadata that browsers respect in <img> tags but ignore
+// during canvas drawing — so we must manually correct it before uploading, otherwise photos
+// taken in portrait or landscape mode come back rotated after JPEG re-encoding on the server.
+function readExifOrientation(arrayBuffer) {
+  const view = new DataView(arrayBuffer);
+  if (view.getUint16(0, false) !== 0xFFD8) return 1; // not a JPEG
+  const length = view.byteLength;
+  let offset = 2;
+  while (offset < length) {
+    if (view.getUint16(offset, false) === 0xFFE1) {
+      if (view.getUint32(offset += 2, false) !== 0x45786966) return 1; // no Exif header
+      const little = view.getUint16(offset += 6, false) === 0x4949;
+      offset += view.getUint32(offset + 4, little);
+      const tags = view.getUint16(offset, little);
+      offset += 2;
+      for (let i = 0; i < tags; i++) {
+        if (view.getUint16(offset + (i * 12), little) === 0x0112) {
+          return view.getUint16(offset + (i * 12) + 8, little);
+        }
+      }
+    } else if ((view.getUint16(offset, false) & 0xFF00) !== 0xFF00) {
+      break;
+    } else {
+      offset += view.getUint16(offset + 2, false) + 2;
+    }
+  }
+  return 1;
+}
+
+// Corrects EXIF orientation by drawing the image onto a canvas with the proper rotation
+// and returning a corrected data URL. If no rotation is needed, returns the original URL.
+async function correctImageOrientation(file) {
+  const arrayBuffer = await file.arrayBuffer();
+  const orientation = readExifOrientation(arrayBuffer);
+  if (orientation <= 1) {
+    // No rotation needed — just read as data URL normally
+    return await new Promise((resolve, reject) => {
+      const r = new FileReader();
+      r.onload = ev => resolve(ev.target.result);
+      r.onerror = () => reject(new Error('Could not read ' + file.name));
+      r.readAsDataURL(file);
+    });
+  }
+  // Draw with rotation correction applied
+  const img = await new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const i = new Image();
+    i.onload = () => { URL.revokeObjectURL(url); resolve(i); };
+    i.onerror = reject;
+    i.src = url;
+  });
+  const canvas = document.createElement('canvas');
+  const ctx = canvas.getContext('2d');
+  // Orientations 5–8 swap width/height
+  if (orientation >= 5) { canvas.width = img.height; canvas.height = img.width; }
+  else { canvas.width = img.width; canvas.height = img.height; }
+  const rotations = { 2:[1,0,0,-1,0,img.height], 3:[-1,0,0,-1,img.width,img.height], 4:[1,0,0,1,0,0], 5:[0,1,1,0,0,0], 6:[0,1,-1,0,img.height,0], 7:[0,-1,-1,0,img.height,img.width], 8:[0,-1,1,0,0,img.width] };
+  const t = rotations[orientation] || null;
+  if (t) ctx.transform(t[0], t[1], t[2], t[3], t[4], t[5]);
+  ctx.drawImage(img, 0, 0);
+  return canvas.toDataURL('image/jpeg', 0.92);
 }
 
 function deletePhoto(id) {
