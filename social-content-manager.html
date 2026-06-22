@@ -459,6 +459,10 @@ select:focus{border-color:var(--accent-border);}
                 <button class="btn btn-secondary btn-sm" onclick="openPhotoPicker()">Choose from Library</button>
                 <button class="btn btn-secondary btn-sm" onclick="openImageGenModal()">✦ AI Generate Image</button>
               </div>
+              <div class="toggle-row" style="margin-top:12px;padding:10px 0;border-top:1px solid var(--border);border-bottom:none">
+                <div><div class="toggle-label">Watermark with company logo</div><div class="toggle-sub">Stamps the logo at a random corner — applies to AI images and your own uploads</div></div>
+                <div class="toggle" id="create-watermark-toggle" onclick="toggleWatermarkAiSetting(this)"><div class="toggle-thumb"></div></div>
+              </div>
             </div>
 
             <div id="media-video-panel" style="display:none">
@@ -1256,14 +1260,32 @@ function setCurrentPhoto(dataUrl) {
   if (imgGenBtn) imgGenBtn.style.display = 'none';
 }
 
-function handlePhotoUpload(e) {
+async function handlePhotoUpload(e) {
   const file = e.target.files[0];
   if (!file) return;
-  const r = new FileReader();
-  r.onload = function(ev) {
-    setCurrentPhoto(ev.target.result);
+  const reader = new FileReader();
+  reader.onload = async function(ev) {
+    const dataUrl = ev.target.result;
+    // Show the local preview immediately for responsiveness
+    setCurrentPhoto(dataUrl);
+    // Then upload to Supabase Storage so it's not stored as base64 in browser localStorage
+    // (which overflows). Watermark server-side if the toggle is on and the company has a logo.
+    const proxyUrl = APP.apiKeys.imgproxy || localStorage.getItem('scm_imgproxy_key');
+    if (!proxyUrl) {
+      showToast('Photo shown, but no image proxy URL is set — it can\'t be saved to storage. Add it in Settings.', 'error');
+      return;
+    }
+    showToast('Uploading photo...', 'info');
+    try {
+      const opts = getWatermarkOpts(APP.currentCompany);
+      const url = await uploadImageToStorage(dataUrl, opts);
+      setCurrentPhoto(url);
+      showToast('Photo uploaded' + (opts ? ' and watermarked' : ''), 'success');
+    } catch (err) {
+      showToast('Upload failed: ' + err.message, 'error');
+    }
   };
-  r.readAsDataURL(file);
+  reader.readAsDataURL(file);
 }
 
 // MEDIA TYPE TABS (Photo vs Video) in Create Post
@@ -1451,30 +1473,51 @@ function useGeneratedVideo() {
   showToast('Video applied to post', 'success');
 }
 
-function handleLibraryUpload(e) {
+async function handleLibraryUpload(e) {
   const files = Array.from(e.target.files);
   const tagCompany = APP.libUploadCompany || 'mssi';
-  let remaining = files.length;
-  files.forEach(file => {
-    const r = new FileReader();
-    r.onload = function(ev) {
+  const proxyUrl = APP.apiKeys.imgproxy || localStorage.getItem('scm_imgproxy_key');
+  if (!proxyUrl) {
+    showToast('No image proxy URL set in Settings — needed to store uploaded photos. Add it first.', 'error');
+    return;
+  }
+
+  showToast('Uploading ' + files.length + ' photo' + (files.length > 1 ? 's' : '') + '...', 'info');
+  let ok = 0, failed = 0;
+
+  // Upload sequentially so we don't hammer the function; each photo becomes a stored URL, not base64.
+  for (const file of files) {
+    try {
+      const dataUrl = await new Promise((resolve, reject) => {
+        const r = new FileReader();
+        r.onload = ev => resolve(ev.target.result);
+        r.onerror = () => reject(new Error('Could not read ' + file.name));
+        r.readAsDataURL(file);
+      });
+      const opts = getWatermarkOpts(tagCompany);
+      const url = await uploadImageToStorage(dataUrl, opts);
       APP.photos.unshift({
         id: Date.now() + Math.random(),
         name: file.name,
-        data: ev.target.result,
+        data: url,
         company: tagCompany,
         size: file.size,
         uploadedAt: new Date().toISOString()
       });
-      remaining--;
-      if (remaining === 0) {
-        savePhotos();
-        renderPhotoLibrary();
-        showToast(files.length + ' photo'+(files.length>1?'s':'')+' added to library', 'success');
-      }
-    };
-    r.readAsDataURL(file);
-  });
+      ok++;
+    } catch (err) {
+      failed++;
+      console.error('Library upload failed for', file.name, err);
+    }
+  }
+
+  savePhotos();
+  renderPhotoLibrary();
+  if (failed === 0) {
+    showToast(ok + ' photo' + (ok !== 1 ? 's' : '') + ' uploaded to library', 'success');
+  } else {
+    showToast(ok + ' uploaded, ' + failed + ' failed — check connection and try again', failed === files.length ? 'error' : 'info');
+  }
 }
 
 function renderPhotoLibrary() {
@@ -1693,6 +1736,34 @@ function getGoalFor(co) {
   const bp = APP.brandProfiles && APP.brandProfiles[co];
   if (bp && bp.goal) return bp.goal;
   return co === 'mssi' ? 'Generate quotation inquiries and DM conversations' : 'Build trade authority and generate dealer or partner inquiries';
+}
+
+// Uploads a base64 image (manual upload) to Supabase Storage via the upload-image function,
+// returning a short public URL. Derives the upload endpoint from the existing image proxy URL,
+// since both Edge Functions live on the same Supabase project (…/functions/v1/generate-image
+// → …/functions/v1/upload-image), so there's no second URL for the user to configure.
+async function uploadImageToStorage(imageDataUrl, opts) {
+  const proxyUrl = APP.apiKeys.imgproxy || localStorage.getItem('scm_imgproxy_key');
+  if (!proxyUrl) throw new Error('No image proxy URL configured in Settings — needed for photo uploads too');
+  const uploadUrl = proxyUrl.replace(/generate-image\/?$/, 'upload-image');
+  const payload = { imageDataUrl: imageDataUrl };
+  if (opts && opts.watermark && opts.logoDataUrl) {
+    payload.watermark = true;
+    payload.logoDataUrl = opts.logoDataUrl;
+  }
+  const res = await fetch(uploadUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
+  const raw = await res.text();
+  let data;
+  try { data = JSON.parse(raw); }
+  catch (_e) { throw new Error('Upload returned non-JSON (status ' + res.status + '): ' + raw.slice(0, 200)); }
+  if (!res.ok || data.error || !data.url) {
+    throw new Error(data.error || ('Upload failed — returned: ' + JSON.stringify(data).slice(0, 200)));
+  }
+  return data.url;
 }
 
 // Shared helper: calls the Supabase image proxy. Returns a short public URL (image is stored
@@ -3690,15 +3761,22 @@ function getWatermarkOpts(company) {
 }
 
 function toggleWatermarkAiSetting(el) {
-  el.classList.toggle('on');
-  APP.watermarkAiImages = el.classList.contains('on');
-  localStorage.setItem('scm_watermark_ai', APP.watermarkAiImages ? '1' : '0');
+  const newState = !el.classList.contains('on');
+  APP.watermarkAiImages = newState;
+  localStorage.setItem('scm_watermark_ai', newState ? '1' : '0');
+  // Keep both copies of the toggle (Create Post + Auto-Generate Week) visually in sync
+  ['create-watermark-toggle', 'autogen-toggle-watermark'].forEach(id => {
+    const t = document.getElementById(id);
+    if (t) { if (newState) t.classList.add('on'); else t.classList.remove('on'); }
+  });
 }
 
 function loadWatermarkAiSetting() {
   APP.watermarkAiImages = localStorage.getItem('scm_watermark_ai') === '1';
-  const el = document.getElementById('autogen-toggle-watermark');
-  if (el) { if (APP.watermarkAiImages) el.classList.add('on'); else el.classList.remove('on'); }
+  ['create-watermark-toggle', 'autogen-toggle-watermark'].forEach(id => {
+    const t = document.getElementById(id);
+    if (t) { if (APP.watermarkAiImages) t.classList.add('on'); else t.classList.remove('on'); }
+  });
 }
 
 function loadImageFromDataUrl(dataUrl) {
