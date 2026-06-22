@@ -1711,9 +1711,18 @@ async function generateImageViaProxy(prompt, opts) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload)
   });
-  const data = await res.json();
+  const raw = await res.text();
+  let data;
+  try {
+    data = JSON.parse(raw);
+  } catch (_e) {
+    // Function returned something that isn't JSON at all — surface the raw text so we can see what it was
+    throw new Error('Proxy returned non-JSON (status ' + res.status + '): ' + raw.slice(0, 200));
+  }
   if (!res.ok || data.error || !data.url) {
-    throw new Error(data.error || ('Proxy returned status ' + res.status));
+    // Surface whatever the function actually sent back, not just the status code
+    const detail = data.error || ('no "url" field — function returned: ' + JSON.stringify(data).slice(0, 200));
+    throw new Error(detail);
   }
   return data.url;
 }
