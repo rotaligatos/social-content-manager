@@ -643,7 +643,8 @@ select:focus{border-color:var(--accent-border);}
           <div class="toggle-row"><div><div class="toggle-label">Include B2B trade content</div><div class="toggle-sub">Fabricators, dealers, contractors</div></div><div class="toggle on" id="autogen-toggle-b2b" onclick="toggleSwitch(this)"><div class="toggle-thumb"></div></div></div>
           <div class="toggle-row"><div><div class="toggle-label">Auto-rotate content pillars</div><div class="toggle-sub">Follow Mon–Sun pillar schedule</div></div><div class="toggle on" id="autogen-toggle-rotate" onclick="toggleSwitch(this)"><div class="toggle-thumb"></div></div></div>
           <div class="toggle-row"><div><div class="toggle-label">Generate images from captions</div><div class="toggle-sub">~4 AI images per company · costs Ideogram credits</div></div><div class="toggle on" id="autogen-toggle-images" onclick="toggleSwitch(this)"><div class="toggle-thumb"></div></div></div>
-          <div class="toggle-row" style="border-bottom:none"><div><div class="toggle-label">Generate 1 video per company</div><div class="toggle-sub">One post becomes an 8s Veo clip · costs ~$0.24–$1.44 each · slow</div></div><div class="toggle" id="autogen-toggle-video" onclick="toggleSwitch(this)"><div class="toggle-thumb"></div></div></div>
+          <div class="toggle-row"><div><div class="toggle-label">Generate 1 video per company</div><div class="toggle-sub">One post becomes an 8s Veo clip · costs ~$0.24–$1.44 each · slow</div></div><div class="toggle" id="autogen-toggle-video" onclick="toggleSwitch(this)"><div class="toggle-thumb"></div></div></div>
+          <div class="toggle-row" style="border-bottom:none"><div><div class="toggle-label">Watermark AI images with company logo</div><div class="toggle-sub">Logo stamped on generated images at a random corner</div></div><div class="toggle" id="autogen-toggle-watermark" onclick="toggleWatermarkAiSetting(this)"><div class="toggle-thumb"></div></div></div>
         </div>
         <div style="font-size:11px;color:var(--text3);margin-bottom:10px;line-height:1.5">Media generation spends real API credits. Images and video are built from each post's caption so they stay on-topic. Video is off by default since each clip has a real per-clip cost and takes time to generate.</div>
         <button class="generate-btn" id="autogen-btn" onclick="runAutoGenerate()">
@@ -1106,7 +1107,8 @@ const APP = {
   autogenCount: 5,
   brandProfiles: {},
   logoPreview: { mssi: null, wcli: null, cwli: null },
-  creatorBrand: { logo: null }
+  creatorBrand: { logo: null },
+  watermarkAiImages: false
 };
 
 function loadState() {
@@ -1137,6 +1139,7 @@ function loadState() {
     loadWorkingHours();
     loadHolidays();
     loadCreatorBrand();
+    loadWatermarkAiSetting();
   } catch(e) { console.error(e); }
 }
 
@@ -1599,12 +1602,12 @@ async function runImageGen() {
   document.getElementById('imggen-result').innerHTML = '';
 
   try {
-    const base64 = await generateImageViaProxy(prompt);
+    const imageUrl = await generateImageViaProxy(prompt);
     document.getElementById('imggen-result').innerHTML = `
-      <img src="${base64}" style="width:100%;border-radius:var(--radius);margin-bottom:10px" alt="Generated image">
+      <img src="${imageUrl}" style="width:100%;border-radius:var(--radius);margin-bottom:10px" alt="Generated image">
       <div style="display:flex;gap:8px">
-        <button class="btn btn-secondary btn-sm" style="flex:1" onclick='saveGeneratedToLibrary(${JSON.stringify(base64)})'>Save to Library</button>
-        <button class="btn btn-primary btn-sm" style="flex:1" onclick='useGeneratedImage(${JSON.stringify(base64)})'>Use This Image</button>
+        <button class="btn btn-secondary btn-sm" style="flex:1" onclick='saveGeneratedToLibrary(${JSON.stringify(imageUrl)})'>Save to Library</button>
+        <button class="btn btn-primary btn-sm" style="flex:1" onclick='useGeneratedImage(${JSON.stringify(imageUrl)})'>Use This Image</button>
       </div>
     `;
     showToast('Image generated!', 'success');
@@ -1623,13 +1626,13 @@ function useGeneratedImage(base64) {
   showToast('Photo applied to post', 'success');
 }
 
-function saveGeneratedToLibrary(base64) {
+function saveGeneratedToLibrary(imageUrl) {
   APP.photos.unshift({
     id: Date.now() + Math.random(),
-    name: 'AI-generated-' + Date.now() + '.png',
-    data: base64,
+    name: 'AI-generated-' + Date.now() + '.jpg',
+    data: imageUrl,
     company: APP.currentCompany || 'mssi',
-    size: Math.round(base64.length * 0.75),
+    size: 0,
     uploadedAt: new Date().toISOString()
   });
   savePhotos();
@@ -1692,20 +1695,27 @@ function getGoalFor(co) {
   return co === 'mssi' ? 'Generate quotation inquiries and DM conversations' : 'Build trade authority and generate dealer or partner inquiries';
 }
 
-// Shared helper: calls the Supabase image proxy and returns a base64 data URL (or throws).
-async function generateImageViaProxy(prompt) {
+// Shared helper: calls the Supabase image proxy. Returns a short public URL (image is stored
+// on Supabase, NOT returned as base64 — that's what keeps browser localStorage from overflowing).
+// Optionally passes the company logo so the proxy can watermark server-side before storing.
+async function generateImageViaProxy(prompt, opts) {
   const proxyUrl = APP.apiKeys.imgproxy || localStorage.getItem('scm_imgproxy_key');
   if (!proxyUrl) throw new Error('No image proxy URL configured in Settings');
+  const payload = { prompt: prompt, aspect_ratio: '1x1', rendering_speed: 'DEFAULT' };
+  if (opts && opts.watermark && opts.logoDataUrl) {
+    payload.watermark = true;
+    payload.logoDataUrl = opts.logoDataUrl;
+  }
   const res = await fetch(proxyUrl, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ prompt: prompt, aspect_ratio: '1x1', rendering_speed: 'DEFAULT' })
+    body: JSON.stringify(payload)
   });
   const data = await res.json();
-  if (!res.ok || data.error || !data.image) {
+  if (!res.ok || data.error || !data.url) {
     throw new Error(data.error || ('Proxy returned status ' + res.status));
   }
-  return data.image;
+  return data.url;
 }
 
 // Asks Claude to distill an approved caption into a concise visual scene description.
@@ -1843,8 +1853,8 @@ async function generateImageFromCaption() {
 
     // Step 2: generate the image from that caption-derived description
     const imgPrompt = `Professional, photorealistic marketing photograph. ${visualDesc.trim()} Bright, clean, high-quality commercial photography with natural lighting and sharp focus. Absolutely no text, words, logos, or watermarks in the image.`;
-    const base64 = await generateImageViaProxy(imgPrompt);
-    setCurrentPhoto(base64);
+    const imageUrl = await generateImageViaProxy(imgPrompt, getWatermarkOpts(APP.currentCompany));
+    setCurrentPhoto(imageUrl);
     showToast('Image generated from your caption!', 'success');
   } catch (err) {
     showToast('Image generation failed: ' + err.message, 'error');
@@ -3588,26 +3598,40 @@ async function publishToFacebook(post) {
   }
 
   try {
-    // Photo posts: upload the image bytes directly to Facebook in one multipart/form-data call.
-    // Graph API's "source" field accepts raw binary, so the photo + caption + publish all happen
-    // in a single request — no external image host (Drive/Cloudinary/Imgur) needed at all.
     if (post.photo) {
-      const blob = dataUrlToBlob(post.photo);
-      const formData = new FormData();
-      formData.append('source', blob, 'photo.jpg');
-      formData.append('message', post.caption);
-      formData.append('published', 'true');
-      formData.append('access_token', pageData.token);
-
-      const photoRes = await fetch(`https://graph.facebook.com/v19.0/${pageData.id}/photos`, {
-        method: 'POST',
-        body: formData
-      });
-      const photoData = await photoRes.json();
-      if (photoData.error) {
-        return { success: false, error: photoData.error.message };
+      // Two kinds of photo can reach here:
+      //  - A Supabase public URL (AI-generated images now live in Storage) → Facebook can fetch it
+      //    directly via the "url" parameter, which is simpler and avoids re-uploading bytes.
+      //  - A base64 data URL (manually uploaded photos) → upload the raw bytes via "source".
+      const isHttpUrl = /^https?:\/\//i.test(post.photo);
+      if (isHttpUrl) {
+        const params = new URLSearchParams();
+        params.append('url', post.photo);
+        params.append('message', post.caption);
+        params.append('published', 'true');
+        params.append('access_token', pageData.token);
+        const photoRes = await fetch(`https://graph.facebook.com/v19.0/${pageData.id}/photos`, {
+          method: 'POST',
+          body: params
+        });
+        const photoData = await photoRes.json();
+        if (photoData.error) return { success: false, error: photoData.error.message };
+        return { success: true, postId: photoData.post_id || photoData.id };
+      } else {
+        const blob = dataUrlToBlob(post.photo);
+        const formData = new FormData();
+        formData.append('source', blob, 'photo.jpg');
+        formData.append('message', post.caption);
+        formData.append('published', 'true');
+        formData.append('access_token', pageData.token);
+        const photoRes = await fetch(`https://graph.facebook.com/v19.0/${pageData.id}/photos`, {
+          method: 'POST',
+          body: formData
+        });
+        const photoData = await photoRes.json();
+        if (photoData.error) return { success: false, error: photoData.error.message };
+        return { success: true, postId: photoData.post_id || photoData.id };
       }
-      return { success: true, postId: photoData.post_id || photoData.id };
     }
 
     // Text-only post (no photo attached)
@@ -3647,6 +3671,27 @@ function getCompanyLogo(company) {
   return (APP.brandProfiles[company] && APP.brandProfiles[company].logo) || APP.logoPreview[company] || null;
 }
 
+// Builds the watermark options passed to the image proxy. When the "watermark AI images" setting
+// is on AND the company has a logo, the proxy stamps the logo server-side at generation time.
+function getWatermarkOpts(company) {
+  if (!APP.watermarkAiImages) return null;
+  const logo = getCompanyLogo(company);
+  if (!logo) return null;
+  return { watermark: true, logoDataUrl: logo };
+}
+
+function toggleWatermarkAiSetting(el) {
+  el.classList.toggle('on');
+  APP.watermarkAiImages = el.classList.contains('on');
+  localStorage.setItem('scm_watermark_ai', APP.watermarkAiImages ? '1' : '0');
+}
+
+function loadWatermarkAiSetting() {
+  APP.watermarkAiImages = localStorage.getItem('scm_watermark_ai') === '1';
+  const el = document.getElementById('autogen-toggle-watermark');
+  if (el) { if (APP.watermarkAiImages) el.classList.add('on'); else el.classList.remove('on'); }
+}
+
 function loadImageFromDataUrl(dataUrl) {
   return new Promise((resolve, reject) => {
     const img = new Image();
@@ -3662,6 +3707,16 @@ async function applyWatermarkToPost(post) {
     showToast('No logo found for ' + post.company.toUpperCase() + ' — upload one in Brand Profiles first.', 'error');
     return false;
   }
+
+  // AI-generated images are stored as Supabase URLs (not base64). The browser canvas can't
+  // re-export a cross-origin image without tainting, so post-hoc watermarking won't work on those.
+  // For URL-based photos, watermarking must happen at generation time (server-side) instead.
+  const photoSrc = post.photoOriginal || post.photo;
+  if (photoSrc && /^https?:\/\//i.test(photoSrc)) {
+    showToast('This image is stored online — turn on "Watermark AI images" in Settings before generating, so the logo is baked in at creation.', 'info');
+    return false;
+  }
+
   if (!post.photoOriginal) post.photoOriginal = post.photo;
 
   try {
@@ -4189,9 +4244,9 @@ async function runAutoGenerate() {
           try {
             const visualDesc = await captionToVisualDescription(apiKey, fullText, false);
             const imgPrompt = `Professional, photorealistic marketing photograph. ${visualDesc} Bright, clean, high-quality commercial photography with natural lighting and sharp focus. Absolutely no text, words, logos, or watermarks in the image.`;
-            const base64 = await generateImageViaProxy(imgPrompt);
-            post.photo = base64;
-            post.photoOriginal = base64;
+            const imageUrl = await generateImageViaProxy(imgPrompt, getWatermarkOpts(co));
+            post.photo = imageUrl;
+            post.photoOriginal = imageUrl;
             imageCount++;
             if (row) row.innerHTML = baseRowHtml + `<span style="color:var(--green);font-size:13px">✓ 🖼</span>`;
           } catch (iErr) {
