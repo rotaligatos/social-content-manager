@@ -1522,8 +1522,8 @@ function renderPhotoLibrary() {
     return;
   }
   grid.innerHTML = filtered.map(p => `
-    <div class="photo-card">
-      <img src="${p.data}" style="width:100%;height:130px;object-fit:cover;cursor:zoom-in" alt="${p.name}" onclick="openPhotoLightbox(${JSON.stringify(p.data)}, ${JSON.stringify(p.name)})">
+    <div class="photo-card" data-photo-id="${p.id}" onclick="openPhotoLightboxById(this)" style="cursor:zoom-in">
+      <img src="${p.data}" style="width:100%;height:130px;object-fit:cover" alt="${p.name}">
       <div class="photo-meta">
         <div class="photo-name">${p.name}</div>
         <div style="display:flex;align-items:center;gap:6px;margin-top:4px">
@@ -1534,6 +1534,13 @@ function renderPhotoLibrary() {
       </div>
     </div>
   `).join('');
+}
+
+function openPhotoLightboxById(cardEl) {
+  const id = cardEl.dataset.photoId;
+  const photo = APP.photos.find(function(p) { return String(p.id) === String(id); });
+  if (!photo) return;
+  openPhotoLightbox(photo.data, photo.name);
 }
 
 function openPhotoLightbox(src, name) {
