@@ -707,6 +707,7 @@ select:focus{border-color:var(--accent-border);}
         <div class="form-group"><label class="form-label">B2B Tone</label><select id="bp-mssi-b2b-tone"><option selected>Professional, efficient, project-focused</option></select></div>
         <div class="form-group"><label class="form-label">Primary Goal</label><textarea rows="2" id="bp-mssi-goal">Generate inquiries and quotation requests</textarea></div>
         <div class="form-group"><label class="form-label">Key Differentiators</label><textarea rows="3" id="bp-mssi-diff">Philippine-made. Fast delivery and installation. Custom-fit to any space. Trusted by homeowners and professionals.</textarea></div>
+        <div class="form-group"><label class="form-label">Visual Style Preferences</label><textarea rows="3" id="bp-mssi-visual-style" placeholder="e.g. Warm residential interiors with natural light, finished furniture in real home settings, aspirational lifestyle photography, Filipina homeowners enjoying their space.">Warm residential interiors with natural light, beautifully finished modular furniture in real Philippine home settings, aspirational lifestyle photography, real clients enjoying their space.</textarea><div style="font-size:11px;color:var(--text3);margin-top:4px">Injected into every AI image prompt for this company — sets the visual character and context of generated photos.</div></div>
       </div>
       <div class="card" style="grid-column:1 / -1"><div style="font-size:14px;font-weight:500;margin-bottom:14px">Sample Claude Prompt Preview</div>
         <div style="background:var(--bg3);border-radius:var(--radius);padding:14px;font-size:12.5px;color:var(--text2);line-height:1.8;font-family:'Courier New',monospace;border:1px solid var(--border)">You are writing a Facebook post for <strong style="color:var(--mssi)">MSSI — Module Systems and Services, Inc.</strong>, a Philippine modular furniture company.<br>Audience: <strong style="color:var(--text)">B2C Homeowner</strong> | Content: <strong style="color:var(--text)">Product Showcase</strong> | Tone: <strong style="color:var(--text)">Warm, aspirational</strong><br>Goal: Generate quotation inquiries | Notes: [user notes here]<br><br>Write a compelling Facebook caption with 2–3 paragraphs, CTA, and 5–8 hashtags.</div>
@@ -736,6 +737,7 @@ select:focus{border-color:var(--accent-border);}
       <div class="card"><div style="font-size:14px;font-weight:500;margin-bottom:14px">Brand Voice</div>
         <div class="form-group"><label class="form-label">Primary Tone</label><select id="bp-wcli-tone"><option selected>Authoritative, technical, quality-driven</option></select><div class="voice-tags" style="margin-top:10px"><span class="voice-tag active">authoritative</span><span class="voice-tag active">technical</span><span class="voice-tag active">trade-professional</span><span class="voice-tag active">reliable</span></div></div>
         <div class="form-group"><label class="form-label">Primary Goal</label><textarea rows="2" id="bp-wcli-goal">Build brand authority. Generate dealer and trade partnership inquiries.</textarea></div>
+        <div class="form-group"><label class="form-label">Visual Style Preferences</label><textarea rows="3" id="bp-wcli-visual-style" placeholder="e.g. Clean industrial setting, neatly stacked laminate boards showing texture and finish variety, professional trade photography, warehouse or showroom context.">Clean industrial or trade setting, neatly stacked laminated melamine boards showcasing texture and finish variety, professional trade photography, Luzon warehouse or showroom context.</textarea><div style="font-size:11px;color:var(--text3);margin-top:4px">Injected into every AI image prompt for this company — sets the visual character and context of generated photos.</div></div>
       </div>
     </div>
     <div id="brand-cwli" class="brand-content" style="display:none">
@@ -764,6 +766,7 @@ select:focus{border-color:var(--accent-border);}
       <div class="card"><div style="font-size:14px;font-weight:500;margin-bottom:14px">Brand Voice</div>
         <div class="form-group"><label class="form-label">Primary Tone</label><select id="bp-cwli-tone"><option selected>Technical authority with regional warmth</option></select><div class="voice-tags" style="margin-top:10px"><span class="voice-tag active">authoritative</span><span class="voice-tag active">regional</span><span class="voice-tag active">warm</span><span class="voice-tag active">local-first</span></div></div>
         <div class="form-group"><label class="form-label">Regional Differentiator</label><textarea rows="2" id="bp-cwli-diff">Local availability, proximity over Manila suppliers, Cebuano/Visayan identity</textarea></div>
+        <div class="form-group"><label class="form-label">Visual Style Preferences</label><textarea rows="3" id="bp-cwli-visual-style" placeholder="e.g. Cebu or Visayas setting, local fabrication workshop or showroom, warm regional feel, finished furniture and laminate boards together.">Cebu or Visayas context — local fabrication workshop or trade showroom, warm regional feel, finished furniture and laminate boards shown together, Bisaya trade community setting.</textarea><div style="font-size:11px;color:var(--text3);margin-top:4px">Injected into every AI image prompt for this company — sets the visual character and context of generated photos.</div></div>
       </div>
     </div>
   </div>
@@ -1846,11 +1849,34 @@ async function generateImageViaProxy(prompt, opts) {
 
 // Asks Claude to distill an approved caption into a concise visual scene description.
 // Shared by both image and video generation so the media relates to the caption.
-async function captionToVisualDescription(apiKey, caption, forVideo) {
+// Pillar-specific photography direction injected into the visual description prompt,
+// so outputs stop feeling generic and repetitive across post types.
+const PILLAR_PHOTO_DIRECTION = {
+  'Product Showcase':    'Clean product hero shot — the item is the undisputed star, beautifully lit, against a simple complementary background. No clutter.',
+  'Education':           'Informative and approachable — show a close-up detail, a process step, or a "before and after" that teaches something visual. Clear and honest.',
+  'Social Proof':        'Candid and real — a finished installation, a happy client space, or a completed project. Looks genuinely lived-in or used, not staged.',
+  'Sales Push':          'Confident and aspirational product shot — premium feel, strong composition. Should make you want to own or use it immediately.',
+  'Aspiration / Lifestyle': 'Lifestyle scene — the product in its natural context, with people enjoying the space or end result. Warm, inviting, emotionally resonant.',
+  'Brand Story':         'Behind the scenes — factory floor, craftsmen at work, materials being handled, or the team. Authentic and human, shows pride of craft.',
+  'Engagement':          'Relatable and visually interesting — something that invites a second look or sparks a question. Colour, pattern, or contrast that stops the scroll.',
+  'Trade Partner':       'B2B credibility shot — stacked inventory, a dealer showroom, materials ready for distribution, or a commercial project site. Professional scale.',
+  'Holiday':             'Warm, celebratory scene tied naturally to the product or space — festive but tasteful. Feels like a real Philippine holiday moment.'
+};
+
+async function captionToVisualDescription(apiKey, caption, forVideo, company, pillar) {
   const { body } = splitCaptionTags(caption);
   const medium = forVideo ? 'an 8-second marketing video' : 'a photorealistic marketing image';
   const motionNote = forVideo ? ' Describe gentle, realistic motion or camera movement suitable for a short clip.' : '';
-  const descPrompt = `Based on this Facebook post caption for a Philippine furniture/laminate company, write a single concise scene description (one sentence, under 40 words) for ${medium} that would pair well with it. Describe only the visual scene — product, setting, mood.${motionNote} Do not include any text, words, logos, or watermarks. Output ONLY the description, nothing else.\n\nCaption:\n${body}`;
+
+  // Inject pillar-specific photography direction
+  const pillarKey = pillar ? Object.keys(PILLAR_PHOTO_DIRECTION).find(function(k) { return pillar.startsWith(k); }) : null;
+  const pillarHint = pillarKey ? (' Photography direction for this post type: ' + PILLAR_PHOTO_DIRECTION[pillarKey]) : '';
+
+  // Inject brand visual style preferences from Brand Profile
+  const bp = APP.brandProfiles && company && APP.brandProfiles[company];
+  const visualStyle = (bp && bp.visualStyle) ? (' Brand visual style for this company: ' + bp.visualStyle) : '';
+
+  const descPrompt = `Based on this Facebook post caption for a Philippine furniture/laminate company, write a single concise scene description (one sentence, under 40 words) for ${medium} that would pair well with it. Describe only the visual scene — product, setting, mood.${motionNote}${pillarHint}${visualStyle} Do not include any text, words, logos, or watermarks. Output ONLY the description, nothing else.\n\nCaption:\n${body}`;
   const desc = await callClaude(apiKey, descPrompt, 200);
   return desc.trim();
 }
@@ -1953,41 +1979,97 @@ function splitCaptionTags(fullText) {
   return { body, tags, full: fullText };
 }
 
-// Generates an image built FROM the approved caption, so the two are actually connected.
-// Claude first distills the caption into a concise visual description, then that drives the image.
+// STEP 1: Generate the visual description from the caption and show it for review/editing.
+// The user can edit it freely before spending a credit on generation.
 async function generateImageFromCaption() {
   if (!APP.currentCaption) { showToast('Generate a caption first', 'error'); return; }
   const proxyUrl = APP.apiKeys.imgproxy || localStorage.getItem('scm_imgproxy_key');
-  if (!proxyUrl) {
-    showToast('Add your Image Generation Proxy URL in Settings first', 'error');
-    showScreen('settings');
-    return;
-  }
+  if (!proxyUrl) { showToast('Add your Image Generation Proxy URL in Settings first', 'error'); showScreen('settings'); return; }
   const apiKey = APP.apiKeys.anthropic || localStorage.getItem('scm_anthropic_key');
   if (!apiKey) { showToast('Add your Anthropic API key in Settings first', 'error'); return; }
 
   const btn = document.getElementById('btn-gen-image-from-caption');
   const originalHtml = btn.innerHTML;
-  btn.innerHTML = '<div class="spinner" style="width:14px;height:14px;border-width:2px"></div> Generating image...';
+  btn.innerHTML = '<div class="spinner" style="width:14px;height:14px;border-width:2px"></div> Writing scene description...';
   btn.disabled = true;
 
   try {
-    // Step 1: ask Claude to turn the caption into a concrete visual description (no text/logos in image)
-    const { body } = splitCaptionTags(APP.currentCaption);
-    const descPrompt = `Based on this Facebook post caption for a Philippine furniture/laminate company, write a single concise photo description (one sentence, under 40 words) for a photorealistic marketing image that would pair well with it. Describe only the visual scene — product, setting, mood. Do not include any text, words, logos, or watermarks in the described image. Output ONLY the description, nothing else.\n\nCaption:\n${body}`;
-    const visualDesc = await callClaude(apiKey, descPrompt, 200);
-
-    // Step 2: generate the image from that caption-derived description
-    const imgPrompt = `Professional, photorealistic marketing photograph. ${visualDesc.trim()} Bright, clean, high-quality commercial photography with natural lighting and sharp focus. Absolutely no text, words, logos, or watermarks in the image.`;
-    const imageUrl = await generateImageViaProxy(imgPrompt, getWatermarkOpts(APP.currentCompany));
-    setCurrentPhoto(imageUrl);
-    showToast('Image generated from your caption!', 'success');
+    const visualDesc = await captionToVisualDescription(
+      apiKey, APP.currentCaption, false, APP.currentCompany, APP.currentPillar
+    );
+    showVisualDescriptionModal(visualDesc);
   } catch (err) {
-    showToast('Image generation failed: ' + err.message, 'error');
+    showToast('Could not generate description: ' + err.message, 'error');
   }
 
   btn.innerHTML = originalHtml;
   btn.disabled = false;
+}
+
+// Shows the editable visual description modal before firing to Ideogram.
+function showVisualDescriptionModal(initialDesc) {
+  const existing = document.getElementById('visual-desc-modal');
+  if (existing) existing.remove();
+  const div = document.createElement('div');
+  div.id = 'visual-desc-modal';
+  div.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.75);z-index:2000;display:flex;align-items:center;justify-content:center;padding:20px';
+  const inner = document.createElement('div');
+  inner.style.cssText = 'background:var(--bg2);border-radius:12px;width:100%;max-width:540px;padding:24px;border:1px solid var(--border)';
+  const title = document.createElement('div');
+  title.style.cssText = 'font-size:15px;font-weight:600;margin-bottom:6px';
+  title.textContent = 'Review image description';
+  const subtitle = document.createElement('div');
+  subtitle.style.cssText = 'font-size:12px;color:var(--text3);margin-bottom:14px';
+  subtitle.textContent = 'Claude wrote this from your caption. Edit it freely before generating — this exact text drives what Ideogram creates. Be specific: mention materials, setting, lighting, and mood.';
+  const ta = document.createElement('textarea');
+  ta.id = 'visual-desc-input';
+  ta.rows = 4;
+  ta.style.cssText = 'width:100%;box-sizing:border-box;font-size:13px;line-height:1.6;padding:10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg3);color:var(--text);resize:vertical';
+  ta.value = initialDesc;
+  const tip = document.createElement('div');
+  tip.style.cssText = 'font-size:11px;color:var(--text3);margin-top:6px;margin-bottom:16px';
+  tip.textContent = 'Tip: avoid asking for text, logos, or words. Be concrete — "neatly stacked cream-white laminate boards on a workshop shelf, warm overhead light" beats "laminate boards."';
+  const btnRow = document.createElement('div');
+  btnRow.style.cssText = 'display:flex;gap:10px;justify-content:flex-end';
+  const cancelBtn = document.createElement('button');
+  cancelBtn.className = 'btn btn-ghost btn-sm';
+  cancelBtn.textContent = 'Cancel';
+  cancelBtn.onclick = function() { div.remove(); };
+  const genBtn = document.createElement('button');
+  genBtn.className = 'btn btn-primary btn-sm';
+  genBtn.textContent = 'Generate Image';
+  genBtn.onclick = confirmAndGenerateImage;
+  btnRow.appendChild(cancelBtn);
+  btnRow.appendChild(genBtn);
+  inner.appendChild(title);
+  inner.appendChild(subtitle);
+  inner.appendChild(ta);
+  inner.appendChild(tip);
+  inner.appendChild(btnRow);
+  div.appendChild(inner);
+  document.body.appendChild(div);
+  ta.focus();
+  ta.selectionStart = ta.selectionEnd = ta.value.length;
+}
+
+// STEP 2: Called when the user clicks "Generate Image" in the description review modal.
+async function confirmAndGenerateImage() {
+  const ta = document.getElementById('visual-desc-input');
+  const visualDesc = ta ? ta.value.trim() : '';
+  if (!visualDesc) { showToast('Description cannot be empty', 'error'); return; }
+  const modal = document.getElementById('visual-desc-modal');
+  const genBtn = modal && modal.querySelector('.btn-primary');
+  if (genBtn) { genBtn.textContent = 'Generating...'; genBtn.disabled = true; }
+  try {
+    const imgPrompt = 'Professional, photorealistic marketing photograph. ' + visualDesc + ' Bright, clean, high-quality commercial photography with natural lighting and sharp focus. Absolutely no text, words, logos, or watermarks in the image.';
+    const imageUrl = await generateImageViaProxy(imgPrompt, getWatermarkOpts(APP.currentCompany));
+    setCurrentPhoto(imageUrl);
+    if (modal) modal.remove();
+    showToast('Image generated!', 'success');
+  } catch (err) {
+    if (genBtn) { genBtn.textContent = 'Generate Image'; genBtn.disabled = false; }
+    showToast('Image generation failed: ' + err.message, 'error');
+  }
 }
 
 async function generatePost() {
@@ -2779,7 +2861,8 @@ function saveBrandProfile() {
       b2bTone: document.getElementById('bp-mssi-b2b-tone')?.value || '',
       goal: document.getElementById('bp-mssi-goal')?.value || '',
       diff: document.getElementById('bp-mssi-diff')?.value || '',
-      logo: APP.logoPreview.mssi || null
+      logo: APP.logoPreview.mssi || null,
+      visualStyle: document.getElementById('bp-mssi-visual-style')?.value || ''
     },
     wcli: {
       name: document.getElementById('bp-wcli-name')?.value || '',
@@ -2789,7 +2872,8 @@ function saveBrandProfile() {
       fbname: document.getElementById('bp-wcli-fbname')?.value || '',
       tone: document.getElementById('bp-wcli-tone')?.value || '',
       goal: document.getElementById('bp-wcli-goal')?.value || '',
-      logo: APP.logoPreview.wcli || null
+      logo: APP.logoPreview.wcli || null,
+      visualStyle: document.getElementById('bp-wcli-visual-style')?.value || ''
     },
     cwli: {
       name: document.getElementById('bp-cwli-name')?.value || '',
@@ -2799,7 +2883,8 @@ function saveBrandProfile() {
       tone: document.getElementById('bp-cwli-tone')?.value || '',
       diff: document.getElementById('bp-cwli-diff')?.value || '',
       bisaya: document.getElementById('bisaya-toggle')?.classList.contains('on') ?? true,
-      logo: APP.logoPreview.cwli || null
+      logo: APP.logoPreview.cwli || null,
+      visualStyle: document.getElementById('bp-cwli-visual-style')?.value || ''
     }
   };
   try {
@@ -2831,6 +2916,7 @@ function loadBrandProfiles() {
       setVal('bp-mssi-diff', data.mssi.diff);
       APP.logoPreview.mssi = data.mssi.logo || null;
       renderLogoPreview('mssi');
+      setVal('bp-mssi-visual-style', data.mssi.visualStyle);
     }
     if (data.wcli) {
       setVal('bp-wcli-name', data.wcli.name);
@@ -2842,6 +2928,7 @@ function loadBrandProfiles() {
       setVal('bp-wcli-goal', data.wcli.goal);
       APP.logoPreview.wcli = data.wcli.logo || null;
       renderLogoPreview('wcli');
+      setVal('bp-wcli-visual-style', data.wcli.visualStyle);
     }
     if (data.cwli) {
       setVal('bp-cwli-name', data.cwli.name);
@@ -2854,6 +2941,7 @@ function loadBrandProfiles() {
       if (bisayaEl) { if (data.cwli.bisaya) bisayaEl.classList.add('on'); else bisayaEl.classList.remove('on'); }
       APP.logoPreview.cwli = data.cwli.logo || null;
       renderLogoPreview('cwli');
+      setVal('bp-cwli-visual-style', data.cwli.visualStyle);
     }
     renderDashboardLogos();
   } catch(e) { console.error(e); }
@@ -4359,7 +4447,7 @@ async function runAutoGenerate() {
         if (isVideoPost && genVideo) {
           if (row) row.innerHTML = baseRowHtml + `<span style="font-size:11px;color:var(--text3)">🎬 video…</span>`;
           try {
-            const visualDesc = await captionToVisualDescription(apiKey, fullText, true);
+            const visualDesc = await captionToVisualDescription(apiKey, fullText, true, co, pillar);
             const vidPrompt = `Professional 8-second marketing video for a Philippine furniture/laminate company. ${visualDesc} Cinematic, bright, high-quality commercial style with natural lighting. No text, words, logos, or watermarks.`;
             const vid = await generateVideoHeadless(vidPrompt, '16:9');
             // Store the generated video on the post. Note: object URLs don't survive a page reload —
@@ -4375,7 +4463,7 @@ async function runAutoGenerate() {
         } else if (isImagePost && genImages) {
           if (row) row.innerHTML = baseRowHtml + `<span style="font-size:11px;color:var(--text3)">🖼 image…</span>`;
           try {
-            const visualDesc = await captionToVisualDescription(apiKey, fullText, false);
+            const visualDesc = await captionToVisualDescription(apiKey, fullText, false, co, pillar);
             const imgPrompt = `Professional, photorealistic marketing photograph. ${visualDesc} Bright, clean, high-quality commercial photography with natural lighting and sharp focus. Absolutely no text, words, logos, or watermarks in the image.`;
             const imageUrl = await generateImageViaProxy(imgPrompt, getWatermarkOpts(co));
             post.photo = imageUrl;
