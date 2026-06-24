@@ -1463,18 +1463,32 @@ async function runVideoGen() {
   btn.disabled = false;
 }
 
-function useGeneratedVideo() {
+async function useGeneratedVideo() {
   const v = window._pendingGeneratedVideo;
   if (!v) return;
   APP.currentVideo = v;
   document.getElementById('video-preview-area').innerHTML = `
     <video src="${v.dataUrl}" controls style="width:100%;max-height:200px;border-radius:var(--radius);background:#000"></video>
     <div style="font-size:11.5px;color:var(--text3);margin-top:6px">${v.name} · ${(v.size/1024/1024).toFixed(1)}MB · AI-generated</div>
+    <div id="vidupload-status" style="font-size:11.5px;color:var(--text2);margin-top:4px">⏫ Uploading to storage…</div>
   `;
   refreshPreviewMedia();
   closeVideoGenModal();
   window._pendingGeneratedVideo = null;
-  showToast('Video applied to post', 'success');
+  showToast('Video applied to post — uploading to storage…', 'info');
+
+  // Upload to Supabase so the video survives page reloads
+  try {
+    const videoUrl = await uploadVideoToStorage(v.file);
+    APP.currentVideo.supabaseUrl = videoUrl;
+    const statusEl = document.getElementById('vidupload-status');
+    if (statusEl) statusEl.innerHTML = '✓ Saved to storage — safe to reload';
+    showToast('Video uploaded to storage', 'success');
+  } catch (upErr) {
+    const statusEl = document.getElementById('vidupload-status');
+    if (statusEl) statusEl.innerHTML = '<span style="color:var(--amber)">⚠ Storage upload failed — publish in this session to avoid losing the video</span>';
+    showToast('Video storage upload failed: ' + upErr.message, 'error');
+  }
 }
 
 async function handleLibraryUpload(e) {
@@ -1819,6 +1833,26 @@ async function uploadImageToStorage(imageDataUrl, opts) {
   return data.url;
 }
 
+// Uploads a video File to Supabase Storage via the upload-video Edge Function,
+// returning a short public URL. Derives the upload endpoint from the existing
+// image proxy URL (same Supabase project, different function slug).
+async function uploadVideoToStorage(videoFile) {
+  const proxyUrl = APP.apiKeys.imgproxy || localStorage.getItem('scm_imgproxy_key');
+  if (!proxyUrl) throw new Error('No image proxy URL configured in Settings — needed for video uploads too');
+  const uploadUrl = proxyUrl.replace(/generate-image\/?$/, 'upload-video');
+  const formData = new FormData();
+  formData.append('video', videoFile, videoFile.name || 'video.mp4');
+  const res = await fetch(uploadUrl, { method: 'POST', body: formData });
+  const raw = await res.text();
+  let data;
+  try { data = JSON.parse(raw); }
+  catch (_e) { throw new Error('Video upload returned non-JSON (status ' + res.status + '): ' + raw.slice(0, 200)); }
+  if (!res.ok || data.error || !data.url) {
+    throw new Error(data.error || ('Video upload failed — returned: ' + JSON.stringify(data).slice(0, 200)));
+  }
+  return data.url;
+}
+
 // Shared helper: calls the Supabase image proxy. Returns a short public URL (image is stored
 // on Supabase, NOT returned as base64 — that's what keeps browser localStorage from overflowing).
 // Optionally passes the company logo so the proxy can watermark server-side before storing.
@@ -1922,7 +1956,16 @@ async function generateVideoHeadless(prompt, aspectRatio, onProgress) {
   const videoBlob = await videoRes.blob();
   const videoFile = new File([videoBlob], 'veo-' + Date.now() + '.mp4', { type: 'video/mp4' });
   const objectUrl = URL.createObjectURL(videoFile);
-  return { file: videoFile, dataUrl: objectUrl, name: videoFile.name, size: videoFile.size };
+
+  // Upload to Supabase immediately so the video survives page reloads
+  let supabaseUrl = null;
+  try {
+    supabaseUrl = await uploadVideoToStorage(videoFile);
+  } catch (_upErr) {
+    // Upload failure is non-fatal — video still works in-session via objectUrl
+  }
+
+  return { file: videoFile, dataUrl: objectUrl, name: videoFile.name, size: videoFile.size, supabaseUrl: supabaseUrl };
 }
 
 // Builds an image-generation prompt from the post context, so the auto-flow can create
@@ -2127,6 +2170,7 @@ function resetGenerateBtn() {
 function saveDraft() {
   if (!APP.currentCaption) { showToast('Generate a post first', 'error'); return; }
   const hasVideo = APP.mediaType === 'video' && APP.currentVideo;
+  const videoSupabaseUrl = hasVideo && APP.currentVideo.supabaseUrl ? APP.currentVideo.supabaseUrl : null;
   const post = {
     id: Date.now(),
     company: APP.currentCompany,
@@ -2135,20 +2179,14 @@ function saveDraft() {
     caption: APP.currentCaption,
     photo: hasVideo ? null : APP.currentPhoto,
     mediaType: hasVideo ? 'video' : 'photo',
-    // Video files cannot be stored in localStorage (too large) and Blob URLs don't survive a page reload.
-    // We keep the actual File object in memory only for this session — if the page is closed before
-    // publishing, the video needs to be re-attached. videoMeta keeps the filename/size so the post still
-    // shows what was attached even after a reload.
     videoMeta: hasVideo ? { name: APP.currentVideo.name, size: APP.currentVideo.size } : null,
+    videoUrl: videoSupabaseUrl,
     _videoFileRef: hasVideo ? APP.currentVideo.file : null,
     status: 'draft',
     createdAt: new Date().toISOString(),
     scheduledFor: null,
-    // Watermark: off by default, manually toggled per post in Review & Schedule.
-    // photoOriginal preserves the un-watermarked image so toggling off restores it cleanly.
     watermark: false,
     photoOriginal: null,
-    // Response time tracking
     responseToken: generateResponseToken(),
     responseTimestamp: null,
     responseOverrideTimestamp: null,
@@ -2159,7 +2197,11 @@ function saveDraft() {
   updateDashboard();
   updateReviewBadge();
   if (hasVideo) {
-    showToast('Saved with video — publish in this session, since video files don\'t persist after closing the browser', 'info');
+    if (videoSupabaseUrl) {
+      showToast('Saved with video — stored in Supabase, safe to reload', 'success');
+    } else {
+      showToast('Saved with video — publish in this session, storage upload failed or pending', 'info');
+    }
   } else {
     showToast('Saved to review queue', 'success');
   }
@@ -4014,9 +4056,24 @@ async function toggleWatermark(id) {
 // and only then can that handle be posted to /PAGE_ID/videos to actually publish it.
 // Requires a Facebook App ID (separate from the Page ID/Token already collected) — see Settings → Facebook Pages.
 async function publishVideoToFacebook(post, pageData) {
-  const file = post._videoFileRef;
+  let file = post._videoFileRef;
+
+  // If the in-memory file is gone (page was reloaded), try to re-download from Supabase
+  if (!file && post.videoUrl) {
+    try {
+      showToast('Re-fetching video from storage…', 'info');
+      const res = await fetch(post.videoUrl);
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      const blob = await res.blob();
+      file = new File([blob], post.videoMeta?.name || 'video.mp4', { type: 'video/mp4' });
+      post._videoFileRef = file; // Restore in memory for this session
+    } catch (fetchErr) {
+      return { success: false, error: 'Video file is not in memory and could not be re-fetched from storage: ' + fetchErr.message };
+    }
+  }
+
   if (!file) {
-    return { success: false, error: 'The video file is no longer available in memory. Videos must be published in the same browser session they were attached in — please re-attach the video and try again.' };
+    return { success: false, error: 'The video file is no longer available. Please re-attach the video in Create Post and try again.' };
   }
 
   const appId = (APP.fbPages && APP.fbPages.appId) || JSON.parse(localStorage.getItem('scm_fb_pages') || '{}').appId;
@@ -4459,8 +4516,9 @@ async function runAutoGenerate() {
             post.video = vid.dataUrl;
             post.videoMeta = { name: vid.name, size: vid.size };
             post._videoFileRef = vid.file;
+            if (vid.supabaseUrl) post.videoUrl = vid.supabaseUrl;
             videoCount++;
-            if (row) row.innerHTML = baseRowHtml + `<span style="color:var(--green);font-size:13px">✓ 🎬</span>`;
+            if (row) row.innerHTML = baseRowHtml + `<span style="color:var(--green);font-size:13px">✓ 🎬${vid.supabaseUrl ? '' : ' ⚠️'}</span>`;
           } catch (vErr) {
             if (row) row.innerHTML = baseRowHtml + `<span style="color:var(--amber);font-size:11px" title="${vErr.message}">✓ caption · video failed</span>`;
           }
