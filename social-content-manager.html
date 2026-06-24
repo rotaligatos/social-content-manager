@@ -2293,10 +2293,107 @@ function approveAll() {
   showToast('All posts approved and scheduled', 'success');
 }
 
+// SUPABASE BACKGROUND SCHEDULER SYNC
+// When a post is scheduled, it's written to the Supabase scheduled_posts table
+// so the publish-scheduled Edge Function can publish it even when the browser is closed.
+// On app load, we read back any published/rescheduled statuses from Supabase.
+
+function getSupabaseConfig() {
+  const proxyUrl = APP.apiKeys.imgproxy || localStorage.getItem('scm_imgproxy_key') || '';
+  if (!proxyUrl) return null;
+  // Derive Supabase project URL and anon key from the proxy URL
+  // proxy URL format: https://<project>.supabase.co/functions/v1/generate-image
+  const match = proxyUrl.match(/^(https:\/\/[^/]+\.supabase\.co)/);
+  if (!match) return null;
+  return { url: match[1] };
+}
+
+async function syncPostToSupabase(post) {
+  const cfg = getSupabaseConfig();
+  if (!cfg) return; // No proxy URL configured — skip silently
+  const pageData = resolveFbPageData(post);
+  if (!pageData || !pageData.id || !pageData.token) return; // No FB config — skip
+
+  const syncUrl = cfg.url + '/functions/v1/sync-scheduled-post';
+  try {
+    await fetch(syncUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        id: String(post.id),
+        company: post.company,
+        caption: post.caption,
+        photo_url: post.photo || null,
+        video_url: post.videoUrl || null,
+        media_type: post.mediaType || 'photo',
+        fb_page_id: pageData.id,
+        fb_token: pageData.token,
+        scheduled_for: post.scheduledFor,
+        status: 'scheduled'
+      })
+    });
+  } catch (_err) {
+    // Sync failure is non-fatal — in-browser scheduler still works as fallback
+  }
+}
+
+async function syncStatusFromSupabase() {
+  const cfg = getSupabaseConfig();
+  if (!cfg) return;
+  if (!APP.posts || !APP.posts.length) return;
+
+  const scheduledIds = APP.posts
+    .filter(p => p.status === 'scheduled' || p.status === 'published')
+    .map(p => String(p.id));
+  if (!scheduledIds.length) return;
+
+  const syncUrl = cfg.url + '/functions/v1/sync-scheduled-post';
+  try {
+    const res = await fetch(syncUrl + '?ids=' + scheduledIds.join(','), {
+      method: 'GET',
+      headers: { 'Content-Type': 'application/json' }
+    });
+    if (!res.ok) return;
+    const data = await res.json();
+    if (!data.posts || !data.posts.length) return;
+
+    let changed = false;
+    for (const remote of data.posts) {
+      const local = APP.posts.find(p => String(p.id) === String(remote.id));
+      if (!local) continue;
+
+      if (remote.status === 'published' && local.status !== 'published') {
+        local.status = 'published';
+        local.fbPostId = remote.fb_post_id;
+        local.publishedAt = remote.published_at;
+        changed = true;
+      } else if (remote.status === 'scheduled' && remote.rescheduled_to && local.scheduledFor !== remote.scheduled_for) {
+        // Post was rescheduled by the cron — update local scheduled time
+        local.scheduledFor = remote.scheduled_for;
+        local.rescheduledTo = remote.rescheduled_to;
+        changed = true;
+      } else if (remote.status === 'missed') {
+        local.status = 'missed';
+        local.errorMessage = remote.error_message;
+        changed = true;
+      }
+    }
+
+    if (changed) {
+      saveState();
+      updateReviewQueue();
+      updateDashboard();
+      renderCalendar();
+      showToast('Post statuses synced from background scheduler', 'info');
+    }
+  } catch (_err) {
+    // Sync failure is non-fatal
+  }
+}
+
 function schedulePost(id) {
   const post = APP.posts.find(p => String(p.id) === String(id));
   if (!post) return;
-  // Capture any inline edits made to the caption before scheduling
   const editEl = document.getElementById('caption-edit-' + id);
   if (editEl) post.caption = editEl.value;
   const dt = document.getElementById('sched-' + id)?.value;
@@ -2307,6 +2404,8 @@ function schedulePost(id) {
   updateReviewBadge();
   updateDashboard();
   showToast('Post scheduled!', 'success');
+  // Sync to Supabase so the background cron can publish it when the browser is closed
+  syncPostToSupabase(post);
 }
 
 function markCaptionEdited(id) {
@@ -4625,6 +4724,8 @@ async function runSchedulerTick() {
 
 function startScheduler() {
   if (_schedulerInterval) clearInterval(_schedulerInterval);
+  // On startup: sync any statuses that changed while the browser was closed
+  syncStatusFromSupabase();
   // Run immediately on start, then every 60 seconds
   runSchedulerTick();
   _schedulerInterval = setInterval(runSchedulerTick, 60000);
