@@ -477,6 +477,7 @@ select:focus{border-color:var(--accent-border);}
               <button class="audience-btn" onclick="selectAudience(this)"><div class="audience-type">B2B</div><div class="audience-label">Contractor / Developer</div></button>
               <button class="audience-btn" onclick="selectAudience(this)"><div class="audience-type">B2B</div><div class="audience-label">Cabinet Maker / Fabricator</div></button>
               <button class="audience-btn" onclick="selectAudience(this)"><div class="audience-type">B2B</div><div class="audience-label">Hardware Store / Dealer</div></button>
+              <button class="audience-btn" onclick="selectAudience(this)"><div class="audience-type">B2B</div><div class="audience-label">Hardware Store / Depot Buyer</div></button>
             </div>
           </div>
         </div>
@@ -538,6 +539,22 @@ select:focus{border-color:var(--accent-border);}
           <div class="form-section-header"><div class="form-section-num">5</div><div class="form-section-title">Notes for AI <span style="color:var(--text3);font-weight:400">(optional)</span></div></div>
           <div class="form-section-body">
             <textarea id="post-notes" rows="3" placeholder="e.g. 'new project in Mandaue', 'focus on kitchen cabinets', 'mention 30-day delivery'"></textarea>
+          </div>
+        </div>
+        <div class="form-section">
+          <div class="form-section-header"><div class="form-section-num">6</div><div class="form-section-title">Feature a Color <span style="color:var(--text3);font-weight:400">(optional)</span></div></div>
+          <div class="form-section-body">
+            <select id="post-color-id" style="width:100%;margin-bottom:8px" onchange="updateColorFinishOptions()">
+              <option value="">No specific color — use featured colors</option>
+            </select>
+            <select id="post-color-finish" style="width:100%;display:none">
+              <option value="">Any finish</option>
+            </select>
+            <div style="font-size:11px;color:var(--text3);margin-top:6px">Claude will naturally work the selected color and finish into the caption. Ideogram will match the visual texture.</div>
+            <div class="toggle-row" style="margin-top:10px;padding:0;border:none">
+              <div><div class="toggle-label" style="font-size:12.5px">Mention store availability</div><div class="toggle-sub">Add retail partners (Wilcon, Home Depot, etc.) to the caption</div></div>
+              <div class="toggle" id="post-retail-toggle" onclick="toggleSwitch(this)"><div class="toggle-thumb"></div></div>
+            </div>
           </div>
         </div>
         <button class="generate-btn" id="generate-btn" onclick="generatePost()">
@@ -721,6 +738,7 @@ select:focus{border-color:var(--accent-border);}
           <div class="toggle-row"><div><div class="toggle-label">Generate images from captions</div><div class="toggle-sub">~4 AI images per company · costs Ideogram credits</div></div><div class="toggle on" id="autogen-toggle-images" onclick="toggleSwitch(this)"><div class="toggle-thumb"></div></div></div>
           <div class="toggle-row"><div><div class="toggle-label">Generate 1 video per company</div><div class="toggle-sub">One post becomes an 8s Veo clip · costs ~$0.24–$1.44 each · slow</div></div><div class="toggle" id="autogen-toggle-video" onclick="toggleSwitch(this)"><div class="toggle-thumb"></div></div></div>
           <div class="toggle-row" style="border-bottom:none"><div><div class="toggle-label">Watermark AI images with company logo</div><div class="toggle-sub">Logo stamped on generated images at a random corner</div></div><div class="toggle" id="autogen-toggle-watermark" onclick="toggleWatermarkAiSetting(this)"><div class="toggle-thumb"></div></div></div>
+          <div class="toggle-row" style="border-bottom:none;margin-top:4px"><div><div class="toggle-label">Rotate featured colors</div><div class="toggle-sub">Each post features a different color from the company collection (WCLI/CWLI only)</div></div><div class="toggle" id="autogen-toggle-colors" onclick="toggleSwitch(this)"><div class="toggle-thumb"></div></div></div>
         </div>
         <div style="font-size:11px;color:var(--text3);margin-bottom:10px;line-height:1.5">Media generation spends real API credits. Images and video are built from each post's caption so they stay on-topic. Video is off by default since each clip has a real per-clip cost and takes time to generate.</div>
         <button class="generate-btn" id="autogen-btn" onclick="runAutoGenerate()">
@@ -753,6 +771,8 @@ select:focus{border-color:var(--accent-border);}
       <button class="brand-tab active-mssi" id="btab-mssi" onclick="switchBrandTab('mssi')"><div style="width:8px;height:8px;border-radius:50%;background:var(--mssi)"></div>MSSI</button>
       <button class="brand-tab" id="btab-wcli" onclick="switchBrandTab('wcli')"><div style="width:8px;height:8px;border-radius:50%;background:var(--wcli)"></div>WCLI</button>
       <button class="brand-tab" id="btab-cwli" onclick="switchBrandTab('cwli')"><div style="width:8px;height:8px;border-radius:50%;background:var(--cwli)"></div>CWLI</button>
+      <button class="brand-tab" id="btab-colors" onclick="switchBrandTab('colors')">🎨 Colors</button>
+      <button class="brand-tab" id="btab-retail" onclick="switchBrandTab('retail')">🏪 Retail Partners</button>
     </div>
     <div id="brand-mssi" class="brand-content">
       <div class="card"><div style="font-size:14px;font-weight:500;margin-bottom:14px">Company Logo</div>
@@ -841,10 +861,95 @@ select:focus{border-color:var(--accent-border);}
         <div class="form-group"><label class="form-label">Visual Style Preferences</label><textarea rows="3" id="bp-cwli-visual-style" placeholder="e.g. Cebu or Visayas setting, local fabrication workshop or showroom, warm regional feel, finished furniture and laminate boards together.">Cebu or Visayas context — local fabrication workshop or trade showroom, warm regional feel, finished furniture and laminate boards shown together, Bisaya trade community setting.</textarea><div style="font-size:11px;color:var(--text3);margin-top:4px">Injected into every AI image prompt for this company — sets the visual character and context of generated photos.</div></div>
       </div>
     </div>
-  </div>
-</div>
+    <!-- COLORS TAB -->
+    <div id="brand-colors" class="brand-content" style="display:none">
+      <!-- WCLI Colors -->
+      <div class="card">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+          <div>
+            <div style="font-size:14px;font-weight:500;color:var(--wcli)">WCLI Color Collection</div>
+            <div style="font-size:11.5px;color:var(--text3);margin-top:2px">Master list — imported from worldclasslaminate.com.ph</div>
+          </div>
+          <div style="display:flex;gap:8px">
+            <button class="btn btn-secondary btn-sm" onclick="importWcliColors()">
+              <svg style="width:12px;height:12px" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 1v10M4 7l4 4 4-4"/><path d="M2 13h12"/></svg>
+              Import from Website
+            </button>
+            <button class="btn btn-ghost btn-sm" onclick="openAddColorModal('wcli')">+ Add Color</button>
+          </div>
+        </div>
+        <!-- Search + filter -->
+        <div style="display:flex;gap:8px;margin-bottom:12px">
+          <input type="text" id="color-search-wcli" placeholder="Search colors…" style="flex:1;font-size:12px;padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg3);color:var(--text)" oninput="renderColorList('wcli')">
+          <select id="color-filter-wcli" style="font-size:12px;padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg3);color:var(--text)" onchange="renderColorList('wcli')">
+            <option value="">All categories</option>
+            <option value="Woodgrain">Woodgrain</option>
+            <option value="Solid">Solid</option>
+            <option value="Marble">Marble</option>
+            <option value="Fabric">Fabric</option>
+            <option value="Stone">Stone</option>
+            <option value="HPL">HPL</option>
+          </select>
+          <select id="color-status-wcli" style="font-size:12px;padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg3);color:var(--text)" onchange="renderColorList('wcli')">
+            <option value="">All status</option>
+            <option value="active">Active</option>
+            <option value="featured">Featured</option>
+            <option value="retired">Retired</option>
+          </select>
+        </div>
+        <div id="color-list-wcli" style="max-height:400px;overflow-y:auto"></div>
+        <div id="color-count-wcli" style="font-size:11px;color:var(--text3);margin-top:10px;text-align:right"></div>
+      </div>
 
-<!-- SETTINGS -->
+      <!-- CWLI Colors -->
+      <div class="card">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+          <div>
+            <div style="font-size:14px;font-weight:500;color:var(--cwli)">CWLI Color Collection</div>
+            <div style="font-size:11.5px;color:var(--text3);margin-top:2px">Cebu/Visayas/Mindanao availability — subset of WCLI</div>
+          </div>
+          <div style="display:flex;gap:8px">
+            <button class="btn btn-secondary btn-sm" onclick="copyWcliToCwli()">Copy from WCLI</button>
+            <button class="btn btn-ghost btn-sm" onclick="openAddColorModal('cwli')">+ Add Color</button>
+          </div>
+        </div>
+        <div style="display:flex;gap:8px;margin-bottom:12px">
+          <input type="text" id="color-search-cwli" placeholder="Search colors…" style="flex:1;font-size:12px;padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg3);color:var(--text)" oninput="renderColorList('cwli')">
+          <select id="color-filter-cwli" style="font-size:12px;padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg3);color:var(--text)" onchange="renderColorList('cwli')">
+            <option value="">All categories</option>
+            <option value="Woodgrain">Woodgrain</option>
+            <option value="Solid">Solid</option>
+            <option value="Marble">Marble</option>
+            <option value="Fabric">Fabric</option>
+            <option value="Stone">Stone</option>
+            <option value="HPL">HPL</option>
+          </select>
+        </div>
+        <div id="color-list-cwli" style="max-height:400px;overflow-y:auto"></div>
+        <div id="color-count-cwli" style="font-size:11px;color:var(--text3);margin-top:10px;text-align:right"></div>
+      </div>
+    </div>
+
+    <!-- RETAIL PARTNERS TAB -->
+    <div id="brand-retail" class="brand-content" style="display:none">
+      <div class="card">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+          <div>
+            <div style="font-size:14px;font-weight:500">Retail Partners & Depot Stores</div>
+            <div style="font-size:11.5px;color:var(--text3);margin-top:2px">Mentioned in captions when "Mention store availability" is on</div>
+          </div>
+          <button class="btn btn-primary btn-sm" onclick="openAddRetailModal()">+ Add Store</button>
+        </div>
+        <div id="retail-list"></div>
+      </div>
+      <div class="card">
+        <div style="font-size:14px;font-weight:500;margin-bottom:10px">New Audience Type Added</div>
+        <div style="font-size:12.5px;color:var(--text2);line-height:1.7">
+          <strong>Hardware Store / Depot Buyer</strong> has been added as an audience type for WCLI and CWLI. Posts for this audience are written for procurement managers, store buyers, and depot purchasing teams — focused on volume availability, consistent supply, and trade terms.<br><br>
+          Select it in <strong>Create Post → Audience</strong> or it will be included in Auto-Generate Week when B2B trade content is toggled on.
+        </div>
+      </div>
+    </div>
 <div id="screen-settings" class="screen">
   <div class="topbar"><div class="topbar-left"><h1>Settings &amp; API Keys</h1><p>Connections and configuration</p></div></div>
   <div class="content">
@@ -1088,6 +1193,20 @@ select:focus{border-color:var(--accent-border);}
 // CHANGELOG — a running, hand-maintained log of what's been added to the app.
 // Newest entries go at the top. Each entry should describe what changed in plain language.
 const CHANGELOG = [
+  {
+    date: '2026-06-24',
+    title: 'Color collection + retail partners',
+    items: [
+      'Brand Profiles → Colors tab: import full WCLI color collection directly from worldclasslaminate.com.ph — color name, pattern, color family, series, available finishes, and swatch image all imported automatically.',
+      'Re-sync button fetches new colors added to the website — shows only what is new vs already imported.',
+      'CWLI Colors tab: copy from WCLI with one click, Cebu Exclusive colors auto-flagged. Toggle "Available here" per color.',
+      'Create Post: "Feature a Color" dropdown (WCLI/CWLI only) — Claude naturally works the color name and finish into the caption; Ideogram matches the finish texture in the generated image.',
+      'Auto-Generate Week: "Rotate featured colors" toggle — each post in the batch features a different color from the collection.',
+      'Brand Profiles → Retail Partners tab: add stores (Wilcon, Home Depot, Ace Hardware, etc.) with company assignment and region notes.',
+      '"Mention store availability" toggle in Create Post — when on, Claude adds a natural store callout to the caption.',
+      'New audience type added: "Hardware Store / Depot Buyer" — written for procurement managers and depot buyers, focused on volume, consistent supply, and trade pricing. Available in Create Post and Auto-Generate Week.'
+    ]
+  },
   {
     date: '2026-06-24',
     title: 'Performance analytics & AI strategy analysis — full rebuild',
@@ -1368,6 +1487,8 @@ function selectCompany(c) {
   document.getElementById('preview-page-name').textContent = names[c];
   document.getElementById('preview-company-badge').textContent = c.toUpperCase();
   document.getElementById('preview-company-badge').style.color = colors[c];
+  // Update color dropdown for this company
+  updateColorOptions();
 }
 
 function selectAudience(btn) {
@@ -1892,7 +2013,8 @@ const TONE_GUIDE = {
     'Interior Designer / Architect': 'Professional, project-delivery focused. Speak to specifications, lead times, and design flexibility. Use industry vocabulary naturally.',
     'Contractor / Developer': 'Reliable, commercially-minded. Emphasize volume capability, timelines, and project experience.',
     'Cabinet Maker / Fabricator': 'Trade-to-trade respect. Technical quality, ease of installation, consistent supply.',
-    'Hardware Store / Dealer': 'Business partnership. Margins, availability, fast-moving product, dealer support.'
+    'Hardware Store / Dealer': 'Business partnership. Margins, availability, fast-moving product, dealer support.',
+    'Hardware Store / Depot Buyer': 'Procurement-focused. Volume availability, consistent supply chain, trade pricing, reliable delivery schedule. Speak to the buyer who needs to keep shelves stocked and customers satisfied.'
   },
   wcli: { default: 'Authoritative, technical, quality-driven. Speak to fabricators\' pride in craftsmanship and need for a reliable material supplier. Confident and trade-professional. Highlight board quality, consistency, and supplier reliability. When relevant, mention the broader trade catalog (hardware, edgeband tapes, laminated boards) and the fabrication partnership with sister company MSSI — but never claim WCLI itself fabricates furniture.' },
   cwli: { default: 'Technical authority with regional warmth. Emphasize local availability, proximity advantage over Manila-based suppliers, and regional pride. Occasional short Bisaya phrase welcome for local trust-building (e.g. Libre kwestyon! or Kumpleto ang stock namo!). CWLI can speak directly and confidently about its own in-house fabrication quality, since it manufactures boards and fabricates furniture itself. When relevant, mention the broader trade catalog too (hardware, edgeband tapes, laminated boards).' }
@@ -2031,7 +2153,7 @@ const PILLAR_PHOTO_DIRECTION = {
   'Holiday':             'Warm, celebratory scene tied naturally to the product or space — festive but tasteful. Feels like a real Philippine holiday moment.'
 };
 
-async function captionToVisualDescription(apiKey, caption, forVideo, company, pillar) {
+async function captionToVisualDescription(apiKey, caption, forVideo, company, pillar, colorId) {
   const { body } = splitCaptionTags(caption);
   const medium = forVideo ? 'an 8-second marketing video' : 'a photorealistic marketing image';
   const motionNote = forVideo ? ' Describe gentle, realistic motion or camera movement suitable for a short clip.' : '';
@@ -2044,7 +2166,10 @@ async function captionToVisualDescription(apiKey, caption, forVideo, company, pi
   const bp = APP.brandProfiles && company && APP.brandProfiles[company];
   const visualStyle = (bp && bp.visualStyle) ? (' Brand visual style for this company: ' + bp.visualStyle) : '';
 
-  const descPrompt = `Based on this Facebook post caption for a Philippine furniture/laminate company, write a single concise scene description (one sentence, under 40 words) for ${medium} that would pair well with it. Describe only the visual scene — product, setting, mood.${motionNote}${pillarHint}${visualStyle} Do not include any text, words, logos, or watermarks. Output ONLY the description, nothing else.\n\nCaption:\n${body}`;
+  // Inject color finish context
+  const colorHint = getColorImageContext(company, colorId || APP.currentColorId || '');
+
+  const descPrompt = `Based on this Facebook post caption for a Philippine furniture/laminate company, write a single concise scene description (one sentence, under 40 words) for ${medium} that would pair well with it. Describe only the visual scene — product, setting, mood.${motionNote}${pillarHint}${visualStyle}${colorHint} Do not include any text, words, logos, or watermarks. Output ONLY the description, nothing else.\n\nCaption:\n${body}`;
   const desc = await callClaude(apiKey, descPrompt, 200);
   return desc.trim();
 }
@@ -2112,14 +2237,14 @@ function buildImagePrompt(co, audience, pillar, notes) {
   return `Professional, photorealistic marketing photograph for a Facebook post by a Philippine furniture/laminate company. Subject: ${subject}. Content theme: ${pillar}. Bright, clean, high-quality commercial photography style with natural lighting and sharp focus. No text, no words, no logos, no watermarks in the image.${notesPart}`;
 }
 
-function buildCaptionPrompt(co, audience, pillar, notes) {
+function buildCaptionPrompt(co, audience, pillar, notes, colorId, includeRetail) {
   return `You are writing a Facebook post for ${getCompanyDescFor(co)}.
 
 Target Audience: ${audience}
 Content Pillar: ${pillar}
 Tone and Voice: ${getToneFor(co, audience)}
 Primary Goal: ${getGoalFor(co)}
-${notes ? 'Notes from manager: ' + notes : ''}${getPerformanceContextForPrompt(co)}
+${notes ? 'Notes from manager: ' + notes : ''}${getPerformanceContextForPrompt(co)}${getColorContextForPrompt(co, colorId)}${includeRetail ? getRetailContextForPrompt(co) : ''}
 
 Write one complete Facebook post following these rules exactly:
 - 2 to 3 short paragraphs (not bullet points)
@@ -2249,6 +2374,37 @@ async function confirmAndGenerateImage() {
   }
 }
 
+// Update color dropdown when company changes
+function updateColorOptions() {
+  const sel = document.getElementById('post-color-id');
+  if (!sel) return;
+  const co = APP.currentCompany;
+  if (!co || co === 'mssi') {
+    sel.innerHTML = '<option value="">No specific color</option>';
+    sel.closest('.form-section').style.display = 'none';
+    return;
+  }
+  sel.closest('.form-section').style.display = '';
+  const colors = getColors(co).filter(c => c.status !== 'retired');
+  sel.innerHTML = '<option value="">No specific color — use featured colors</option>' +
+    colors.map(c => `<option value="${c.id}">${c.name}${c.pattern ? ' · ' + c.pattern : ''}</option>`).join('');
+  updateColorFinishOptions();
+}
+
+function updateColorFinishOptions() {
+  const colorSel = document.getElementById('post-color-id');
+  const finishSel = document.getElementById('post-color-finish');
+  if (!colorSel || !finishSel) return;
+  const colorId = colorSel.value;
+  if (!colorId) { finishSel.style.display = 'none'; return; }
+  const colors = getColors(APP.currentCompany || '');
+  const color = colors.find(c => c.id === colorId);
+  if (!color || !(color.finishes || []).length) { finishSel.style.display = 'none'; return; }
+  finishSel.style.display = '';
+  finishSel.innerHTML = '<option value="">Any finish</option>' +
+    (color.finishes || []).map(f => `<option value="${f}">${f}</option>`).join('');
+}
+
 async function generatePost() {
   if (!APP.currentCompany) { showToast('Select a company first', 'error'); return; }
   if (!APP.currentAudience) { showToast('Select an audience', 'error'); return; }
@@ -2261,7 +2417,12 @@ async function generatePost() {
   btn.disabled = true;
 
   const notes = document.getElementById('post-notes').value;
-  const prompt = buildCaptionPrompt(APP.currentCompany, APP.currentAudience, APP.currentPillar, notes);
+  const colorId = document.getElementById('post-color-id')?.value || '';
+  const includeRetail = document.getElementById('post-retail-toggle')?.classList.contains('on') || false;
+  const prompt = buildCaptionPrompt(APP.currentCompany, APP.currentAudience, APP.currentPillar, notes, colorId, includeRetail);
+
+  // Store for image generation
+  APP.currentColorId = colorId;
 
   try {
     const fullText = await callClaude(apiKey, prompt);
@@ -3472,8 +3633,13 @@ function calFilter(f, el) {
 function switchBrandTab(c) {
   document.querySelectorAll('.brand-tab').forEach(t => t.className = 'brand-tab');
   document.querySelectorAll('.brand-content').forEach(c2 => c2.style.display = 'none');
-  document.getElementById('btab-' + c).classList.add('active-' + c);
-  document.getElementById('brand-' + c).style.display = 'grid';
+  const tab = document.getElementById('btab-' + c);
+  if (tab) tab.classList.add(c === 'colors' || c === 'retail' ? 'active-mssi' : 'active-' + c);
+  const content = document.getElementById('brand-' + c);
+  if (content) content.style.display = 'grid';
+  // Render dynamic content for special tabs
+  if (c === 'colors') { renderColorList('wcli'); renderColorList('cwli'); }
+  if (c === 'retail') renderRetailList();
 }
 
 function handleLogoUpload(company, e) {
@@ -4846,16 +5012,20 @@ function exportPosts() {
 
 function exportFullBackup() {
   const backup = {
-    backupVersion: 1,
+    backupVersion: 2,
     exportedAt: new Date().toISOString(),
     posts: APP.posts,
     photos: APP.photos,
     brandProfiles: APP.brandProfiles,
     fbPages: APP.fbPages || JSON.parse(localStorage.getItem('scm_fb_pages') || '{}'),
+    scheduleTimes: APP.scheduleTimes || JSON.parse(localStorage.getItem('scm_schedule_times') || '{}'),
+    staff: APP.staff || JSON.parse(localStorage.getItem('scm_staff') || '[]'),
     apiKeys: {
       anthropic: localStorage.getItem('scm_anthropic_key') || '',
       facebook: localStorage.getItem('scm_facebook_key') || '',
-      ideogram: localStorage.getItem('scm_ideogram_key') || ''
+      ideogram: localStorage.getItem('scm_ideogram_key') || '',
+      imgproxy: localStorage.getItem('scm_imgproxy_key') || '',
+      veo: localStorage.getItem('scm_veo_key') || ''
     }
   };
   const json = JSON.stringify(backup, null, 2);
@@ -4892,10 +5062,15 @@ function restoreFullBackup(event) {
       localStorage.setItem('scm_brand_profiles', JSON.stringify(APP.brandProfiles));
       localStorage.setItem('scm_fb_pages', JSON.stringify(APP.fbPages));
 
+      if (backup.scheduleTimes) localStorage.setItem('scm_schedule_times', JSON.stringify(backup.scheduleTimes));
+      if (backup.staff) localStorage.setItem('scm_staff', JSON.stringify(backup.staff));
+
       if (backup.apiKeys) {
         if (backup.apiKeys.anthropic) localStorage.setItem('scm_anthropic_key', backup.apiKeys.anthropic);
         if (backup.apiKeys.facebook) localStorage.setItem('scm_facebook_key', backup.apiKeys.facebook);
         if (backup.apiKeys.ideogram) localStorage.setItem('scm_ideogram_key', backup.apiKeys.ideogram);
+        if (backup.apiKeys.imgproxy) localStorage.setItem('scm_imgproxy_key', backup.apiKeys.imgproxy);
+        if (backup.apiKeys.veo) localStorage.setItem('scm_veo_key', backup.apiKeys.veo);
       }
 
       showToast('Backup restored — reloading...', 'success');
@@ -4913,6 +5088,371 @@ function clearData() {
   showToast('All data cleared — reloading...', 'info');
   setTimeout(() => location.reload(), 1000);
 }
+
+// ============================================================
+//  COLOR COLLECTION — WCLI / CWLI
+//  Import from website, manual add/edit/delete, copy between companies,
+//  feature a color in posts, inject into captions and image prompts
+// ============================================================
+
+function getColors(company) {
+  return JSON.parse(localStorage.getItem('scm_colors_' + company) || '[]');
+}
+function saveColors(company, colors) {
+  localStorage.setItem('scm_colors_' + company, JSON.stringify(colors));
+}
+function getRetailPartners() {
+  return JSON.parse(localStorage.getItem('scm_retail_partners') || '[]');
+}
+function saveRetailPartners(partners) {
+  localStorage.setItem('scm_retail_partners', JSON.stringify(partners));
+}
+
+// Render color list for a company
+function renderColorList(company) {
+  const el = document.getElementById('color-list-' + company);
+  const countEl = document.getElementById('color-count-' + company);
+  if (!el) return;
+
+  let colors = getColors(company);
+  const search = (document.getElementById('color-search-' + company)?.value || '').toLowerCase();
+  const filter = document.getElementById('color-filter-' + company)?.value || '';
+  const status = document.getElementById('color-status-' + company)?.value || '';
+
+  if (search) colors = colors.filter(c => c.name.toLowerCase().includes(search) || (c.series || '').toLowerCase().includes(search));
+  if (filter) colors = colors.filter(c => (c.pattern || '').toLowerCase().includes(filter.toLowerCase()) || (c.boardTypes || []).join(' ').includes(filter));
+  if (status) colors = colors.filter(c => (c.status || 'active') === status);
+
+  if (!colors.length) {
+    el.innerHTML = `<div style="text-align:center;padding:20px;color:var(--text3);font-size:12.5px">${getColors(company).length ? 'No colors match your filter' : 'No colors yet — import from website or add manually'}</div>`;
+    if (countEl) countEl.textContent = '';
+    return;
+  }
+
+  el.innerHTML = colors.map(c => {
+    const statusColor = c.status === 'featured' ? 'var(--accent2)' : c.status === 'retired' ? 'var(--text3)' : 'var(--green)';
+    const finishesTxt = (c.finishes || []).slice(0, 3).join(', ') + ((c.finishes || []).length > 3 ? '…' : '');
+    return `
+    <div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-top:1px solid var(--border)">
+      ${c.swatchUrl ? `<img src="${c.swatchUrl}" style="width:40px;height:40px;object-fit:cover;border-radius:4px;flex-shrink:0;border:1px solid var(--border)" alt="${c.name}">` : `<div style="width:40px;height:40px;border-radius:4px;background:var(--bg4);flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:16px">🎨</div>`}
+      <div style="flex:1;min-width:0">
+        <div style="font-size:12.5px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${c.name}</div>
+        <div style="font-size:11px;color:var(--text3)">${[c.pattern, c.colorFamily, c.series].filter(Boolean).join(' · ')}</div>
+        ${finishesTxt ? `<div style="font-size:10.5px;color:var(--text3)">Finishes: ${finishesTxt}</div>` : ''}
+      </div>
+      <div style="display:flex;align-items:center;gap:6px;flex-shrink:0">
+        ${c.isCebuExclusive ? `<span style="font-size:10px;background:var(--cwli-bg,var(--bg4));color:var(--cwli);padding:2px 6px;border-radius:4px">Cebu</span>` : ''}
+        <span style="font-size:10px;color:${statusColor}">${c.status || 'active'}</span>
+        <select style="font-size:10px;padding:2px 4px;border:1px solid var(--border);border-radius:4px;background:var(--bg3);color:var(--text)" onchange="setColorStatus('${company}','${c.id}',this.value)">
+          <option value="active" ${(c.status||'active')==='active'?'selected':''}>Active</option>
+          <option value="featured" ${c.status==='featured'?'selected':''}>Featured</option>
+          <option value="retired" ${c.status==='retired'?'selected':''}>Retired</option>
+        </select>
+        <button class="btn btn-ghost btn-sm" style="font-size:10px;padding:2px 6px" onclick="deleteColor('${company}','${c.id}')">✕</button>
+      </div>
+    </div>`;
+  }).join('');
+
+  if (countEl) countEl.textContent = `${colors.length} of ${getColors(company).length} colors shown`;
+}
+
+function setColorStatus(company, id, status) {
+  const colors = getColors(company);
+  const c = colors.find(x => x.id === id);
+  if (c) { c.status = status; saveColors(company, colors); renderColorList(company); }
+}
+
+function deleteColor(company, id) {
+  const colors = getColors(company).filter(c => c.id !== id);
+  saveColors(company, colors);
+  renderColorList(company);
+  showToast('Color removed', 'info');
+}
+
+// Copy WCLI colors to CWLI (Cebu Exclusive ones pre-selected)
+function copyWcliToCwli() {
+  const wcliColors = getColors('wcli');
+  if (!wcliColors.length) { showToast('Import WCLI colors first', 'error'); return; }
+  const cwliColors = getColors('cwli');
+  const existingIds = new Set(cwliColors.map(c => c.id));
+  const cebuColors = wcliColors.filter(c => c.isCebuExclusive || !existingIds.has(c.id));
+  const toAdd = cebuColors.filter(c => !existingIds.has(c.id));
+  if (!toAdd.length) { showToast('All WCLI colors already in CWLI', 'info'); return; }
+  saveColors('cwli', [...cwliColors, ...toAdd]);
+  renderColorList('cwli');
+  showToast(`${toAdd.length} colors copied to CWLI`, 'success');
+}
+
+// Add color modal
+function openAddColorModal(company) {
+  const html = `<div id="addcolor-overlay" style="position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:3000;display:flex;align-items:center;justify-content:center" onclick="if(event.target.id==='addcolor-overlay')closeAddColorModal()">
+    <div style="background:var(--bg2);border:1px solid var(--border2);border-radius:var(--radius-lg);width:420px;padding:20px">
+      <div style="font-size:14px;font-weight:500;margin-bottom:16px">Add Color — ${company.toUpperCase()}</div>
+      <div class="form-group"><label class="form-label">Color Name *</label><input type="text" id="nc-name" placeholder="e.g. Acacia"></div>
+      <div class="form-group"><label class="form-label">Pattern / Type</label>
+        <select id="nc-pattern"><option>Woodgrain</option><option>Solid</option><option>Marble</option><option>Fabric</option><option>Stone</option><option>Cement</option><option>HPL</option><option>Other</option></select>
+      </div>
+      <div class="form-group"><label class="form-label">Color Family</label>
+        <select id="nc-family"><option>Brown</option><option>White</option><option>Black</option><option>Gray</option><option>Beige</option><option>Cream</option><option>Blue</option><option>Green</option><option>Other</option></select>
+      </div>
+      <div class="form-group"><label class="form-label">Available Finishes <span style="color:var(--text3);font-size:11px">(check all that apply)</span></label>
+        <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:4px">
+          ${['Matte','Supermatte','Stipple','Crosscut','Softwood','Hardwood','Glossy','Brushed'].map(f =>
+            `<label style="display:flex;align-items:center;gap:4px;font-size:12px;cursor:pointer"><input type="checkbox" value="${f}" class="nc-finish"> ${f}</label>`
+          ).join('')}
+        </div>
+      </div>
+      <div class="form-group"><label class="form-label">Board Types</label><input type="text" id="nc-boards" placeholder="e.g. PB, MDF, Plywood"></div>
+      <div class="form-group"><label class="form-label">Series</label><input type="text" id="nc-series" placeholder="e.g. German Series, New Arrival"></div>
+      <div style="display:flex;gap:8px;margin-top:4px">
+        <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer"><input type="checkbox" id="nc-cebu"> Cebu Exclusive</label>
+      </div>
+      <div style="display:flex;gap:8px;margin-top:16px">
+        <button class="btn btn-primary" style="flex:1" onclick="saveNewColor('${company}')">Add Color</button>
+        <button class="btn btn-ghost" onclick="closeAddColorModal()">Cancel</button>
+      </div>
+    </div>
+  </div>`;
+  const div = document.createElement('div'); div.id = 'addcolor-container'; div.innerHTML = html;
+  document.body.appendChild(div);
+}
+
+function closeAddColorModal() {
+  document.getElementById('addcolor-container')?.remove();
+}
+
+function saveNewColor(company) {
+  const name = document.getElementById('nc-name')?.value.trim();
+  if (!name) { showToast('Color name is required', 'error'); return; }
+  const finishes = [...document.querySelectorAll('.nc-finish:checked')].map(el => el.value);
+  const color = {
+    id: 'c_' + Date.now(),
+    name,
+    pattern: document.getElementById('nc-pattern')?.value || '',
+    colorFamily: document.getElementById('nc-family')?.value || '',
+    finishes,
+    boardTypes: (document.getElementById('nc-boards')?.value || '').split(',').map(s=>s.trim()).filter(Boolean),
+    series: document.getElementById('nc-series')?.value || '',
+    isCebuExclusive: document.getElementById('nc-cebu')?.checked || false,
+    status: 'active',
+    swatchUrl: '',
+    addedAt: new Date().toISOString()
+  };
+  const colors = getColors(company);
+  colors.push(color);
+  saveColors(company, colors);
+  closeAddColorModal();
+  renderColorList(company);
+  showToast('Color added', 'success');
+}
+
+// Import from WCLI website via Supabase Edge Function
+async function importWcliColors() {
+  const btn = document.querySelector('[onclick="importWcliColors()"]');
+  if (btn) { btn.disabled = true; btn.innerHTML = '<div class="spinner" style="width:11px;height:11px;border-width:2px"></div> Fetching…'; }
+
+  const proxyBase = (APP.apiKeys.imgproxy || localStorage.getItem('scm_imgproxy_key') || '').replace(/generate-image\/?$/, '');
+  if (!proxyBase) {
+    showToast('Image Proxy URL not configured in Settings', 'error');
+    if (btn) { btn.disabled = false; btn.innerHTML = 'Import from Website'; }
+    return;
+  }
+
+  try {
+    // Step 1: Get full color list
+    showToast('Fetching color list from WCLI website…', 'info');
+    const listRes = await fetch(proxyBase + 'scrape-wcli-colors?mode=list');
+    const listData = await listRes.json();
+    if (listData.error) throw new Error(listData.error);
+
+    const slugs = (listData.colors || []).map((c) => c.slug).filter(Boolean);
+    if (!slugs.length) throw new Error('No colors found on website');
+
+    showToast(`Found ${slugs.length} colors — fetching details (this takes ~1 min)…`, 'info');
+
+    // Step 2: Fetch details for each color in batches
+    const existing = getColors('wcli');
+    const existingSlugs = new Set(existing.map(c => c.slug));
+    const toFetch = slugs.filter(s => !existingSlugs.has(s));
+
+    if (!toFetch.length) {
+      showToast('All colors already imported — nothing new found', 'info');
+      if (btn) { btn.disabled = false; btn.innerHTML = 'Re-sync from Website'; }
+      return;
+    }
+
+    const newColors = [];
+    const batchSize = 5;
+    for (let i = 0; i < Math.min(toFetch.length, 200); i += batchSize) {
+      const batch = toFetch.slice(i, i + batchSize);
+      const results = await Promise.all(batch.map(async slug => {
+        try {
+          const res = await fetch(`${proxyBase}scrape-wcli-colors?mode=detail&slug=${encodeURIComponent(slug)}`);
+          const d = await res.json();
+          if (d.error || !d.name) return null;
+          return {
+            id: 'wcli_' + slug,
+            slug,
+            name: d.name,
+            pattern: d.pattern || '',
+            colorFamily: d.colorFamily || '',
+            finishes: d.finishes || [],
+            boardTypes: d.boardTypes || [],
+            series: Array.isArray(d.series) ? d.series.join(', ') : (d.series || ''),
+            isCebuExclusive: d.isCebuExclusive || false,
+            swatchUrl: d.swatchUrl || '',
+            status: 'active',
+            importedAt: new Date().toISOString()
+          };
+        } catch { return null; }
+      }));
+      newColors.push(...results.filter(Boolean));
+      await new Promise(r => setTimeout(r, 100));
+    }
+
+    const updated = [...existing, ...newColors];
+    saveColors('wcli', updated);
+    renderColorList('wcli');
+    showToast(`✓ Imported ${newColors.length} new colors (${updated.length} total)`, 'success');
+    if (btn) { btn.disabled = false; btn.innerHTML = 'Re-sync from Website'; }
+
+  } catch (err) {
+    showToast('Import failed: ' + err.message, 'error');
+    if (btn) { btn.disabled = false; btn.innerHTML = 'Import from Website'; }
+  }
+}
+
+// Get active/featured colors for a company (for caption injection)
+function getFeaturedColors(company, max = 3) {
+  const colors = getColors(company);
+  const featured = colors.filter(c => c.status === 'featured');
+  if (featured.length) return featured.slice(0, max);
+  return colors.filter(c => c.status === 'active').slice(0, max);
+}
+
+// Build color context string for Claude prompts
+function getColorContextForPrompt(company, specificColorId) {
+  const colors = getColors(company);
+  if (!colors.length) return '';
+  if (specificColorId) {
+    const c = colors.find(x => x.id === specificColorId);
+    if (c) {
+      const finishList = (c.finishes || []).join(', ');
+      return `\n\nFeatured product color: "${c.name}" — a ${c.colorFamily || ''} ${c.pattern || ''} finish${finishList ? `, available in: ${finishList}` : ''}. Work this color naturally into the post — name it and describe how it looks or feels in a real space.`;
+    }
+  }
+  const featured = getFeaturedColors(company, 3);
+  if (!featured.length) return '';
+  const names = featured.map(c => `"${c.name}"`).join(', ');
+  return `\n\nCurrently featured colors from our collection: ${names}. If it fits naturally, reference one of these finishes in the post.`;
+}
+
+// Build image prompt color context
+function getColorImageContext(company, specificColorId) {
+  const colors = getColors(company);
+  if (!colors.length) return '';
+  if (specificColorId) {
+    const c = colors.find(x => x.id === specificColorId);
+    if (c) return ` The surface finish shown should be a ${c.colorFamily || ''} ${c.pattern || ''} laminate named "${c.name}"${(c.finishes||[]).length ? `, with a ${c.finishes[0].toLowerCase()} texture` : ''}.`;
+  }
+  return '';
+}
+
+// ============================================================
+//  RETAIL PARTNERS
+// ============================================================
+
+function renderRetailList() {
+  const el = document.getElementById('retail-list');
+  if (!el) return;
+  const partners = getRetailPartners();
+  if (!partners.length) {
+    el.innerHTML = `<div style="text-align:center;padding:20px;color:var(--text3);font-size:12.5px">No retail partners added yet. Add stores like Wilcon, Home Depot, Ace Hardware.</div>`;
+    return;
+  }
+  el.innerHTML = partners.map(p => `
+    <div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-top:1px solid var(--border)">
+      <div style="flex:1">
+        <div style="font-size:13px;font-weight:500">${p.name}</div>
+        <div style="font-size:11px;color:var(--text3)">${[p.companies?.join(', '), p.region].filter(Boolean).join(' · ')}</div>
+      </div>
+      <select style="font-size:11px;padding:3px 6px;border:1px solid var(--border);border-radius:4px;background:var(--bg3);color:var(--text)" onchange="setRetailStatus('${p.id}',this.value)">
+        <option value="active" ${p.status==='active'?'selected':''}>Active</option>
+        <option value="coming_soon" ${p.status==='coming_soon'?'selected':''}>Coming Soon</option>
+        <option value="inactive" ${p.status==='inactive'?'selected':''}>Inactive</option>
+      </select>
+      <button class="btn btn-ghost btn-sm" style="font-size:11px" onclick="deleteRetailPartner('${p.id}')">✕</button>
+    </div>
+  `).join('');
+}
+
+function setRetailStatus(id, status) {
+  const partners = getRetailPartners();
+  const p = partners.find(x => x.id === id);
+  if (p) { p.status = status; saveRetailPartners(partners); renderRetailList(); }
+}
+
+function deleteRetailPartner(id) {
+  saveRetailPartners(getRetailPartners().filter(p => p.id !== id));
+  renderRetailList();
+}
+
+function openAddRetailModal() {
+  const html = `<div id="addretail-overlay" style="position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:3000;display:flex;align-items:center;justify-content:center" onclick="if(event.target.id==='addretail-overlay')closeAddRetailModal()">
+    <div style="background:var(--bg2);border:1px solid var(--border2);border-radius:var(--radius-lg);width:400px;padding:20px">
+      <div style="font-size:14px;font-weight:500;margin-bottom:16px">Add Retail Partner</div>
+      <div class="form-group"><label class="form-label">Store Name *</label><input type="text" id="nr-name" placeholder="e.g. Wilcon Depot"></div>
+      <div class="form-group"><label class="form-label">Companies <span style="color:var(--text3);font-size:11px">(which companies sell here)</span></label>
+        <div style="display:flex;gap:10px;margin-top:4px">
+          <label style="display:flex;align-items:center;gap:4px;font-size:12px;cursor:pointer"><input type="checkbox" value="wcli" class="nr-co" checked> WCLI</label>
+          <label style="display:flex;align-items:center;gap:4px;font-size:12px;cursor:pointer"><input type="checkbox" value="cwli" class="nr-co"> CWLI</label>
+          <label style="display:flex;align-items:center;gap:4px;font-size:12px;cursor:pointer"><input type="checkbox" value="mssi" class="nr-co"> MSSI</label>
+        </div>
+      </div>
+      <div class="form-group"><label class="form-label">Region / Notes</label><input type="text" id="nr-region" placeholder="e.g. Nationwide, Cebu branches only"></div>
+      <div style="display:flex;gap:8px;margin-top:16px">
+        <button class="btn btn-primary" style="flex:1" onclick="saveNewRetailPartner()">Add Store</button>
+        <button class="btn btn-ghost" onclick="closeAddRetailModal()">Cancel</button>
+      </div>
+    </div>
+  </div>`;
+  const div = document.createElement('div'); div.id = 'addretail-container'; div.innerHTML = html;
+  document.body.appendChild(div);
+}
+
+function closeAddRetailModal() { document.getElementById('addretail-container')?.remove(); }
+
+function saveNewRetailPartner() {
+  const name = document.getElementById('nr-name')?.value.trim();
+  if (!name) { showToast('Store name is required', 'error'); return; }
+  const companies = [...document.querySelectorAll('.nr-co:checked')].map(el => el.value);
+  const partner = {
+    id: 'rp_' + Date.now(),
+    name,
+    companies,
+    region: document.getElementById('nr-region')?.value.trim() || '',
+    status: 'active',
+    addedAt: new Date().toISOString()
+  };
+  const partners = getRetailPartners();
+  partners.push(partner);
+  saveRetailPartners(partners);
+  closeAddRetailModal();
+  renderRetailList();
+  showToast('Retail partner added', 'success');
+}
+
+// Build retail context for Claude prompts
+function getRetailContextForPrompt(company) {
+  const partners = getRetailPartners().filter(p => p.status === 'active' && (p.companies || []).includes(company));
+  if (!partners.length) return '';
+  const names = partners.map(p => p.name).join(', ');
+  return `\n\nAvailable at these retail stores: ${names}. If it fits naturally in the post, mention where customers can find our products.`;
+}
+
+// ============================================================
+//  BRAND TAB SWITCHING — updated to handle colors + retail
+// ============================================================
 
 // AUTO-GENERATE
 function toggleSwitch(el) { el.classList.toggle('on'); }
@@ -5071,8 +5611,8 @@ async function runAutoGenerate() {
       ...(includeB2C ? ['Homeowner'] : []),
       ...(includeB2B ? ['Interior Designer / Architect','Contractor / Developer'] : [])
     ],
-    wcli: includeB2B ? ['Cabinet Maker / Fabricator','Hardware Store / Dealer'] : [],
-    cwli: includeB2B ? ['Cabinet Maker / Fabricator','Hardware Store / Dealer'] : []
+    wcli: includeB2B ? ['Cabinet Maker / Fabricator','Hardware Store / Dealer','Hardware Store / Depot Buyer'] : [],
+    cwli: includeB2B ? ['Cabinet Maker / Fabricator','Hardware Store / Dealer','Hardware Store / Depot Buyer'] : []
   };
 
   const btn = document.getElementById('autogen-btn');
@@ -5128,7 +5668,16 @@ async function runAutoGenerate() {
 
       try {
         const notes = holiday ? `Today is ${holiday.name}, a Philippine holiday. Write this post around the holiday — tie it naturally to the company's products or trade relevance (e.g. greeting, reflection, or a relevant offer), rather than a generic pillar post. Keep it warm and appropriate to the occasion.` : '';
-        const prompt = buildCaptionPrompt(co, audience, pillar, notes);
+        // Color rotation for WCLI/CWLI
+        const rotateColors = document.getElementById('autogen-toggle-colors')?.classList.contains('on');
+        let colorId = '';
+        if (rotateColors && co !== 'mssi') {
+          const companyColors = getColors(co).filter(c => c.status !== 'retired');
+          if (companyColors.length) colorId = companyColors[i % companyColors.length].id;
+        }
+        // Retail context for WCLI/CWLI
+        const includeRetail = co !== 'mssi' && getRetailPartners().filter(p => p.status === 'active' && (p.companies||[]).includes(co)).length > 0;
+        const prompt = buildCaptionPrompt(co, audience, pillar, notes, colorId, includeRetail);
         const fullText = await callClaude(apiKey, prompt);
         // Default time uses the Auto-Schedule settings for this day of week if configured
         const defaultTime = getDefaultTimeForWeekday(postDate.getDay());
