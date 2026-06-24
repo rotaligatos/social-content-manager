@@ -605,17 +605,30 @@ select:focus{border-color:var(--accent-border);}
 <!-- PERFORMANCE -->
 <div id="screen-performance" class="screen">
   <div class="topbar">
-    <div class="topbar-left"><h1>Performance</h1><p>What's working, by company, pillar, and audience</p></div>
-  </div>
-  <div class="content">
-    <div id="performance-empty-note" style="display:none">
-      <div class="empty-state">
-        <div class="empty-icon">📊</div>
-        <div class="empty-title">No performance data logged yet</div>
-        <div class="empty-sub">Once posts are published, log their results from the Dashboard's Inquiry &amp; Comment Check, or below. Once Facebook access is available, this can pull numbers automatically instead.</div>
+    <div class="topbar-left"><h1>Performance</h1><p id="perf-topbar-sub">Auto-fetching insights from Facebook…</p></div>
+    <div class="topbar-actions">
+      <div style="display:flex;gap:6px">
+        <div class="filter-pill active" id="perf-tab-all" onclick="switchPerfTab('all',this)">All</div>
+        <div class="filter-pill" id="perf-tab-mssi" onclick="switchPerfTab('mssi',this)" style="color:var(--mssi)">MSSI</div>
+        <div class="filter-pill" id="perf-tab-wcli" onclick="switchPerfTab('wcli',this)" style="color:var(--wcli)">WCLI</div>
+        <div class="filter-pill" id="perf-tab-cwli" onclick="switchPerfTab('cwli',this)" style="color:var(--cwli)">CWLI</div>
       </div>
+      <button class="btn btn-secondary btn-sm" id="perf-fetch-btn" onclick="fetchAllInsights()">
+        <svg style="width:13px;height:13px" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M1 8a7 7 0 1 0 14 0A7 7 0 0 0 1 8z"/><path d="M8 5v3l2 2"/></svg>
+        Refresh Insights
+      </button>
+      <button class="btn btn-primary btn-sm" id="perf-analyze-btn" onclick="runAIAnalysis()">
+        <svg style="width:13px;height:13px" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 1v3M8 12v3M1 8h3M12 8h3"/><circle cx="8" cy="8" r="3"/></svg>
+        AI Analyze &amp; Recommend
+      </button>
     </div>
-    <div id="performance-content"></div>
+  </div>
+  <div class="content" id="performance-content">
+    <div class="empty-state">
+      <div class="empty-icon">📊</div>
+      <div class="empty-title">No published posts yet</div>
+      <div class="empty-sub">Performance data appears here once posts are published to Facebook. Insights are fetched automatically.</div>
+    </div>
   </div>
 </div>
 
@@ -1011,7 +1024,17 @@ select:focus{border-color:var(--accent-border);}
 const CHANGELOG = [
   {
     date: '2026-06-24',
-    title: 'Background auto-publish scheduler (Supabase cron)',
+    title: 'Performance analytics & AI strategy analysis — full rebuild',
+    items: [
+      'Facebook Insights now auto-fetched — reach, reactions, comments, shares pulled automatically for all published posts when you open Performance. Only inquiries need manual entry.',
+      'Full analytics dashboard with per-company tabs, pillar/audience bar charts, best day heatmap, and week-over-week trend line.',
+      'AI Analyze & Recommend button — Claude reads all your performance data and writes a plain-English strategy report: what\'s working, what\'s not, best posting times, and specific actions for next week.',
+      'Self-learning strengthened — performance context is now per-company and per-audience, not one generic summary. Each company\'s Claude prompts get relevant context from that company\'s own data.',
+      'Best posting times are automatically applied to Auto-Schedule settings when enough data is available.',
+      'KPI cards show total reach, total inquiries, and posts tracked at a glance.'
+    ]
+  },
+  {
     items: [
       'Posts now publish automatically even when the browser is closed — a Supabase Edge Function (publish-scheduled) runs every 15 minutes and publishes due posts directly to Facebook.',
       'When you Schedule & Approve a post, it is silently synced to Supabase. When the app reopens, it reads back any published/rescheduled/missed statuses automatically.',
@@ -1262,7 +1285,7 @@ function showScreen(id) {
   if (id === 'review') updateReviewQueue();
   if (id === 'dashboard') updateDashboard();
   if (id === 'create') renderHolidayBanner();
-  if (id === 'performance') renderPerformance();
+  if (id === 'performance') { renderPerformance(); fetchAllInsights(); }
   if (id === 'changelog') renderChangelog();
 }
 
@@ -2030,7 +2053,7 @@ Target Audience: ${audience}
 Content Pillar: ${pillar}
 Tone and Voice: ${getToneFor(co, audience)}
 Primary Goal: ${getGoalFor(co)}
-${notes ? 'Notes from manager: ' + notes : ''}${getPerformanceContextForPrompt()}
+${notes ? 'Notes from manager: ' + notes : ''}${getPerformanceContextForPrompt(co)}
 
 Write one complete Facebook post following these rules exactly:
 - 2 to 3 short paragraphs (not bullet points)
@@ -2671,7 +2694,531 @@ async function notifyAssignedStaff(id) {
   }
 }
 
-// PERFORMANCE LOGGING (manual entry now; structure ready for live Facebook Insights later)
+// ============================================================
+//  PERFORMANCE & ANALYTICS — Full rebuild
+//  - Auto-fetch Facebook Insights for all published posts
+//  - Per-company analytics dashboard with charts
+//  - AI-powered strategy analysis and recommendations
+//  - Strengthened self-learning per company + audience
+// ============================================================
+
+let PERF_ACTIVE_TAB = 'all';
+
+function switchPerfTab(tab, el) {
+  PERF_ACTIVE_TAB = tab;
+  ['all','mssi','wcli','cwli'].forEach(t => {
+    const btn = document.getElementById('perf-tab-' + t);
+    if (btn) btn.classList.toggle('active', t === tab);
+  });
+  renderPerformance();
+}
+
+// ── AUTO-FETCH FACEBOOK INSIGHTS ──────────────────────────────
+// Fetches reach, reactions, comments, shares for all published posts
+// that don't yet have auto-fetched data. Runs on Performance screen open.
+
+async function fetchInsightsForPost(post) {
+  if (!post.fbPostId) return false;
+  const pageData = resolveFbPageData(post);
+  if (!pageData || !pageData.token) return false;
+
+  try {
+    // Fetch post-level insights: impressions + reactions + comments + shares
+    const fields = 'insights.metric(post_impressions_unique,post_reactions_like_total,post_clicks),comments.summary(true),shares';
+    const res = await fetch(
+      `https://graph.facebook.com/v19.0/${post.fbPostId}?fields=${fields}&access_token=${pageData.token}`
+    );
+    const data = await res.json();
+    if (data.error) return false;
+
+    const perf = post.performance || {};
+
+    // Reach (unique impressions)
+    const impressions = data.insights?.data?.find(d => d.name === 'post_impressions_unique');
+    if (impressions) perf.reach = impressions.values?.[0]?.value || 0;
+
+    // Reactions
+    const reactions = data.insights?.data?.find(d => d.name === 'post_reactions_like_total');
+    if (reactions) perf.reactions = reactions.values?.[0]?.value || 0;
+
+    // Comments
+    perf.comments = data.comments?.summary?.total_count || perf.comments || 0;
+
+    // Shares
+    perf.shares = data.shares?.count || perf.shares || 0;
+
+    // Clicks
+    const clicks = data.insights?.data?.find(d => d.name === 'post_clicks');
+    if (clicks) perf.clicks = clicks.values?.[0]?.value || 0;
+
+    perf.autoFetched = true;
+    perf.fetchedAt = new Date().toISOString();
+    // Preserve manually-entered inquiries
+    if (!perf.inquiries) perf.inquiries = 0;
+    post.performance = perf;
+    return true;
+  } catch (_err) {
+    return false;
+  }
+}
+
+async function fetchAllInsights() {
+  const btn = document.getElementById('perf-fetch-btn');
+  const sub = document.getElementById('perf-topbar-sub');
+  if (btn) { btn.disabled = true; btn.innerHTML = '<div class="spinner" style="width:12px;height:12px;border-width:2px"></div> Fetching…'; }
+
+  const published = APP.posts.filter(p => p.status === 'published' && p.fbPostId);
+  if (!published.length) {
+    if (btn) { btn.disabled = false; btn.innerHTML = 'Refresh Insights'; }
+    if (sub) sub.textContent = 'No published posts with Facebook IDs yet';
+    return;
+  }
+
+  let fetched = 0;
+  for (const post of published) {
+    const ok = await fetchInsightsForPost(post);
+    if (ok) fetched++;
+    await new Promise(r => setTimeout(r, 200)); // avoid rate limits
+  }
+
+  saveState();
+  renderPerformance();
+  if (btn) { btn.disabled = false; btn.innerHTML = 'Refresh Insights'; }
+  if (sub) sub.textContent = `Insights updated · ${fetched} posts fetched · ${new Date().toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})}`;
+}
+
+// ── ENGAGEMENT SCORE ──────────────────────────────────────────
+function engagementScore(perf) {
+  if (!perf) return 0;
+  return (perf.inquiries || 0) * 10 + (perf.comments || 0) * 3 +
+         (perf.shares || 0) * 4 + (perf.reactions || 0) * 1 +
+         Math.round((perf.clicks || 0) * 0.5);
+}
+
+// ── CHART HELPERS (pure SVG, no library) ──────────────────────
+function barChart(data, color) {
+  // data = [{label, value}]
+  if (!data.length) return '<div style="color:var(--text3);font-size:12px">Not enough data yet</div>';
+  const max = Math.max(...data.map(d => d.value), 1);
+  const barH = 18, gap = 8, labelW = 140, barMaxW = 200, numW = 40;
+  const h = data.length * (barH + gap);
+  let svg = `<svg viewBox="0 0 ${labelW + barMaxW + numW + 10} ${h}" style="width:100%;overflow:visible">`;
+  data.forEach((d, i) => {
+    const y = i * (barH + gap);
+    const w = Math.round((d.value / max) * barMaxW);
+    svg += `<text x="${labelW - 8}" y="${y + barH - 4}" text-anchor="end" font-size="11" fill="var(--text2)" font-family="DM Sans,sans-serif">${d.label.length > 18 ? d.label.slice(0,17)+'…' : d.label}</text>`;
+    svg += `<rect x="${labelW}" y="${y}" width="${Math.max(w,2)}" height="${barH}" rx="3" fill="${color}" opacity="0.8"/>`;
+    svg += `<text x="${labelW + w + 6}" y="${y + barH - 4}" font-size="11" fill="var(--text3)" font-family="DM Sans,sans-serif">${d.value}</text>`;
+  });
+  svg += '</svg>';
+  return svg;
+}
+
+function heatmapChart(dayData) {
+  // dayData = {mon:score, tue:score, ...}
+  const days = ['sun','mon','tue','wed','thu','fri','sat'];
+  const labels = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  const max = Math.max(...days.map(d => dayData[d] || 0), 1);
+  let html = '<div style="display:flex;gap:6px;align-items:flex-end">';
+  days.forEach((d, i) => {
+    const val = dayData[d] || 0;
+    const pct = Math.round((val / max) * 100);
+    const opacity = val > 0 ? 0.2 + (pct / 100) * 0.8 : 0.1;
+    html += `<div style="flex:1;text-align:center">
+      <div style="height:48px;border-radius:4px;background:var(--accent);opacity:${opacity.toFixed(2)};margin-bottom:4px" title="${val} engagement"></div>
+      <div style="font-size:10px;color:var(--text3)">${labels[i]}</div>
+    </div>`;
+  });
+  html += '</div>';
+  return html;
+}
+
+function trendLine(weekData) {
+  // weekData = [{week, score}] sorted oldest first
+  if (weekData.length < 2) return '<div style="color:var(--text3);font-size:12px">Need data from at least 2 weeks to show a trend</div>';
+  const W = 320, H = 80, pad = 20;
+  const max = Math.max(...weekData.map(d => d.score), 1);
+  const pts = weekData.map((d, i) => {
+    const x = pad + (i / (weekData.length - 1)) * (W - pad * 2);
+    const y = H - pad - ((d.score / max) * (H - pad * 2));
+    return `${x},${y}`;
+  });
+  let svg = `<svg viewBox="0 0 ${W} ${H}" style="width:100%">`;
+  svg += `<polyline points="${pts.join(' ')}" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linejoin="round"/>`;
+  weekData.forEach((d, i) => {
+    const [x, y] = pts[i].split(',');
+    svg += `<circle cx="${x}" cy="${y}" r="3" fill="var(--accent)"/>`;
+    svg += `<text x="${x}" y="${H - 4}" text-anchor="middle" font-size="9" fill="var(--text3)" font-family="DM Sans,sans-serif">${d.week}</text>`;
+  });
+  svg += '</svg>';
+  return svg;
+}
+
+// ── MAIN RENDER ───────────────────────────────────────────────
+function renderPerformance() {
+  const content = document.getElementById('performance-content');
+  if (!content) return;
+
+  const allLogged = APP.posts.filter(p => p.performance);
+  const filtered = PERF_ACTIVE_TAB === 'all'
+    ? allLogged
+    : allLogged.filter(p => p.company === PERF_ACTIVE_TAB);
+
+  if (!allLogged.length) {
+    content.innerHTML = `<div class="empty-state"><div class="empty-icon">📊</div><div class="empty-title">No published posts yet</div><div class="empty-sub">Performance data appears here once posts are published to Facebook. Insights are fetched automatically.</div></div>`;
+    return;
+  }
+
+  if (!filtered.length) {
+    content.innerHTML = `<div class="empty-state"><div class="empty-icon">📊</div><div class="empty-title">No data for ${PERF_ACTIVE_TAB.toUpperCase()} yet</div><div class="empty-sub">This company has no logged performance data yet.</div></div>`;
+    return;
+  }
+
+  // ── Aggregate data ──
+  const byPillar = {}, byAudience = {}, byDay = {sun:0,mon:0,tue:0,wed:0,thu:0,fri:0,sat:0};
+  const byWeek = {}, byCompany = {mssi:0,wcli:0,cwli:0};
+  const dayKeys = ['sun','mon','tue','wed','thu','fri','sat'];
+
+  filtered.forEach(p => {
+    const score = engagementScore(p.performance);
+    // Pillar
+    if (!byPillar[p.pillar]) byPillar[p.pillar] = { total: 0, count: 0, inquiries: 0 };
+    byPillar[p.pillar].total += score;
+    byPillar[p.pillar].count++;
+    byPillar[p.pillar].inquiries += p.performance.inquiries || 0;
+    // Audience
+    if (!byAudience[p.audience]) byAudience[p.audience] = { total: 0, count: 0, inquiries: 0 };
+    byAudience[p.audience].total += score;
+    byAudience[p.audience].count++;
+    byAudience[p.audience].inquiries += p.performance.inquiries || 0;
+    // Day of week
+    const date = p.publishedAt ? new Date(p.publishedAt) : new Date(p.scheduledFor || p.createdAt);
+    const day = dayKeys[date.getDay()];
+    byDay[day] = (byDay[day] || 0) + score;
+    // Week trend
+    const weekLabel = getWeekLabel(date);
+    byWeek[weekLabel] = (byWeek[weekLabel] || 0) + score;
+    // Company
+    byCompany[p.company] = (byCompany[p.company] || 0) + score;
+  });
+
+  const pillarData = Object.entries(byPillar)
+    .map(([label, d]) => ({ label, value: Math.round(d.total / d.count) }))
+    .sort((a, b) => b.value - a.value);
+
+  const audienceData = Object.entries(byAudience)
+    .map(([label, d]) => ({ label, value: Math.round(d.total / d.count) }))
+    .sort((a, b) => b.value - a.value);
+
+  const weekTrend = Object.entries(byWeek)
+    .map(([week, score]) => ({ week, score }))
+    .sort((a, b) => a.week.localeCompare(b.week))
+    .slice(-8);
+
+  const topPosts = [...filtered]
+    .sort((a, b) => engagementScore(b.performance) - engagementScore(a.performance))
+    .slice(0, 5);
+
+  const totalInquiries = filtered.reduce((s, p) => s + (p.performance.inquiries || 0), 0);
+  const totalReach = filtered.reduce((s, p) => s + (p.performance.reach || 0), 0);
+  const totalReactions = filtered.reduce((s, p) => s + (p.performance.reactions || 0), 0);
+
+  // ── AI analysis card (if saved) ──
+  const analysisKey = 'scm_ai_analysis_' + PERF_ACTIVE_TAB;
+  const savedAnalysis = localStorage.getItem(analysisKey);
+
+  let html = '';
+
+  // KPI row
+  html += `<div class="grid-3" style="margin-bottom:20px">
+    <div class="card" style="text-align:center">
+      <div style="font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px">Posts Tracked</div>
+      <div style="font-size:32px;font-weight:700;font-family:'Syne',sans-serif">${filtered.length}</div>
+    </div>
+    <div class="card" style="text-align:center">
+      <div style="font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px">Total Reach</div>
+      <div style="font-size:32px;font-weight:700;font-family:'Syne',sans-serif">${totalReach >= 1000 ? (totalReach/1000).toFixed(1)+'k' : totalReach}</div>
+    </div>
+    <div class="card" style="text-align:center">
+      <div style="font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px">Total Inquiries</div>
+      <div style="font-size:32px;font-weight:700;font-family:'Syne',sans-serif;color:var(--accent2)">${totalInquiries}</div>
+      <div style="font-size:11px;color:var(--text3);margin-top:2px">${totalReactions} reactions</div>
+    </div>
+  </div>`;
+
+  // Charts row
+  html += `<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px">
+    <div class="card">
+      <div style="font-size:13px;font-weight:500;margin-bottom:14px">By Content Pillar <span style="font-size:11px;color:var(--text3);font-weight:400">(avg engagement score)</span></div>
+      ${barChart(pillarData, 'var(--accent)')}
+    </div>
+    <div class="card">
+      <div style="font-size:13px;font-weight:500;margin-bottom:14px">By Audience <span style="font-size:11px;color:var(--text3);font-weight:400">(avg engagement score)</span></div>
+      ${barChart(audienceData, 'var(--green)')}
+    </div>
+  </div>`;
+
+  // Day heatmap + week trend
+  html += `<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px">
+    <div class="card">
+      <div style="font-size:13px;font-weight:500;margin-bottom:14px">Best Day to Post</div>
+      ${heatmapChart(byDay)}
+    </div>
+    <div class="card">
+      <div style="font-size:13px;font-weight:500;margin-bottom:14px">Week-over-Week Trend</div>
+      ${trendLine(weekTrend)}
+    </div>
+  </div>`;
+
+  // AI Analysis card
+  html += `<div class="card" style="margin-bottom:20px;border-color:var(--accent-border)">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+      <div style="font-size:13px;font-weight:500">✦ AI Strategy Analysis ${PERF_ACTIVE_TAB !== 'all' ? '— ' + PERF_ACTIVE_TAB.toUpperCase() : ''}</div>
+      <button class="btn btn-primary btn-sm" onclick="runAIAnalysis()">
+        ${savedAnalysis ? 'Re-analyze' : 'Analyze & Recommend'}
+      </button>
+    </div>
+    ${savedAnalysis
+      ? `<div id="ai-analysis-output" style="font-size:13px;line-height:1.8;color:var(--text2);white-space:pre-wrap">${savedAnalysis}</div>
+         <div style="font-size:11px;color:var(--text3);margin-top:10px">Generated ${localStorage.getItem(analysisKey + '_date') || 'recently'} · Re-analyze anytime as new data comes in</div>`
+      : `<div style="font-size:13px;color:var(--text3);line-height:1.7">Click <strong>Analyze & Recommend</strong> to get a Claude-powered strategy report — what's working, what's not, best times to post, and specific recommendations per company and audience.<br><br>The more posts you have logged, the sharper the recommendations.</div>
+         <div id="ai-analysis-output"></div>`
+    }
+  </div>`;
+
+  // Top posts
+  html += `<div class="card" style="margin-bottom:20px">
+    <div style="font-size:13px;font-weight:500;margin-bottom:14px">Top Posts by Engagement</div>`;
+  topPosts.forEach(p => {
+    const score = engagementScore(p.performance);
+    html += `<div style="display:flex;align-items:center;gap:12px;padding:12px 0;border-top:1px solid var(--border)">
+      ${p.photo ? `<img src="${p.photo}" style="width:52px;height:52px;object-fit:cover;border-radius:var(--radius);flex-shrink:0" alt="">` : `<div style="width:52px;height:52px;border-radius:var(--radius);background:var(--bg4);flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:18px">${p.mediaType==='video'?'🎬':'📝'}</div>`}
+      <div style="flex:1;min-width:0">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:3px">
+          <span class="post-company-badge badge-${p.company}">${p.company.toUpperCase()}</span>
+          <span style="font-size:12px;color:var(--text2)">${p.pillar} · ${p.audience}</span>
+        </div>
+        <div style="font-size:11px;color:var(--text3)">${p.publishedAt ? new Date(p.publishedAt).toLocaleDateString('en-PH',{month:'short',day:'numeric'}) : ''}</div>
+      </div>
+      <div style="display:flex;gap:14px;flex-shrink:0">
+        <div style="text-align:center"><div style="font-size:14px;font-weight:600">${p.performance.reach||0}</div><div style="font-size:10px;color:var(--text3)">Reach</div></div>
+        <div style="text-align:center"><div style="font-size:14px;font-weight:600">${p.performance.reactions||0}</div><div style="font-size:10px;color:var(--text3)">React</div></div>
+        <div style="text-align:center"><div style="font-size:14px;font-weight:600">${p.performance.comments||0}</div><div style="font-size:10px;color:var(--text3)">Comments</div></div>
+        <div style="text-align:center"><div style="font-size:14px;font-weight:600;color:var(--accent2)">${p.performance.inquiries||0}</div><div style="font-size:10px;color:var(--text3)">Inquiries</div></div>
+        <button class="btn btn-ghost btn-sm" style="font-size:11px" onclick="openPerformanceLogModal('${p.id}')">Edit</button>
+      </div>
+    </div>`;
+  });
+  html += `<button class="btn btn-ghost btn-sm" style="margin-top:12px;width:100%" onclick="showAllPosts()">View all ${filtered.length} posts →</button>`;
+  html += '</div>';
+
+  // Self-learning status card
+  const summary = buildPerformanceSummary(PERF_ACTIVE_TAB);
+  html += `<div class="card">
+    <div style="font-size:13px;font-weight:500;margin-bottom:8px">What Claude Knows</div>
+    <div style="font-size:12.5px;color:var(--text2);line-height:1.7">${summary}</div>
+    <div style="font-size:11.5px;color:var(--text3);margin-top:10px">This is automatically injected into every caption Claude writes — it gets smarter as more data comes in.</div>
+  </div>`;
+
+  content.innerHTML = html;
+}
+
+function getWeekLabel(date) {
+  const d = new Date(date);
+  const day = d.getDay();
+  const diff = d.getDate() - day + (day === 0 ? -6 : 1);
+  const mon = new Date(d.setDate(diff));
+  return (mon.getMonth() + 1) + '/' + mon.getDate();
+}
+
+function showAllPosts() {
+  // Expand to show all logged posts — just re-render with no slice limit
+  // For now a simple alert; full modal can be added later
+  showToast('Showing top 5 — full post list coming in a future update', 'info');
+}
+
+// ── AI ANALYSIS ───────────────────────────────────────────────
+async function runAIAnalysis() {
+  const apiKey = APP.apiKeys.anthropic || localStorage.getItem('scm_anthropic_key');
+  if (!apiKey) { showToast('Add your Claude API key in Settings first', 'error'); return; }
+
+  const btn = document.getElementById('perf-analyze-btn');
+  const output = document.getElementById('ai-analysis-output');
+  if (btn) { btn.disabled = true; btn.innerHTML = '<div class="spinner" style="width:12px;height:12px;border-width:2px"></div> Analyzing…'; }
+  if (output) output.innerHTML = '<div style="color:var(--text3);font-size:12.5px">Claude is reading your performance data…</div>';
+
+  const allLogged = APP.posts.filter(p => p.performance);
+  const filtered = PERF_ACTIVE_TAB === 'all' ? allLogged : allLogged.filter(p => p.company === PERF_ACTIVE_TAB);
+
+  if (filtered.length < 3) {
+    if (btn) { btn.disabled = false; btn.innerHTML = 'Analyze & Recommend'; }
+    if (output) output.innerHTML = '<div style="color:var(--amber);font-size:12.5px">Need at least 3 posts with performance data to run a meaningful analysis. Log more results first.</div>';
+    return;
+  }
+
+  // Build a structured data summary for Claude
+  const postSummaries = filtered.map(p => ({
+    company: p.company.toUpperCase(),
+    pillar: p.pillar,
+    audience: p.audience,
+    day: p.publishedAt ? new Date(p.publishedAt).toLocaleDateString('en-PH', {weekday:'long'}) : 'unknown',
+    time: p.publishedAt ? new Date(p.publishedAt).toLocaleTimeString('en-PH', {hour:'2-digit',minute:'2-digit'}) : 'unknown',
+    reach: p.performance.reach || 0,
+    reactions: p.performance.reactions || 0,
+    comments: p.performance.comments || 0,
+    shares: p.performance.shares || 0,
+    inquiries: p.performance.inquiries || 0,
+    engagementScore: engagementScore(p.performance),
+    notes: p.performance.notes || ''
+  }));
+
+  const companyContext = PERF_ACTIVE_TAB === 'all'
+    ? 'three Philippine companies: MSSI (modular furniture, B2C + B2B), WCLI (laminated boards, Luzon/national B2B trade), CWLI (laminated boards, Cebu/Visayas/Mindanao B2B trade)'
+    : PERF_ACTIVE_TAB === 'mssi'
+      ? 'MSSI — modular furniture company (B2C homeowners + B2B interior designers, contractors, developers)'
+      : PERF_ACTIVE_TAB === 'wcli'
+        ? 'WCLI — laminated melamine board supplier, Luzon/national, B2B trade (cabinet makers, fabricators, hardware stores, dealers)'
+        : 'CWLI — laminated melamine board supplier, Cebu/Visayas/Mindanao, B2B trade with regional Bisaya identity';
+
+  const prompt = `You are a social media strategist analyzing Facebook post performance data for ${companyContext}. The primary business goal is generating inquiries (DMs or comments asking about pricing/ordering). Engagement score formula: inquiries×10 + comments×3 + shares×4 + reactions×1.
+
+Here is the performance data for ${filtered.length} posts:
+
+${JSON.stringify(postSummaries, null, 2)}
+
+Write a practical strategy report with these sections:
+
+1. WHAT'S WORKING
+Identify the top 2-3 content pillars, audience types, days, and times that consistently drive the highest engagement scores and inquiries. Be specific — name the actual pillars and audiences.
+
+2. WHAT'S NOT WORKING
+Identify content types, audiences, or timing patterns with consistently low performance. Suggest whether to drop, reduce frequency, or adjust approach.
+
+3. RECOMMENDED CONTENT MIX
+Based on the data, suggest a weekly content mix per company — which pillars to prioritize, which audiences to target more, and any combos that work especially well together.
+
+4. BEST POSTING TIMES
+Recommend specific days and time windows for each company based on when their published posts performed best.
+
+5. IMMEDIATE ACTIONS
+3-5 specific things to do differently starting next week. Make these concrete and actionable — not generic advice.
+
+Write in plain, direct English. No fluff. This is for a busy business owner who needs clear direction, not a marketing textbook. Keep the whole report under 500 words.`;
+
+  try {
+    const analysis = await callClaude(apiKey, prompt, 1000);
+    const analysisKey = 'scm_ai_analysis_' + PERF_ACTIVE_TAB;
+    localStorage.setItem(analysisKey, analysis);
+    localStorage.setItem(analysisKey + '_date', new Date().toLocaleString('en-PH', {month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}));
+
+    if (output) {
+      output.style.whiteSpace = 'pre-wrap';
+      output.style.fontSize = '13px';
+      output.style.lineHeight = '1.8';
+      output.style.color = 'var(--text2)';
+      output.textContent = analysis;
+    }
+    if (btn) { btn.disabled = false; btn.innerHTML = 'Re-analyze'; }
+
+    // Try to auto-apply best time recommendations to Auto-Schedule settings
+    autoApplyBestTimes(filtered);
+
+  } catch (err) {
+    if (output) output.innerHTML = `<div style="color:var(--red);font-size:12.5px">Analysis failed: ${err.message}</div>`;
+    if (btn) { btn.disabled = false; btn.innerHTML = 'Analyze & Recommend'; }
+  }
+}
+
+// Automatically updates Auto-Schedule times based on best-performing posting hours
+function autoApplyBestTimes(posts) {
+  if (posts.length < 5) return; // Need enough data to be meaningful
+
+  const dayKeys = ['sun','mon','tue','wed','thu','fri','sat'];
+  const byDayHour = {};
+
+  posts.forEach(p => {
+    if (!p.publishedAt) return;
+    const date = new Date(p.publishedAt);
+    const day = dayKeys[date.getDay()];
+    const hour = date.getHours();
+    const score = engagementScore(p.performance);
+    if (!byDayHour[day]) byDayHour[day] = {};
+    if (!byDayHour[day][hour]) byDayHour[day][hour] = { total: 0, count: 0 };
+    byDayHour[day][hour].total += score;
+    byDayHour[day][hour].count++;
+  });
+
+  // Find the best hour per day and update Auto-Schedule if the data is strong enough
+  const companies = PERF_ACTIVE_TAB === 'all' ? ['mssi','wcli','cwli'] : [PERF_ACTIVE_TAB];
+  const schedData = APP.scheduleTimes || {};
+
+  companies.forEach(co => {
+    if (!schedData[co]) schedData[co] = {};
+    dayKeys.forEach(day => {
+      if (!byDayHour[day]) return;
+      const hours = Object.entries(byDayHour[day]);
+      if (hours.length < 2) return; // Not enough variation
+      const bestHour = hours.sort((a, b) => (b[1].total/b[1].count) - (a[1].total/a[1].count))[0];
+      const h = String(bestHour[0]).padStart(2,'0');
+      if (!schedData[co][day]) schedData[co][day] = { enabled: true, start: '08:00', end: '18:00' };
+      schedData[co][day].defaultPost = `${h}:00`;
+    });
+  });
+
+  APP.scheduleTimes = schedData;
+  localStorage.setItem('scm_schedule_times', JSON.stringify(schedData));
+}
+
+// ── STRENGTHENED SELF-LEARNING ────────────────────────────────
+// Per company + per audience — injected into every Claude caption prompt
+
+function buildPerformanceSummary(company) {
+  const allLogged = APP.posts.filter(p => p.performance);
+  const logged = company && company !== 'all'
+    ? allLogged.filter(p => p.company === company)
+    : allLogged;
+
+  if (logged.length < 3) {
+    return logged.length === 0
+      ? 'No performance data yet — post and log results to activate self-learning.'
+      : `${logged.length} post${logged.length>1?'s':''} logged — need at least 3 for pattern detection.`;
+  }
+
+  const byPillar = {}, byAudience = {};
+  logged.forEach(p => {
+    const score = engagementScore(p.performance);
+    if (!byPillar[p.pillar]) byPillar[p.pillar] = { total: 0, count: 0, inquiries: 0 };
+    byPillar[p.pillar].total += score;
+    byPillar[p.pillar].count++;
+    byPillar[p.pillar].inquiries += p.performance.inquiries || 0;
+    if (!byAudience[p.audience]) byAudience[p.audience] = { total: 0, count: 0, inquiries: 0 };
+    byAudience[p.audience].total += score;
+    byAudience[p.audience].count++;
+    byAudience[p.audience].inquiries += p.performance.inquiries || 0;
+  });
+
+  const topPillar = Object.entries(byPillar).sort((a,b) => (b[1].total/b[1].count)-(a[1].total/a[1].count))[0];
+  const worstPillar = Object.entries(byPillar).sort((a,b) => (a[1].total/a[1].count)-(b[1].total/b[1].count))[0];
+  const topAudience = Object.entries(byAudience).sort((a,b) => (b[1].total/b[1].count)-(a[1].total/a[1].count))[0];
+
+  let summary = `Based on ${logged.length} logged posts`;
+  if (company && company !== 'all') summary += ` for ${company.toUpperCase()}`;
+  summary += `: "${topPillar[0]}" content drives the most engagement and inquiries (${topPillar[1].inquiries} inquiries).`;
+  if (topAudience) summary += ` "${topAudience[0]}" is the highest-responding audience.`;
+  if (worstPillar && worstPillar[0] !== topPillar[0]) summary += ` "${worstPillar[0]}" content has performed weakest — use sparingly.`;
+  return summary;
+}
+
+function getPerformanceContextForPrompt(company) {
+  const allLogged = APP.posts.filter(p => p.performance);
+  const logged = company
+    ? allLogged.filter(p => p.company === company)
+    : allLogged;
+  if (logged.length < 3) return '';
+  return `\n\nPerformance context: ${buildPerformanceSummary(company)} Lean into what has worked without forcing it.`;
+}
+
+// ── PERFORMANCE LOG MODAL ─────────────────────────────────────
 function openPerformanceLogModal(id) {
   const post = APP.posts.find(p => String(p.id) === String(id));
   if (!post) return;
@@ -2681,14 +3228,17 @@ function openPerformanceLogModal(id) {
   html += '<div style="padding:16px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between"><div style="font-size:14px;font-weight:500">Log Performance</div><button class="btn btn-ghost btn-sm" onclick="closePerformanceLogModal()">Close</button></div>';
   html += '<div style="padding:18px">';
   html += `<div style="font-size:12px;color:var(--text3);margin-bottom:14px">${post.company.toUpperCase()} · ${post.pillar} · ${post.audience}</div>`;
-  html += '<div style="font-size:11.5px;color:var(--text3);margin-bottom:16px">Pull these numbers from the post on Facebook (tap the post → View Insights, or check reactions/comments directly). This stays manual until Facebook API access is connected.</div>';
-  html += `<div class="form-group"><label class="form-label">Reach</label><input type="text" inputmode="numeric" id="perf-reach" placeholder="e.g. 1200" value="${existing.reach || ''}"></div>`;
-  html += `<div class="form-group"><label class="form-label">Reactions (likes, etc.)</label><input type="text" inputmode="numeric" id="perf-reactions" placeholder="e.g. 35" value="${existing.reactions || ''}"></div>`;
-  html += `<div class="form-group"><label class="form-label">Comments</label><input type="text" inputmode="numeric" id="perf-comments" placeholder="e.g. 8" value="${existing.comments || ''}"></div>`;
-  html += `<div class="form-group"><label class="form-label">Shares</label><input type="text" inputmode="numeric" id="perf-shares" placeholder="e.g. 3" value="${existing.shares || ''}"></div>`;
-  html += `<div class="form-group"><label class="form-label">Inquiries generated (DMs/comments asking about price etc.)</label><input type="text" inputmode="numeric" id="perf-inquiries" placeholder="e.g. 2" value="${existing.inquiries || ''}"></div>`;
-  html += `<div class="form-group"><label class="form-label">Notes (optional)</label><textarea rows="2" id="perf-notes" placeholder="Anything worth remembering about why this did well or poorly">${existing.notes || ''}</textarea></div>`;
-  html += '<button class="btn btn-primary" style="width:100%" onclick="savePerformanceLog('+id+')">Save Performance</button>';
+  if (existing.autoFetched) {
+    html += `<div style="font-size:11.5px;color:var(--green);margin-bottom:14px;padding:8px 12px;background:var(--green-bg);border-radius:var(--radius)">✓ Auto-fetched from Facebook ${existing.fetchedAt ? '· ' + new Date(existing.fetchedAt).toLocaleDateString() : ''}</div>`;
+  }
+  html += '<div style="font-size:11.5px;color:var(--text3);margin-bottom:16px">Reach, reactions, comments and shares are auto-fetched from Facebook. Only inquiries need to be entered manually — check your Facebook DMs/comments.</div>';
+  html += `<div class="form-group"><label class="form-label">Reach</label><input type="text" inputmode="numeric" id="perf-reach" placeholder="Auto-fetched" value="${existing.reach || ''}"></div>`;
+  html += `<div class="form-group"><label class="form-label">Reactions</label><input type="text" inputmode="numeric" id="perf-reactions" placeholder="Auto-fetched" value="${existing.reactions || ''}"></div>`;
+  html += `<div class="form-group"><label class="form-label">Comments</label><input type="text" inputmode="numeric" id="perf-comments" placeholder="Auto-fetched" value="${existing.comments || ''}"></div>`;
+  html += `<div class="form-group"><label class="form-label">Shares</label><input type="text" inputmode="numeric" id="perf-shares" placeholder="Auto-fetched" value="${existing.shares || ''}"></div>`;
+  html += `<div class="form-group"><label class="form-label" style="color:var(--accent2)">Inquiries <span style="font-size:11px;font-weight:400;color:var(--text3)">(manual — check Facebook DMs/comments)</span></label><input type="text" inputmode="numeric" id="perf-inquiries" placeholder="e.g. 2" value="${existing.inquiries || ''}"></div>`;
+  html += `<div class="form-group"><label class="form-label">Notes (optional)</label><textarea rows="2" id="perf-notes" placeholder="Why did this do well or poorly?">${existing.notes || ''}</textarea></div>`;
+  html += `<button class="btn btn-primary" style="width:100%" onclick="savePerformanceLog('${id}')">Save</button>`;
   html += '</div></div></div>';
   const div = document.createElement('div');
   div.id = 'perflog-container';
@@ -2705,7 +3255,9 @@ function savePerformanceLog(id) {
   const post = APP.posts.find(p => String(p.id) === String(id));
   if (!post) return;
   const num = (v) => { const n = parseInt(v, 10); return isNaN(n) ? 0 : n; };
+  const existing = post.performance || {};
   post.performance = {
+    ...existing,
     reach: num(document.getElementById('perf-reach').value),
     reactions: num(document.getElementById('perf-reactions').value),
     comments: num(document.getElementById('perf-comments').value),
@@ -2716,104 +3268,8 @@ function savePerformanceLog(id) {
   };
   saveState();
   closePerformanceLogModal();
-  renderInquiryCheck();
-  showToast('Performance logged', 'success');
-}
-
-// Simple engagement score: weights inquiries highest (the actual business goal), then comments/shares, then reactions
-function engagementScore(perf) {
-  if (!perf) return 0;
-  return (perf.inquiries || 0) * 10 + (perf.comments || 0) * 3 + (perf.shares || 0) * 4 + (perf.reactions || 0) * 1;
-}
-
-function renderPerformance() {
-  const logged = APP.posts.filter(p => p.performance);
-  const emptyNote = document.getElementById('performance-empty-note');
-  const content = document.getElementById('performance-content');
-
-  if (!logged.length) {
-    emptyNote.style.display = 'block';
-    content.innerHTML = '';
-    return;
-  }
-  emptyNote.style.display = 'none';
-
-  // Aggregate by company + pillar + audience to find patterns
-  const byPillar = {};
-  const byAudience = {};
-  const byCompany = {};
-  logged.forEach(p => {
-    const score = engagementScore(p.performance);
-    byPillar[p.pillar] = (byPillar[p.pillar] || 0) + score;
-    byAudience[p.audience] = (byAudience[p.audience] || 0) + score;
-    byCompany[p.company] = (byCompany[p.company] || 0) + score;
-  });
-
-  const topPillar = Object.entries(byPillar).sort((a,b) => b[1]-a[1])[0];
-  const topAudience = Object.entries(byAudience).sort((a,b) => b[1]-a[1])[0];
-  const sortedPosts = [...logged].sort((a,b) => engagementScore(b.performance) - engagementScore(a.performance));
-
-  let html = '<div class="grid-3" style="margin-bottom:20px">';
-  html += `<div class="card"><div style="font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px">Posts Logged</div><div style="font-size:28px;font-weight:700;font-family:'Syne',sans-serif">${logged.length}</div></div>`;
-  html += `<div class="card"><div style="font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px">Best Performing Pillar</div><div style="font-size:16px;font-weight:600">${topPillar ? topPillar[0] : '—'}</div></div>`;
-  html += `<div class="card"><div style="font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px">Best Performing Audience</div><div style="font-size:16px;font-weight:600">${topAudience ? topAudience[0] : '—'}</div></div>`;
-  html += '</div>';
-
-  html += '<div class="card" style="margin-bottom:20px">';
-  html += '<div style="font-size:14px;font-weight:500;margin-bottom:14px">Top Posts by Engagement</div>';
-  html += sortedPosts.slice(0, 8).map(p => `
-    <div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-top:1px solid var(--border)">
-      <span class="post-company-badge badge-${p.company}">${p.company.toUpperCase()}</span>
-      <span style="font-size:12.5px;color:var(--text2);flex:1">${p.pillar} · ${p.audience}</span>
-      <span style="font-size:11.5px;color:var(--text3)" title="Reach">👁 ${p.performance.reach||0}</span>
-      <span style="font-size:11.5px;color:var(--text3)" title="Reactions">❤ ${p.performance.reactions||0}</span>
-      <span style="font-size:11.5px;color:var(--text3)" title="Comments">💬 ${p.performance.comments||0}</span>
-      <span style="font-size:11.5px;color:var(--accent2);font-weight:600" title="Inquiries generated">📩 ${p.performance.inquiries||0}</span>
-    </div>
-  `).join('');
-  html += '</div>';
-
-  html += '<div class="card">';
-  html += '<div style="font-size:14px;font-weight:500;margin-bottom:8px">Feeding This Back Into Claude</div>';
-  html += `<div style="font-size:12.5px;color:var(--text2);line-height:1.7">${buildPerformanceSummary()}</div>`;
-  html += '<div style="font-size:11.5px;color:var(--text3);margin-top:10px">This summary is automatically included when generating new posts, so Claude leans toward what has actually worked.</div>';
-  html += '</div>';
-
-  content.innerHTML = html;
-}
-
-// Builds a short natural-language summary of what's worked, to inject into future Claude prompts.
-// This is the actual "self-learning" mechanism: not model retraining, but feeding real outcomes back into the prompt.
-function buildPerformanceSummary() {
-  const logged = APP.posts.filter(p => p.performance);
-  if (logged.length < 3) {
-    return 'Not enough performance data logged yet (need at least 3 posts) to confidently identify patterns. Log more results as posts go live.';
-  }
-  const byPillar = {};
-  logged.forEach(p => {
-    const score = engagementScore(p.performance);
-    if (!byPillar[p.pillar]) byPillar[p.pillar] = { total: 0, count: 0 };
-    byPillar[p.pillar].total += score;
-    byPillar[p.pillar].count += 1;
-  });
-  const ranked = Object.entries(byPillar)
-    .map(([pillar, d]) => ({ pillar, avg: d.total / d.count }))
-    .sort((a, b) => b.avg - a.avg);
-
-  if (!ranked.length) return 'No clear pattern yet.';
-  const best = ranked[0];
-  const worst = ranked[ranked.length - 1];
-  let summary = `Based on ${logged.length} logged posts, "${best.pillar}" content tends to generate the most engagement and inquiries.`;
-  if (ranked.length > 1 && best.pillar !== worst.pillar) {
-    summary += ` "${worst.pillar}" content has performed comparatively weaker.`;
-  }
-  return summary;
-}
-
-function getPerformanceContextForPrompt() {
-  const logged = APP.posts.filter(p => p.performance);
-  if (logged.length < 3) return '';
-  return `\n\nPerformance context from past posts: ${buildPerformanceSummary()} Where it fits naturally, lean into what has worked, without forcing it.`;
+  renderPerformance();
+  showToast('Performance saved', 'success');
 }
 
 // CALENDAR
