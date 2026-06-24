@@ -2,8 +2,38 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>Social Content Manager</title>
+
+<!-- PWA Meta Tags -->
+<meta name="application-name" content="SCM">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="SCM">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#0e0e11">
+<meta name="description" content="Social Content Manager — Facebook content automation for MSSI, WCLI, CWLI">
+
+<!-- PWA Icons (inline SVG as data URL — no extra files needed) -->
+<link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 192 192'><rect width='192' height='192' rx='40' fill='%230e0e11'/><rect width='192' height='192' rx='40' fill='%237c6af7' opacity='0.15'/><text x='96' y='120' font-size='100' text-anchor='middle' font-family='system-ui'>✦</text></svg>">
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%230e0e11'/><text x='16' y='23' font-size='18' text-anchor='middle' font-family='system-ui'>✦</text></svg>">
+
+<!-- PWA Manifest (inline) -->
+<link rel="manifest" href="data:application/manifest+json,{
+  %22name%22:%22Social Content Manager%22,
+  %22short_name%22:%22SCM%22,
+  %22description%22:%22Facebook content automation for MSSI, WCLI, CWLI%22,
+  %22start_url%22:%22.%22,
+  %22display%22:%22standalone%22,
+  %22background_color%22:%22%230e0e11%22,
+  %22theme_color%22:%22%237c6af7%22,
+  %22orientation%22:%22portrait-primary%22,
+  %22icons%22:[
+    {%22src%22:%22data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 192 192'><rect width='192' height='192' rx='40' fill='%230e0e11'/><text x='96' y='130' font-size='110' text-anchor='middle' font-family='system-ui'>✦</text></svg>%22,%22sizes%22:%22192x192%22,%22type%22:%22image/svg+xml%22},
+    {%22src%22:%22data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'><rect width='512' height='512' rx='100' fill='%230e0e11'/><text x='256' y='340' font-size='280' text-anchor='middle' font-family='system-ui'>✦</text></svg>%22,%22sizes%22:%22512x512%22,%22type%22:%22image/svg+xml%22}
+  ]
+}">
+
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;1,9..40,300&display=swap" rel="stylesheet">
@@ -22,6 +52,30 @@
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
 body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;display:flex;overflow:hidden;}
 .sidebar{width:var(--sidebar-w);background:var(--bg2);border-right:1px solid var(--border);display:flex;flex-direction:column;flex-shrink:0;height:100vh;overflow-y:auto;}
+/* PWA / Mobile styles */
+@media (max-width: 768px) {
+  :root { --sidebar-w: 200px; }
+  .dash-companies { grid-template-columns: 1fr; }
+  .create-layout { grid-template-columns: 1fr; }
+  .autogen-layout { grid-template-columns: 1fr; }
+  .grid-3 { grid-template-columns: 1fr; }
+  .dash-row { grid-template-columns: 1fr; }
+  .topbar { padding: 12px 16px; flex-wrap: wrap; gap: 8px; }
+  .content { padding: 16px; }
+  .btn { font-size: 12px; }
+}
+@media (max-width: 540px) {
+  body { overflow: hidden; }
+  .sidebar { display: none; }
+  .main { width: 100vw; }
+}
+/* iPhone safe area padding */
+@supports (padding-bottom: env(safe-area-inset-bottom)) {
+  .sidebar { padding-bottom: env(safe-area-inset-bottom); }
+  .main { padding-bottom: env(safe-area-inset-bottom); }
+}
+/* Improve touch targets */
+.nav-item, .btn, .company-sel-btn, .filter-pill { min-height: 36px; }
 .sidebar-logo{padding:20px 20px 16px;border-bottom:1px solid var(--border);}
 .logo-mark{font-family:'Syne',sans-serif;font-weight:800;font-size:15px;color:var(--text);letter-spacing:-0.3px;line-height:1.2;}
 .logo-sub{font-size:11px;color:var(--text3);margin-top:2px;letter-spacing:0.3px;}
@@ -1015,6 +1069,17 @@ select:focus{border-color:var(--accent-border);}
 </div>
 
 </main>
+<!-- PWA Install Banner (Android) -->
+<div id="pwa-install-banner" style="display:none;position:fixed;bottom:16px;left:50%;transform:translateX(-50%);z-index:9999;background:var(--bg2);border:1px solid var(--accent-border);border-radius:var(--radius-lg);padding:14px 18px;display:none;align-items:center;gap:14px;box-shadow:0 8px 32px rgba(0,0,0,0.4);max-width:380px;width:calc(100% - 32px)">
+  <div style="width:36px;height:36px;border-radius:8px;background:var(--accent-bg);display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0">✦</div>
+  <div style="flex:1">
+    <div style="font-size:13px;font-weight:500;margin-bottom:2px">Add to Home Screen</div>
+    <div style="font-size:11.5px;color:var(--text3)">Install for quick access — works offline too</div>
+  </div>
+  <button class="btn btn-primary btn-sm" onclick="triggerInstall()">Install</button>
+  <button class="btn btn-ghost btn-sm" onclick="dismissInstallBanner()" style="padding:5px 8px">✕</button>
+</div>
+
 <div class="toast-container" id="toast-container"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
@@ -5241,6 +5306,50 @@ function startScheduler() {
   // Run immediately on start, then every 60 seconds
   runSchedulerTick();
   _schedulerInterval = setInterval(runSchedulerTick, 60000);
+}
+
+// ── PWA INSTALL PROMPT ───────────────────────────────────────
+// The manifest + meta tags make the app installable on Android/iOS.
+// A full offline service worker requires a separate sw.js file on
+// the same domain — add /sw.js to the GitHub repo to enable caching.
+
+let _deferredInstallPrompt = null;
+window.addEventListener('beforeinstallprompt', e => {
+  e.preventDefault();
+  _deferredInstallPrompt = e;
+  if (!localStorage.getItem('scm_pwa_dismissed')) {
+    const banner = document.getElementById('pwa-install-banner');
+    if (banner) banner.style.display = 'flex';
+  }
+});
+
+window.addEventListener('appinstalled', () => {
+  const banner = document.getElementById('pwa-install-banner');
+  if (banner) banner.style.display = 'none';
+  _deferredInstallPrompt = null;
+  showToast('App installed! Find it on your home screen.', 'success');
+});
+
+function triggerInstall() {
+  if (_deferredInstallPrompt) {
+    _deferredInstallPrompt.prompt();
+    _deferredInstallPrompt.userChoice.then(() => {
+      _deferredInstallPrompt = null;
+    });
+  }
+}
+
+function dismissInstallBanner() {
+  const banner = document.getElementById('pwa-install-banner');
+  if (banner) banner.style.display = 'none';
+  localStorage.setItem('scm_pwa_dismissed', '1');
+}
+
+// Register external sw.js if it exists on the same domain (optional — for offline caching)
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('./sw.js').catch(() => {
+    // sw.js not present yet — app still works, just no offline cache
+  });
 }
 
 // INIT
