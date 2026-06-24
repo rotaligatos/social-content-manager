@@ -1010,6 +1010,47 @@ select:focus{border-color:var(--accent-border);}
 // Newest entries go at the top. Each entry should describe what changed in plain language.
 const CHANGELOG = [
   {
+    date: '2026-06-24',
+    title: 'Background auto-publish scheduler (Supabase cron)',
+    items: [
+      'Posts now publish automatically even when the browser is closed — a Supabase Edge Function (publish-scheduled) runs every 15 minutes and publishes due posts directly to Facebook.',
+      'When you Schedule & Approve a post, it is silently synced to Supabase. When the app reopens, it reads back any published/rescheduled/missed statuses automatically.',
+      'Late post handling: posts less than 6 hours overdue publish immediately; posts more than 6 hours overdue are rescheduled after the last queued post (30 min apart) so no content is wasted.',
+      'In-browser scheduler (60-second tick) still runs as a fast fallback when the browser is open.'
+    ]
+  },
+  {
+    date: '2026-06-24',
+    title: 'Video storage + Facebook video publishing fixed',
+    items: [
+      'Veo-generated videos now upload to Supabase Storage immediately after generation — videos survive page reloads and can be published in any future session.',
+      'Facebook video publishing switched from the Resumable Upload API (CORS-blocked in browsers) to direct multipart upload — same pattern as photos. App ID no longer required.',
+      'If the in-memory video file is gone after a reload, the app automatically re-fetches it from Supabase before publishing.',
+      'Review queue now shows a playable video preview for video posts — no more blind approval.',
+      'Scheduled row now shows 🎬 or 🖼 so you can see at a glance which posts have media attached.'
+    ]
+  },
+  {
+    date: '2026-06-24',
+    title: 'Auto-Generate Week with images confirmed working',
+    items: [
+      'Auto-Generate Week now generates captions, AI images (via Ideogram), and Veo videos in a single run.',
+      'Image generation is on by default (up to 4 images per company per run). Video generation is off by default due to cost — toggle it on when needed.',
+      'Each image is derived from its caption via captionToVisualDescription — image and caption are genuinely connected, not generic.',
+      'Generation queue shows live status per post: ✓ 🖼 (image done), ✓ 🎬 (video done), ✓ 🎬⚠️ (video generated but storage upload failed).'
+    ]
+  },
+  {
+    date: '2026-06-24',
+    title: 'Scheduled auto-publish + Cancel fix',
+    items: [
+      'In-browser scheduler added — runs every 60 seconds, automatically publishes scheduled posts when their time arrives without any manual action.',
+      'Scheduler status indicator added to Review & Schedule topbar: green dot shows it is running and when it last checked; amber dot shows when it is actively publishing.',
+      'Fixed Cancel/Delete buttons on scheduled posts — was broken by the same float-precision ID comparison bug fixed earlier.',
+      'WCLI Facebook Page Token setup completed — all three companies (MSSI, WCLI) now publishing live. CWLI pending admin access.'
+    ]
+  },
+  {
     date: '2026-06-18',
     title: 'Staff assignment + Telegram notifications',
     items: [
