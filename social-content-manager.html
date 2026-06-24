@@ -2188,15 +2188,15 @@ function updateReviewQueue() {
         <div style="display:flex;gap:12px;margin-bottom:12px">
           ${p.mediaType === 'video' ? `<div style="width:90px;height:90px;border-radius:var(--radius);background:var(--bg4);display:flex;flex-direction:column;align-items:center;justify-content:center;flex-shrink:0;font-size:20px" title="${p.videoMeta ? p.videoMeta.name : 'Video'}">🎬<span style="font-size:9px;color:var(--text3);margin-top:4px">Video</span></div>` : p.photo ? `<div style="flex-shrink:0;display:flex;flex-direction:column;gap:6px;align-items:center">
             <img src="${p.photo}" style="width:90px;height:90px;object-fit:cover;border-radius:var(--radius)" alt="Post photo">
-            <button class="btn btn-ghost btn-sm" style="font-size:9.5px;padding:3px 8px;white-space:nowrap;${p.watermark ? 'color:var(--green)' : 'color:var(--text3)'}" onclick="toggleWatermark(${p.id})" title="Adds the ${p.company.toUpperCase()} logo at a random corner">🏷 ${p.watermark ? 'Watermark: On' : 'Watermark: Off'}</button>
+            <button class="btn btn-ghost btn-sm" style="font-size:9.5px;padding:3px 8px;white-space:nowrap;${p.watermark ? 'color:var(--green)' : 'color:var(--text3)'}" onclick="toggleWatermark('${p.id}')" title="Adds the ${p.company.toUpperCase()} logo at a random corner">🏷 ${p.watermark ? 'Watermark: On' : 'Watermark: Off'}</button>
           </div>` : `<div style="width:90px;height:90px;border-radius:var(--radius);background:var(--bg4);display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:11px;color:var(--text3);text-align:center;padding:4px">No photo</div>`}
-          <textarea id="caption-edit-${p.id}" style="font-size:13.5px;line-height:1.7;color:var(--text);background:var(--bg3);padding:14px;border-radius:var(--radius);white-space:pre-wrap;flex:1;border:1px solid var(--border);font-family:'DM Sans',sans-serif;resize:vertical;min-height:120px" onchange="markCaptionEdited(${p.id})">${p.caption}</textarea>
+          <textarea id="caption-edit-${p.id}" style="font-size:13.5px;line-height:1.7;color:var(--text);background:var(--bg3);padding:14px;border-radius:var(--radius);white-space:pre-wrap;flex:1;border:1px solid var(--border);font-family:'DM Sans',sans-serif;resize:vertical;min-height:120px" onchange="markCaptionEdited('${p.id}')">${p.caption}</textarea>
         </div>
         <div style="display:flex;gap:8px">
-          <button class="btn btn-ghost btn-sm" onclick="deletePost(${p.id})" style="color:var(--red)">Delete</button>
-          <button class="btn btn-secondary btn-sm" onclick="copyCaption(${p.id})">Copy Caption</button>
+          <button class="btn btn-ghost btn-sm" onclick="deletePost('${p.id}')" style="color:var(--red)">Delete</button>
+          <button class="btn btn-secondary btn-sm" onclick="copyCaption('${p.id}')">Copy Caption</button>
           <input type="datetime-local" class="time-input" style="flex:1;padding:6px 10px;font-size:12px" id="sched-${p.id}" value="${p.suggestedDate ? p.suggestedDate.slice(0,16) : ''}">
-          <button class="btn btn-primary btn-sm" onclick="schedulePost(${p.id})">Schedule &amp; Approve</button>
+          <button class="btn btn-primary btn-sm" onclick="schedulePost('${p.id}')">Schedule &amp; Approve</button>
         </div>
       </div>
     `).join('');
@@ -2218,10 +2218,10 @@ function updateReviewQueue() {
           <div style="font-size:11.5px;color:var(--text3)">Scheduled for ${p.scheduledFor ? new Date(p.scheduledFor).toLocaleString() : '—'}</div>
         </div>
         ${pageSelectorHtml}
-        <button class="btn btn-secondary btn-sm" onclick="copyCaption(${p.id})">Copy Caption</button>
-        <button class="btn btn-secondary btn-sm" onclick="deletePost(${p.id})" style="color:var(--red)">Cancel</button>
-        <button class="btn btn-ghost btn-sm" onclick="markAsPublishedTesting(${p.id})" title="Simulates publishing for testing Performance/Inquiry features — does not post to Facebook">Mark Published (testing)</button>
-        <button class="btn btn-primary btn-sm" onclick="publishPostNow(${p.id})">Publish Now</button>
+        <button class="btn btn-secondary btn-sm" onclick="copyCaption('${p.id}')">Copy Caption</button>
+        <button class="btn btn-secondary btn-sm" onclick="deletePost('${p.id}')" style="color:var(--red)">Cancel</button>
+        <button class="btn btn-ghost btn-sm" onclick="markAsPublishedTesting('${p.id}')" title="Simulates publishing for testing Performance/Inquiry features — does not post to Facebook">Mark Published (testing)</button>
+        <button class="btn btn-primary btn-sm" onclick="publishPostNow('${p.id}')">Publish Now</button>
       </div>
     `;
     }).join('');
@@ -2240,7 +2240,7 @@ function approveAll() {
 }
 
 function schedulePost(id) {
-  const post = APP.posts.find(p => p.id === id);
+  const post = APP.posts.find(p => String(p.id) === String(id));
   if (!post) return;
   // Capture any inline edits made to the caption before scheduling
   const editEl = document.getElementById('caption-edit-' + id);
@@ -2256,7 +2256,7 @@ function schedulePost(id) {
 }
 
 function markCaptionEdited(id) {
-  const post = APP.posts.find(p => p.id === id);
+  const post = APP.posts.find(p => String(p.id) === String(id));
   const editEl = document.getElementById('caption-edit-' + id);
   if (post && editEl) {
     post.caption = editEl.value;
@@ -2266,7 +2266,7 @@ function markCaptionEdited(id) {
 }
 
 function copyCaption(id) {
-  const post = APP.posts.find(p => p.id === id);
+  const post = APP.posts.find(p => String(p.id) === String(id));
   if (!post) return;
   // Use the live textarea value if it's currently being edited (pending review), otherwise the stored caption
   const editEl = document.getElementById('caption-edit-' + id);
@@ -2441,7 +2441,7 @@ function renderInquiryCheck() {
 }
 
 function markInquiryChecked(id) {
-  const post = APP.posts.find(p => p.id === id);
+  const post = APP.posts.find(p => String(p.id) === String(id));
   if (!post) return;
   post.inquiryChecked = true;
   saveState();
@@ -2450,7 +2450,7 @@ function markInquiryChecked(id) {
 }
 
 function assignStaffToPost(id, chatId) {
-  const post = APP.posts.find(p => p.id === id);
+  const post = APP.posts.find(p => String(p.id) === String(id));
   if (!post) return;
   post.assignedChatId = chatId || null;
   post.notifiedAt = null; // clear so re-assigning shows "not yet notified" again
@@ -2459,7 +2459,7 @@ function assignStaffToPost(id, chatId) {
 }
 
 async function notifyAssignedStaff(id) {
-  const post = APP.posts.find(p => p.id === id);
+  const post = APP.posts.find(p => String(p.id) === String(id));
   if (!post || !post.assignedChatId) return;
   const staffMember = (APP.staff || []).find(s => s.chatId === post.assignedChatId);
   const name = staffMember ? staffMember.name : 'there';
@@ -2479,7 +2479,7 @@ async function notifyAssignedStaff(id) {
 
 // PERFORMANCE LOGGING (manual entry now; structure ready for live Facebook Insights later)
 function openPerformanceLogModal(id) {
-  const post = APP.posts.find(p => p.id === id);
+  const post = APP.posts.find(p => String(p.id) === String(id));
   if (!post) return;
   const existing = post.performance || {};
   let html = '<div id="perflog-overlay" style="position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:2000;display:flex;align-items:center;justify-content:center" onclick="if(event.target.id===\'perflog-overlay\')closePerformanceLogModal()">';
@@ -2508,7 +2508,7 @@ function closePerformanceLogModal() {
 }
 
 function savePerformanceLog(id) {
-  const post = APP.posts.find(p => p.id === id);
+  const post = APP.posts.find(p => String(p.id) === String(id));
   if (!post) return;
   const num = (v) => { const n = parseInt(v, 10); return isNaN(n) ? 0 : n; };
   post.performance = {
@@ -3523,7 +3523,7 @@ function generateQrCode(elementId, text) {
 }
 
 function recordStaffResponse(postId, token) {
-  const post = APP.posts.find(p => p.id === postId);
+  const post = APP.posts.find(p => String(p.id) === String(postId));
   if (!post || post.responseToken !== token) {
     return { success: false, error: 'Invalid post or token' };
   }
@@ -3549,7 +3549,7 @@ function getResponseTimeMinutes(post) {
 }
 
 function saveResponseOverride(postId, overrideType, value) {
-  const post = APP.posts.find(p => p.id === postId);
+  const post = APP.posts.find(p => String(p.id) === String(postId));
   if (!post) return;
   if (overrideType === 'timestamp') {
     post.responseOverrideTimestamp = value;
@@ -3987,7 +3987,7 @@ function removeWatermarkFromPost(post) {
 }
 
 async function toggleWatermark(id) {
-  const post = APP.posts.find(p => p.id === id);
+  const post = APP.posts.find(p => String(p.id) === String(id));
   if (!post || (!post.photo && !post.photoOriginal)) return;
 
   if (post.watermark) {
@@ -4067,7 +4067,7 @@ async function publishVideoToFacebook(post, pageData) {
 }
 
 async function publishPostNow(id) {
-  const post = APP.posts.find(p => p.id === id);
+  const post = APP.posts.find(p => String(p.id) === String(id));
   if (!post) return;
   if (post.mediaType === 'video' && !post._videoFileRef) {
     showToast('Video file is no longer attached (likely lost after a page reload). Re-attach the video in Create Post and try again.', 'error');
@@ -4093,14 +4093,14 @@ async function publishPostNow(id) {
 // features (manual logging, self-learning summary) before Facebook page access is sorted out.
 // This does NOT post anything to Facebook. Real publishing only happens via publishPostNow above.
 function setTargetPage(id, pageIndex) {
-  const post = APP.posts.find(p => p.id === id);
+  const post = APP.posts.find(p => String(p.id) === String(id));
   if (!post) return;
   post.targetPageIndex = parseInt(pageIndex, 10);
   saveState();
 }
 
 function markAsPublishedTesting(id) {
-  const post = APP.posts.find(p => p.id === id);
+  const post = APP.posts.find(p => String(p.id) === String(id));
   if (!post) return;
   if (!confirm('This marks the post as "published" in the app only — it will NOT actually post to Facebook. Use this to test Performance logging. Continue?')) return;
   post.status = 'published';
