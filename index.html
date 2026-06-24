@@ -610,7 +610,7 @@ select:focus{border-color:var(--accent-border);}
         <span id="scheduler-dot" style="width:7px;height:7px;border-radius:50%;background:var(--text3);flex-shrink:0"></span>
         <span id="scheduler-label">Scheduler starting…</span>
       </div>
-      <div class="toggle ${isAutoPublishEnabled()?'on':''}" id="autopublish-toggle" onclick="setAutoPublishEnabled(!isAutoPublishEnabled())" title="Toggle auto-publishing on/off" style="transform:scale(0.85)"><div class="toggle-thumb"></div></div>
+      <div class="toggle" id="autopublish-toggle" onclick="setAutoPublishEnabled(!isAutoPublishEnabled())" title="Toggle auto-publishing on/off" style="transform:scale(0.85)"><div class="toggle-thumb"></div></div>
       <button class="btn btn-primary" onclick="approveAll()">Approve All</button>
     </div>
   </div>
