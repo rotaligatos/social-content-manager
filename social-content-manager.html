@@ -84,7 +84,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 .check-circle{width:20px;height:20px;border-radius:50%;display:flex;align-items:center;justify-content:center;flex-shrink:0;}
 .check-circle.pending{background:var(--bg4);color:var(--text3);}
 .check-circle.done{background:var(--green-bg);color:var(--green);}
-.create-layout{display:grid;grid-template-columns:1fr 380px;gap:20px;}
+.create-layout{display:grid;grid-template-columns:1fr 380px;gap:20px;align-items:start;}
 .create-form{display:flex;flex-direction:column;gap:16px;}
 .form-section{background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius-lg);overflow:hidden;}
 .form-section-header{padding:14px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px;}
@@ -160,7 +160,7 @@ textarea::placeholder,input::placeholder{color:var(--text3);}
 .photo-name{font-size:12px;color:var(--text2);margin-bottom:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 .upload-area-large{border:1.5px dashed var(--border2);border-radius:var(--radius-lg);padding:40px;text-align:center;cursor:pointer;transition:all .15s;margin-bottom:20px;}
 .upload-area-large:hover{border-color:var(--accent-border);background:var(--accent-bg);}
-.autogen-layout{display:grid;grid-template-columns:1fr 360px;gap:20px;}
+.autogen-layout{display:grid;grid-template-columns:1fr 360px;gap:20px;align-items:start;}
 .autogen-settings{display:flex;flex-direction:column;gap:14px;}
 .toggle-row{display:flex;align-items:center;justify-content:space-between;padding:12px 0;border-bottom:1px solid var(--border);}
 .toggle-label{font-size:13.5px;}
@@ -674,7 +674,7 @@ select:focus{border-color:var(--accent-border);}
           Generate This Week's Posts
         </button>
       </div>
-      <div>
+      <div style="position:sticky;top:0">
         <div style="font-size:14px;font-weight:500;color:var(--text2);margin-bottom:12px">Generation Queue</div>
         <div id="autogen-queue">
           <div class="empty-state" style="padding:40px 20px;background:var(--bg2);border-radius:var(--radius-lg);border:1px solid var(--border)">
