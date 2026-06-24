@@ -4077,46 +4077,20 @@ async function publishVideoToFacebook(post, pageData) {
   }
 
   const appId = (APP.fbPages && APP.fbPages.appId) || JSON.parse(localStorage.getItem('scm_fb_pages') || '{}').appId;
-  if (!appId) {
-    return { success: false, error: 'No Facebook App ID configured. Add it in Settings → Facebook Pages — this is required for video uploads (separate from the Page ID/Token).' };
-  }
 
   try {
-    // Step 1: Start a resumable upload session
-    const startParams = new URLSearchParams({
-      file_name: file.name,
-      file_length: file.size,
-      file_type: file.type || 'video/mp4',
-      access_token: pageData.token
-    });
-    const startRes = await fetch(`https://graph.facebook.com/v21.0/${appId}/uploads?${startParams.toString()}`, { method: 'POST' });
-    const startData = await startRes.json();
-    if (startData.error) return { success: false, error: 'Upload session failed: ' + startData.error.message };
-    const uploadSessionId = startData.id; // formatted as "upload:<id>"
-
-    // Step 2: Upload the actual file bytes
-    const uploadRes = await fetch(`https://graph.facebook.com/v21.0/${uploadSessionId}`, {
-      method: 'POST',
-      headers: {
-        'Authorization': 'OAuth ' + pageData.token,
-        'file_offset': '0'
-      },
-      body: file
-    });
-    const uploadData = await uploadRes.json();
-    if (uploadData.error) return { success: false, error: 'Video upload failed: ' + uploadData.error.message };
-    const fileHandle = uploadData.h;
-    if (!fileHandle) return { success: false, error: 'Video upload did not return a file handle.' };
-
-    // Step 3: Publish the uploaded video to the Page using the file handle
-    const publishParams = new URLSearchParams();
-    publishParams.append('access_token', pageData.token);
-    publishParams.append('description', post.caption);
-    publishParams.append('fbuploader_video_file_chunk', fileHandle);
+    // Direct multipart upload — same pattern as photo publishing.
+    // The resumable upload API (graph.facebook.com/uploads) is server-to-server only
+    // and blocks browser requests with CORS, so we use the simpler /videos endpoint directly.
+    const formData = new FormData();
+    formData.append('source', file, file.name || 'video.mp4');
+    formData.append('description', post.caption);
+    formData.append('published', 'true');
+    formData.append('access_token', pageData.token);
 
     const publishRes = await fetch(`https://graph.facebook.com/v21.0/${pageData.id}/videos`, {
       method: 'POST',
-      body: publishParams
+      body: formData
     });
     const publishData = await publishRes.json();
     if (publishData.error) return { success: false, error: 'Video publish failed: ' + publishData.error.message };
