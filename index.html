@@ -966,7 +966,7 @@ select:focus{border-color:var(--accent-border);}
   <div class="content">
     <div class="settings-layout">
       <div class="settings-nav">
-        <button class="settings-nav-item" onclick="switchSettingsTab(this,'api-keys')">API Keys</button>
+        <button class="settings-nav-item active" onclick="switchSettingsTab(this,'api-keys')">API Keys</button>
         <button class="settings-nav-item" onclick="switchSettingsTab(this,'fb-pages')">Facebook Pages</button>
         <button class="settings-nav-item" onclick="switchSettingsTab(this,'team')">Team &amp; Notifications</button>
         <button class="settings-nav-item" onclick="switchSettingsTab(this,'sla')">SLA Targets</button>
@@ -1570,6 +1570,14 @@ function showScreen(id) {
   if (id === 'create') renderHolidayBanner();
   if (id === 'performance') { renderPerformance(); fetchAllInsights(); }
   if (id === 'changelog') renderChangelog();
+  if (id === 'settings') {
+    // Ensure first tab is active and visible
+    const firstBtn = document.querySelector('.settings-nav-item');
+    if (firstBtn && !document.querySelector('.settings-nav-item.active')) {
+      switchSettingsTab(firstBtn, 'api-keys');
+    }
+    updateApiStatusBadges();
+  }
 }
 
 // COMPANY
