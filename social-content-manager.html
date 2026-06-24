@@ -2557,7 +2557,7 @@ function renderInquiryCheck() {
         <span style="font-size:15px">💬</span>
         <div style="font-size:14px;font-weight:500">Inquiry &amp; Comment Check</div>
       </div>
-      <div style="font-size:12.5px;color:var(--text3)">Once posts are published to Facebook, this will remind you to check comments and DMs for inquiries. True auto-reply isn't available yet — see note in Settings.</div>
+      <div style="font-size:12.5px;color:var(--text3)">Once posts are published to Facebook, this will remind you to check comments and DMs for inquiries.</div>
     `;
     return;
   }
@@ -2566,95 +2566,109 @@ function renderInquiryCheck() {
     card.innerHTML = `
       <div style="display:flex;align-items:center;gap:10px">
         <span style="font-size:15px">✅</span>
-        <div style="font-size:13.5px;color:var(--text2)">All published posts checked for comments/inquiries. Nice and current.</div>
+        <div style="font-size:13.5px;color:var(--text2)">All published posts checked. Nice and current.</div>
       </div>`;
     return;
   }
 
   card.innerHTML = `
-    <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
       <span style="font-size:15px">💬</span>
       <div style="font-size:14px;font-weight:500">Inquiry &amp; Comment Check</div>
       <span class="post-company-badge" style="background:var(--amber-bg);color:var(--amber);margin-left:auto">${unchecked.length} to review</span>
     </div>
-    <div style="font-size:12px;color:var(--text3);margin-bottom:12px">Go check Facebook for comments and DMs on these published posts, then mark them reviewed here. Assign to a staff member to notify them on Telegram.</div>
     ${unchecked.map(p => {
       const staff = APP.staff || [];
-      // Filter staff to only those responsible for this post's company
       const relevantStaff = staff.filter(s => (s.companies || []).includes(p.company));
-      // Auto-assign if there's exactly one person responsible for this company
       if (!p.assignedChatId && relevantStaff.length === 1) {
         p.assignedChatId = relevantStaff[0].chatId;
         saveState();
       }
       const staffOptions = relevantStaff.map(s => `<option value="${s.chatId}" ${p.assignedChatId === s.chatId ? 'selected' : ''}>${s.name}</option>`).join('');
+      const assignedStaff = relevantStaff.find(s => s.chatId === p.assignedChatId);
       const responseTime = getResponseTimeMinutes(p);
       const slaTarget = getSlaTargetForCompany(p.company);
       const metSla = responseTime ? (responseTime <= slaTarget * 60) : null;
+
       return `
-      <div style="background:var(--bg3);border-radius:var(--radius);border:1px solid var(--border);margin-bottom:6px;padding:9px 12px">
-        <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+      <div style="background:var(--bg3);border-radius:var(--radius);border:1px solid var(--border);margin-bottom:6px">
+        <!-- Compact main row -->
+        <div style="display:flex;align-items:center;gap:8px;padding:9px 12px">
           <span class="post-company-badge badge-${p.company}">${p.company.toUpperCase()}</span>
-          ${p.testPublish ? '<span class="post-company-badge" style="background:var(--bg4);color:var(--text3)" title="Marked published for testing only — not actually on Facebook">TEST</span>' : ''}
-          <span style="font-size:12.5px;color:var(--text2);flex:1">${p.pillar} · ${p.audience}</span>
-          <span style="font-size:11px;color:var(--text3)">${p.publishedAt ? new Date(p.publishedAt).toLocaleDateString() : ''}</span>
-          <button class="btn btn-ghost btn-sm" onclick="openPerformanceLogModal(${p.id})">Log Performance</button>
-          <button class="btn btn-ghost btn-sm" onclick="markInquiryChecked(${p.id})">Mark Checked</button>
+          ${p.testPublish ? '<span class="post-company-badge" style="background:var(--bg4);color:var(--text3)">TEST</span>' : ''}
+          <span style="font-size:12px;color:var(--text2);flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${p.pillar} · ${p.audience}</span>
+          <span style="font-size:11px;color:var(--text3);flex-shrink:0">${p.publishedAt ? new Date(p.publishedAt).toLocaleDateString('en-PH',{month:'short',day:'numeric'}) : ''}</span>
+          ${assignedStaff ? `<span style="font-size:11px;color:var(--text3);flex-shrink:0">👤 ${assignedStaff.name}</span>` : ''}
+          ${responseTime ? `<span style="font-size:11px;flex-shrink:0;color:${metSla?'var(--green)':'var(--red)'}">${metSla?'✓':'✗'} ${responseTime}m</span>` : ''}
+          <button class="btn btn-ghost btn-sm" style="flex-shrink:0;font-size:11px;padding:3px 8px" onclick="toggleInquiryDetail('detail-${p.id}')">⋯</button>
+          <button class="btn btn-ghost btn-sm" style="flex-shrink:0;font-size:11px;padding:3px 8px" onclick="openPerformanceLogModal('${p.id}')">Log</button>
+          <button class="btn btn-primary btn-sm" style="flex-shrink:0;font-size:11px;padding:3px 8px" onclick="markInquiryChecked('${p.id}')">✓ Done</button>
         </div>
-        
-        <!-- QR Code for staff response -->
-        <div style="display:flex;gap:12px;margin-bottom:10px">
-          <div>
-            <div style="font-size:10.5px;color:var(--text3);margin-bottom:6px">Share with staff:</div>
-            <div id="qr-${p.id}" style="width:120px;height:120px;background:white;border-radius:4px;padding:4px;overflow:hidden;flex-shrink:0"></div>
-          </div>
-          <div style="flex:1">
-            <div style="font-size:10.5px;color:var(--text3);margin-bottom:6px">Response time:</div>
-            ${p.responseTimestamp ? `
-              <div style="font-size:11.5px;color:var(--green);margin-bottom:6px">
-                ✓ Responded: ${new Date(p.responseTimestamp).toLocaleString()}
+        <!-- Expandable detail panel -->
+        <div id="detail-${p.id}" style="display:none;border-top:1px solid var(--border);padding:12px">
+          <div style="display:flex;gap:16px">
+            <!-- QR Code -->
+            <div style="flex-shrink:0">
+              <div style="font-size:10px;color:var(--text3);margin-bottom:4px">Staff link QR</div>
+              <div id="qr-${p.id}" style="width:80px;height:80px;background:white;border-radius:4px;padding:3px;overflow:hidden"></div>
+            </div>
+            <!-- Response time + override -->
+            <div style="flex:1">
+              <div style="font-size:10.5px;color:var(--text3);margin-bottom:4px">Response time</div>
+              ${p.responseTimestamp ? `
+                <div style="font-size:11.5px;color:var(--green);margin-bottom:4px">✓ ${new Date(p.responseTimestamp).toLocaleString()} · ${responseTime}m (Target: ${slaTarget}h) <span style="color:${metSla?'var(--green)':'var(--red)'}">${metSla?'✓ Met':'✗ Missed'}</span></div>
+              ` : `<div style="font-size:10.5px;color:var(--text3);margin-bottom:4px">Awaiting response from staff</div>`}
+              <div style="display:flex;gap:6px;margin-bottom:6px">
+                <input type="time" class="time-input" style="flex:1;font-size:10px;padding:3px 6px" placeholder="Override time" onchange="handleTimeOverride('${p.id}', '${p.publishedAt}', this.value)">
+                <input type="number" min="0" style="width:90px;font-size:10px;padding:3px 6px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg2);color:var(--text)" placeholder="Minutes" onchange="handleMinutesOverride('${p.id}', this.value)">
               </div>
-              <div style="font-size:10.5px;color:var(--text2);margin-bottom:6px">
-                Claimed: ${responseTime} min (Target: ${slaTarget}h) <span style="color:${metSla ? 'var(--green)' : 'var(--red)'}">${metSla ? '✓ Met' : '✗ Missed'}</span>
-              </div>
-            ` : `<div style="font-size:10.5px;color:var(--text3)">Awaiting response from staff</div>`}
-            
-            <!-- Override fields -->
-            <div style="margin-top:8px;font-size:10.5px">
-              <label style="color:var(--text3);margin-bottom:4px;display:block">Override response time:</label>
-              <div style="display:flex;gap:6px;margin-bottom:4px">
-                <input type="time" class="time-input" style="flex:1;font-size:10px;padding:3px 6px" placeholder="HH:MM" onchange="handleTimeOverride(${p.id}, '${p.publishedAt}', this.value)">
-              </div>
-              <div style="display:flex;gap:6px">
-                <input type="number" min="0" style="flex:1;font-size:10px;padding:3px 6px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg2);color:var(--text)" placeholder="Minutes" onchange="handleMinutesOverride(${p.id}, this.value)">
-                <span style="font-size:10px;color:var(--text3);align-self:center">minutes</span>
-              </div>
+              <!-- Staff assign + notify -->
+              ${relevantStaff.length ? `
+              <div style="display:flex;align-items:center;gap:6px">
+                <select class="time-input" style="font-size:11px;padding:4px 6px;flex:1" onchange="assignStaffToPost('${p.id}', this.value)">
+                  <option value="">Assign to...</option>
+                  ${staffOptions}
+                </select>
+                <button class="btn btn-secondary btn-sm" style="font-size:11px" onclick="notifyAssignedStaff('${p.id}')" ${!p.assignedChatId ? 'disabled' : ''}>Notify on Telegram</button>
+                ${p.notifiedAt ? `<span style="font-size:10px;color:var(--green)">✓ Notified</span>` : ''}
+              </div>` : `<div style="font-size:11px;color:var(--text3)">No staff for ${p.company.toUpperCase()} — add in Settings → Team.</div>`}
             </div>
           </div>
         </div>
-        
-        <!-- Staff assignment -->
-        ${relevantStaff.length ? `
-        <div style="display:flex;align-items:center;gap:8px;margin-top:10px">
-          <select class="time-input" style="font-size:11.5px;padding:5px 8px;flex:1" onchange="assignStaffToPost(${p.id}, this.value)">
-            <option value="">Assign to...</option>
-            ${staffOptions}
-          </select>
-          <button class="btn btn-secondary btn-sm" onclick="notifyAssignedStaff(${p.id})" ${!p.assignedChatId ? 'disabled' : ''}>Notify on Telegram</button>
-          ${p.notifiedAt ? `<span style="font-size:10.5px;color:var(--green)">✓ Notified</span>` : ''}
-        </div>` : `<div style="font-size:11.5px;color:var(--text3);margin-top:10px">No staff assigned to handle ${p.company.toUpperCase()} — add one in Settings → Team & Notifications.</div>`}
       </div>
     `;
     }).join('')}
   `;
-  
-  // Generate QR codes after rendering
+
+  // Generate QR codes only for expanded panels — triggered on expand
   setTimeout(() => {
     unchecked.forEach(p => {
-      const url = getResponseUrl(p.id, p.responseToken);
-      generateQrCode('qr-' + p.id, url);
+      const qrEl = document.getElementById('qr-' + p.id);
+      const detailEl = document.getElementById('detail-' + p.id);
+      if (qrEl && detailEl && detailEl.style.display !== 'none') {
+        const url = getResponseUrl(p.id, p.responseToken);
+        generateQrCode('qr-' + p.id, url);
+      }
     });
   }, 100);
+}
+
+function toggleInquiryDetail(id) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  const isHidden = el.style.display === 'none';
+  el.style.display = isHidden ? 'block' : 'none';
+  // Generate QR code when expanding for the first time
+  if (isHidden) {
+    const postId = id.replace('detail-', '');
+    const post = APP.posts.find(p => String(p.id) === String(postId));
+    if (post) {
+      setTimeout(() => {
+        const url = getResponseUrl(post.id, post.responseToken);
+        generateQrCode('qr-' + postId, url);
+      }, 50);
+    }
+  }
 }
 
 function markInquiryChecked(id) {
