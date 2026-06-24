@@ -4104,8 +4104,8 @@ async function publishVideoToFacebook(post, pageData) {
 async function publishPostNow(id) {
   const post = APP.posts.find(p => String(p.id) === String(id));
   if (!post) return;
-  if (post.mediaType === 'video' && !post._videoFileRef) {
-    showToast('Video file is no longer attached (likely lost after a page reload). Re-attach the video in Create Post and try again.', 'error');
+  if (post.mediaType === 'video' && !post._videoFileRef && !post.videoUrl) {
+    showToast('Video file is no longer available and no storage URL found. Re-attach the video in Create Post and try again.', 'error');
     return;
   }
   showToast('Publishing to Facebook...', 'info');
