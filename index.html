@@ -93,8 +93,8 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 .sidebar-bottom{margin-top:auto;padding:12px;border-top:1px solid var(--border);}
 .settings-btn{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:var(--radius);cursor:pointer;font-size:13px;color:var(--text3);background:none;border:none;width:100%;transition:all .15s;font-family:'DM Sans',sans-serif;}
 .settings-btn:hover{color:var(--text2);background:var(--bg3);}
-.main{flex:1;height:100vh;overflow-y:auto;display:flex;flex-direction:column;}
-.screen{display:none;flex-direction:column;height:100%;}
+.main{flex:1;height:100vh;overflow-y:auto;display:flex;flex-direction:column;min-width:0;}
+.screen{display:none;flex-direction:column;height:100%;width:100%;}
 .screen.active{display:flex;}
 .topbar{display:flex;align-items:center;justify-content:space-between;padding:16px 28px;border-bottom:1px solid var(--border);flex-shrink:0;}
 .topbar-left h1{font-family:'Syne',sans-serif;font-size:18px;font-weight:700;color:var(--text);}
