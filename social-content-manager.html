@@ -524,6 +524,10 @@ select:focus{border-color:var(--accent-border);}
   <div class="topbar">
     <div class="topbar-left"><h1>Review &amp; Schedule</h1><p id="review-count-label">No posts pending</p></div>
     <div class="topbar-actions">
+      <div id="scheduler-status" style="display:flex;align-items:center;gap:7px;padding:6px 12px;background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius);font-size:12px;color:var(--text3)" title="Auto-publisher checks every 60 seconds and publishes posts when their scheduled time arrives">
+        <span id="scheduler-dot" style="width:7px;height:7px;border-radius:50%;background:var(--text3);flex-shrink:0"></span>
+        <span id="scheduler-label">Scheduler starting…</span>
+      </div>
       <button class="btn btn-primary" onclick="approveAll()">Approve All</button>
     </div>
   </div>
@@ -4511,9 +4515,85 @@ function showToast(msg, type = 'info') {
   setTimeout(() => t.remove(), 3500);
 }
 
+// AUTO-PUBLISH SCHEDULER
+// Runs every 60 seconds. Finds scheduled posts whose scheduledFor time has passed
+// and publishes them automatically to Facebook. Shows a live status indicator in
+// the Review & Schedule topbar so the user can see it's running.
+
+let _schedulerInterval = null;
+
+function updateSchedulerIndicator(state, msg) {
+  const dot = document.getElementById('scheduler-dot');
+  const label = document.getElementById('scheduler-label');
+  if (!dot || !label) return;
+  if (state === 'active') {
+    dot.style.background = 'var(--green)';
+    dot.style.boxShadow = '0 0 6px var(--green)';
+  } else if (state === 'publishing') {
+    dot.style.background = 'var(--amber)';
+    dot.style.boxShadow = '0 0 6px var(--amber)';
+  } else {
+    dot.style.background = 'var(--text3)';
+    dot.style.boxShadow = 'none';
+  }
+  label.textContent = msg;
+}
+
+async function runSchedulerTick() {
+  const now = new Date();
+  const due = APP.posts.filter(p =>
+    p.status === 'scheduled' &&
+    p.scheduledFor &&
+    new Date(p.scheduledFor) <= now
+  );
+
+  if (!due.length) {
+    const timeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    updateSchedulerIndicator('active', 'Auto-publish on · checked ' + timeStr);
+    return;
+  }
+
+  // Publish each due post sequentially
+  for (const post of due) {
+    updateSchedulerIndicator('publishing', 'Publishing ' + post.company.toUpperCase() + '…');
+    const result = await publishToFacebook(post);
+    if (result.success) {
+      post.status = 'published';
+      post.fbPostId = result.postId;
+      post.publishedAt = new Date().toISOString();
+      saveState();
+      updateReviewQueue();
+      updateDashboard();
+      renderCalendar();
+      updateReviewBadge();
+      showToast('⏰ Auto-published: ' + post.company.toUpperCase() + ' · ' + post.pillar, 'success');
+    } else {
+      // Leave status as scheduled so it can be retried, but log the error
+      showToast('⚠️ Auto-publish failed (' + post.company.toUpperCase() + '): ' + result.error, 'error');
+      // Bump scheduledFor by 5 minutes to avoid hammering on a broken post every tick
+      const retry = new Date(post.scheduledFor);
+      retry.setMinutes(retry.getMinutes() + 5);
+      post.scheduledFor = retry.toISOString();
+      saveState();
+      updateReviewQueue();
+    }
+  }
+
+  const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  updateSchedulerIndicator('active', 'Auto-publish on · checked ' + timeStr);
+}
+
+function startScheduler() {
+  if (_schedulerInterval) clearInterval(_schedulerInterval);
+  // Run immediately on start, then every 60 seconds
+  runSchedulerTick();
+  _schedulerInterval = setInterval(runSchedulerTick, 60000);
+}
+
 // INIT
 loadState();
 checkAndShowResponsePage();
+startScheduler();
 </script>
 </body>
 </html>
