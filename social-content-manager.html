@@ -345,6 +345,16 @@ select:focus{border-color:var(--accent-border);}
     <div class="company-pill"><div class="company-dot" style="background:var(--cwli)"></div>CWLI</div>
   </div>
   <div class="sidebar-bottom">
+    <div style="padding:8px 12px;border-top:1px solid var(--border);margin-bottom:6px">
+      <div style="display:flex;align-items:center;gap:8px">
+        <div style="width:26px;height:26px;border-radius:50%;background:var(--accent-bg);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600;color:var(--accent);flex-shrink:0">👤</div>
+        <div style="flex:1;min-width:0">
+          <div style="font-size:12px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" id="user-badge">Loading…</div>
+          <button onclick="pullFromSupabase()" style="font-size:10px;color:var(--text3);background:none;border:none;cursor:pointer;padding:0" title="Sync latest data from cloud">↻ Sync</button>
+        </div>
+        <button onclick="signOut()" style="font-size:10px;color:var(--text3);background:none;border:none;cursor:pointer;padding:4px" title="Sign out">⎋</button>
+      </div>
+    </div>
     <button class="settings-btn">
       <svg style="width:14px;height:14px" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="7"/><line x1="8" y1="5" x2="8" y2="8"/><circle cx="8" cy="11" r="0.5" fill="currentColor"/></svg>
       Help &amp; Documentation
@@ -352,7 +362,7 @@ select:focus{border-color:var(--accent-border);}
   </div>
 </nav>
 
-<main class="main">
+<main class="main" id="app-wrapper">
 
 <!-- DASHBOARD -->
 <div id="screen-dashboard" class="screen active">
@@ -600,6 +610,7 @@ select:focus{border-color:var(--accent-border);}
         <span id="scheduler-dot" style="width:7px;height:7px;border-radius:50%;background:var(--text3);flex-shrink:0"></span>
         <span id="scheduler-label">Scheduler starting…</span>
       </div>
+      <div class="toggle ${isAutoPublishEnabled()?'on':''}" id="autopublish-toggle" onclick="setAutoPublishEnabled(!isAutoPublishEnabled())" title="Toggle auto-publishing on/off" style="transform:scale(0.85)"><div class="toggle-thumb"></div></div>
       <button class="btn btn-primary" onclick="approveAll()">Approve All</button>
     </div>
   </div>
@@ -955,11 +966,12 @@ select:focus{border-color:var(--accent-border);}
   <div class="content">
     <div class="settings-layout">
       <div class="settings-nav">
-        <button class="settings-nav-item active" onclick="switchSettingsTab(this,'api-keys')">API Keys</button>
+        <button class="settings-nav-item" onclick="switchSettingsTab(this,'api-keys')">API Keys</button>
         <button class="settings-nav-item" onclick="switchSettingsTab(this,'fb-pages')">Facebook Pages</button>
         <button class="settings-nav-item" onclick="switchSettingsTab(this,'team')">Team &amp; Notifications</button>
         <button class="settings-nav-item" onclick="switchSettingsTab(this,'sla')">SLA Targets</button>
         <button class="settings-nav-item" onclick="switchSettingsTab(this,'schedule')">Auto-Schedule</button>
+        <button class="settings-nav-item" onclick="switchSettingsTab(this,'autopilot')">✦ Autopilot</button>
         <button class="settings-nav-item" onclick="switchSettingsTab(this,'data')">Data &amp; Export</button>
       </div>
       <div id="stab-api-keys">
@@ -1112,6 +1124,67 @@ select:focus{border-color:var(--accent-border);}
           <button class="btn btn-primary" style="margin-top:16px" onclick="saveSchedule()">Save Schedule</button>
         </div>
       </div>
+      <!-- AUTOPILOT TAB -->
+      <div id="stab-autopilot" style="display:none">
+        <div class="card">
+          <div style="font-size:14px;font-weight:500;margin-bottom:4px">✦ Full Autopilot Mode</div>
+          <div style="font-size:12px;color:var(--text3);margin-bottom:16px">Every Sunday at 10 PM — generates next week's posts, schedules them, and sends you a Telegram summary. Posts fire automatically. Open the app to cancel anything before it goes live.</div>
+          <div class="toggle-row">
+            <div><div class="toggle-label">Enable Full Autopilot</div><div class="toggle-sub">Runs every Sunday night — generates and schedules all posts automatically</div></div>
+            <div class="toggle" id="autopilot-master-toggle" onclick="toggleAutopilot(this)"><div class="toggle-thumb"></div></div>
+          </div>
+          <div id="autopilot-config" style="margin-top:16px;display:none">
+            <div class="form-group">
+              <label class="form-label">Active Companies</label>
+              <div style="display:flex;gap:12px;margin-top:4px">
+                <label style="display:flex;align-items:center;gap:4px;font-size:12.5px;cursor:pointer"><input type="checkbox" id="ap-co-mssi" checked> MSSI</label>
+                <label style="display:flex;align-items:center;gap:4px;font-size:12.5px;cursor:pointer"><input type="checkbox" id="ap-co-wcli" checked> WCLI</label>
+                <label style="display:flex;align-items:center;gap:4px;font-size:12.5px;cursor:pointer"><input type="checkbox" id="ap-co-cwli" checked> CWLI</label>
+              </div>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Posts Per Company Per Week</label>
+              <select id="ap-posts-count">
+                <option value="3">3 posts</option>
+                <option value="5" selected>5 posts</option>
+                <option value="7">7 posts</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Telegram Recipients <span style="color:var(--text3);font-size:11px">(get the Sunday night summary)</span></label>
+              <div id="ap-telegram-recipients" style="margin-top:8px"></div>
+              <div style="font-size:11.5px;color:var(--text3);margin-top:6px">Staff members with a saved Telegram Chat ID will appear here. Check the ones who should receive the weekly summary.</div>
+            </div>
+            <div class="toggle-row">
+              <div><div class="toggle-label">Rotate featured colors</div><div class="toggle-sub">Each post features a different color from WCLI/CWLI collection</div></div>
+              <div class="toggle" id="ap-toggle-colors" onclick="toggleSwitch(this)"><div class="toggle-thumb"></div></div>
+            </div>
+            <div class="toggle-row" style="border-bottom:none">
+              <div><div class="toggle-label">Include retail store callouts</div><div class="toggle-sub">Mention Wilcon, Home Depot, etc. in relevant posts</div></div>
+              <div class="toggle" id="ap-toggle-retail" onclick="toggleSwitch(this)"><div class="toggle-thumb"></div></div>
+            </div>
+            <button class="btn btn-primary" style="width:100%;margin-top:16px" onclick="saveAutopilotConfig()">Save Autopilot Settings</button>
+            <button class="btn btn-secondary" style="width:100%;margin-top:8px" onclick="runAutopilotNow()">Run Now (Test)</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <div style="font-size:14px;font-weight:500;margin-bottom:12px">Auto-Publishing</div>
+          <div class="toggle-row" style="border-bottom:none">
+            <div>
+              <div class="toggle-label">Auto-publishing active</div>
+              <div class="toggle-sub">When off — no posts publish automatically. You publish manually from Review & Schedule.</div>
+            </div>
+            <div class="toggle on" id="autopublish-toggle-settings" onclick="setAutoPublishEnabled(!isAutoPublishEnabled())" ><div class="toggle-thumb"></div></div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div style="font-size:14px;font-weight:500;margin-bottom:8px">Autopilot Run History</div>
+          <div id="autopilot-log" style="font-size:12.5px;color:var(--text3)">Loading…</div>
+        </div>
+      </div>
+
       <div id="stab-data" style="display:none">
         <div class="card" style="margin-bottom:16px">
           <div style="font-size:14px;font-weight:500;margin-bottom:4px">App Logo (top-right)</div>
@@ -1174,7 +1247,32 @@ select:focus{border-color:var(--accent-border);}
 </div>
 
 </main>
-<!-- PWA Install Banner (Android) -->
+<!-- LOGIN SCREEN -->
+<div id="login-screen" style="display:none;position:fixed;inset:0;background:var(--bg);z-index:9000;display:flex;align-items:center;justify-content:center">
+  <div style="width:380px;padding:32px;background:var(--bg2);border:1px solid var(--border2);border-radius:var(--radius-lg);box-shadow:0 24px 64px rgba(0,0,0,0.4)">
+    <div style="text-align:center;margin-bottom:28px">
+      <div style="font-size:32px;margin-bottom:8px">✦</div>
+      <div style="font-size:20px;font-weight:700;font-family:'Syne',sans-serif">Social Content Manager</div>
+      <div style="font-size:12.5px;color:var(--text3);margin-top:4px">MSSI · WCLI · CWLI</div>
+    </div>
+    <div id="login-error" style="display:none;background:var(--red-bg,#2a1515);border:1px solid var(--red,#e05555);border-radius:var(--radius);padding:10px 12px;font-size:12.5px;color:var(--red,#e05555);margin-bottom:16px"></div>
+    <div class="form-group">
+      <label class="form-label">Email</label>
+      <input type="email" id="login-email" placeholder="your@email.com" autocomplete="email" style="font-size:14px" onkeydown="if(event.key==='Enter')document.getElementById('login-password').focus()">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Password</label>
+      <input type="password" id="login-password" placeholder="••••••••" autocomplete="current-password" style="font-size:14px" onkeydown="if(event.key==='Enter')doLogin()">
+    </div>
+    <button class="btn btn-primary" style="width:100%;font-size:14px;padding:12px" onclick="doLogin()" id="login-btn">Sign In</button>
+    <div style="text-align:center;margin-top:14px">
+      <button class="btn btn-ghost btn-sm" onclick="showForgotPassword()" style="font-size:12px;color:var(--text3)">Forgot password?</button>
+    </div>
+    <div style="margin-top:20px;padding-top:16px;border-top:1px solid var(--border);font-size:11.5px;color:var(--text3);text-align:center">
+      Contact your admin to get access
+    </div>
+  </div>
+</div>
 <div id="pwa-install-banner" style="display:none;position:fixed;bottom:16px;left:50%;transform:translateX(-50%);z-index:9999;background:var(--bg2);border:1px solid var(--accent-border);border-radius:var(--radius-lg);padding:14px 18px;display:none;align-items:center;gap:14px;box-shadow:0 8px 32px rgba(0,0,0,0.4);max-width:380px;width:calc(100% - 32px)">
   <div style="width:36px;height:36px;border-radius:8px;background:var(--accent-bg);display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0">✦</div>
   <div style="flex:1">
@@ -2695,8 +2793,9 @@ function schedulePost(id) {
   updateReviewBadge();
   updateDashboard();
   showToast('Post scheduled!', 'success');
-  // Sync to Supabase so the background cron can publish it when the browser is closed
+  // Sync to both legacy cron table and new Supabase posts table
   syncPostToSupabase(post);
+  pushPostToSupabase(post);
 }
 
 function markCaptionEdited(id) {
@@ -2729,6 +2828,8 @@ function deletePost(id) {
   updateReviewBadge();
   updateDashboard();
   showToast('Post deleted', 'info');
+  // Delete from Supabase too
+  if (_session) syncRequest({ operation: 'delete_post', post_id: String(id) }).catch(() => {});
 }
 
 function updateReviewBadge() {
@@ -3847,11 +3948,30 @@ function loadBrandProfiles() {
 function switchSettingsTab(btn, tab) {
   document.querySelectorAll('.settings-nav-item').forEach(b => b.classList.remove('active'));
   btn.classList.add('active');
-  ['api-keys','fb-pages','team','sla','schedule','data'].forEach(t => {
+  ['api-keys','fb-pages','team','sla','schedule','autopilot','data'].forEach(t => {
     const el = document.getElementById('stab-' + t);
     if (el) el.style.display = t === tab ? 'block' : 'none';
   });
   if (tab === 'data') renderStorageUsage();
+  if (tab === 'autopilot') {
+    // Load autopilot settings into UI
+    const s = getAutopilotSettings();
+    const masterToggle = document.getElementById('autopilot-master-toggle');
+    if (masterToggle) { masterToggle.classList.toggle('on', !!s.enabled); }
+    const config = document.getElementById('autopilot-config');
+    if (config) config.style.display = s.enabled ? 'block' : 'none';
+    if (s.companies) ['mssi','wcli','cwli'].forEach(c => {
+      const el = document.getElementById('ap-co-' + c);
+      if (el) el.checked = s.companies.includes(c);
+    });
+    const countEl = document.getElementById('ap-posts-count');
+    if (countEl && s.postsCount) countEl.value = String(s.postsCount);
+    renderAutopilotRecipients();
+    loadAutopilotLog();
+    // Sync autopublish toggle
+    const apToggle = document.getElementById('autopublish-toggle-settings');
+    if (apToggle) apToggle.classList.toggle('on', isAutoPublishEnabled());
+  }
 }
 
 function saveApiKey(service) {
@@ -5901,10 +6021,319 @@ if ('serviceWorker' in navigator) {
   });
 }
 
+// ============================================================
+//  SUPABASE AUTH + MULTI-USER SYNC
+//  Login, session management, data sync between devices
+// ============================================================
+
+const SUPABASE_URL = 'https://nssviuuagtlvxjvvvagt.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5zc3ZpdXVhZ3RsdnhqdnZ2YWd0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODIwNDMzMzksImV4cCI6MjA5NzYxOTMzOX0.X3fzhId8srr4XZ9O54-hkBusQxoA6wfM2X8Kq-OoVN4';
+const SYNC_URL = SUPABASE_URL + '/functions/v1/app-sync';
+
+let _session = null;
+let _userProfile = null;
+let _syncEnabled = true;
+
+async function supabaseAuthRequest(endpoint, options = {}) {
+  const res = await fetch(SUPABASE_URL + endpoint, {
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      'apikey': SUPABASE_ANON_KEY,
+      'Authorization': `Bearer ${_session?.access_token || SUPABASE_ANON_KEY}`,
+      ...(options.headers || {})
+    }
+  });
+  return res.json();
+}
+
+async function doLogin() {
+  const email = document.getElementById('login-email')?.value?.trim();
+  const password = document.getElementById('login-password')?.value;
+  const btn = document.getElementById('login-btn');
+  if (!email || !password) { showLoginError('Please enter email and password'); return; }
+  btn.disabled = true; btn.textContent = 'Signing in…';
+  try {
+    const data = await supabaseAuthRequest('/auth/v1/token?grant_type=password', {
+      method: 'POST', body: JSON.stringify({ email, password })
+    });
+    if (data.error || !data.access_token) {
+      showLoginError(data.error_description || data.error || 'Login failed');
+      btn.disabled = false; btn.textContent = 'Sign In'; return;
+    }
+    _session = data;
+    localStorage.setItem('scm_session', JSON.stringify(data));
+    await onLoginSuccess();
+  } catch (err) {
+    showLoginError('Connection error — check your internet');
+    btn.disabled = false; btn.textContent = 'Sign In';
+  }
+}
+
+function showLoginError(msg) {
+  const el = document.getElementById('login-error');
+  if (el) { el.textContent = msg; el.style.display = 'block'; }
+}
+
+async function showForgotPassword() {
+  const email = document.getElementById('login-email')?.value?.trim();
+  if (!email) { showLoginError('Enter your email first'); return; }
+  await supabaseAuthRequest('/auth/v1/recover', { method: 'POST', body: JSON.stringify({ email }) });
+  showLoginError('Password reset email sent — check your inbox');
+}
+
+async function onLoginSuccess() {
+  const loginScreen = document.getElementById('login-screen');
+  const appWrapper = document.getElementById('app-wrapper');
+  if (loginScreen) loginScreen.style.display = 'none';
+  if (appWrapper) appWrapper.style.display = 'flex';
+  showToast('Signed in — syncing data…', 'info');
+  await loadUserProfile();
+  await pullFromSupabase();
+  updateUserBadge();
+}
+
+async function loadUserProfile() {
+  try {
+    const data = await syncRequest({ operation: 'get_profile' });
+    if (data.profile) _userProfile = data.profile;
+  } catch (_e) {}
+}
+
+async function checkExistingSession() {
+  const saved = localStorage.getItem('scm_session');
+  if (!saved) { showLoginScreen(); return; }
+  try {
+    const session = JSON.parse(saved);
+    const payload = JSON.parse(atob(session.access_token.split('.')[1]));
+    if (payload.exp * 1000 < Date.now()) {
+      const refreshed = await supabaseAuthRequest('/auth/v1/token?grant_type=refresh_token', {
+        method: 'POST', body: JSON.stringify({ refresh_token: session.refresh_token })
+      });
+      if (refreshed.access_token) {
+        _session = refreshed;
+        localStorage.setItem('scm_session', JSON.stringify(refreshed));
+      } else { localStorage.removeItem('scm_session'); showLoginScreen(); return; }
+    } else { _session = session; }
+    await onLoginSuccess();
+  } catch (_e) { showLoginScreen(); }
+}
+
+function showLoginScreen() {
+  const loginScreen = document.getElementById('login-screen');
+  const appWrapper = document.getElementById('app-wrapper');
+  if (loginScreen) loginScreen.style.display = 'flex';
+  if (appWrapper) appWrapper.style.display = 'none';
+}
+
+function signOut() {
+  localStorage.removeItem('scm_session');
+  _session = null; _userProfile = null;
+  showLoginScreen();
+  showToast('Signed out', 'info');
+}
+
+function updateUserBadge() {
+  const badge = document.getElementById('user-badge');
+  if (!badge) return;
+  const name = _userProfile?.name || (_session && JSON.parse(atob(_session.access_token.split('.')[1]))?.email?.split('@')[0]) || 'You';
+  badge.textContent = name;
+}
+
+async function syncRequest(body) {
+  if (!_session) return {};
+  try {
+    const res = await fetch(SYNC_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${_session.access_token}` },
+      body: JSON.stringify(body)
+    });
+    return res.json();
+  } catch (_e) { return {}; }
+}
+
+async function pullFromSupabase() {
+  if (!_session || !_syncEnabled) return;
+  try {
+    const data = await syncRequest({ operation: 'pull' });
+    if (!data || data.error) return;
+    if (data.posts?.length) {
+      APP.posts = data.posts.map(p => ({
+        id: p.id, company: p.company, audience: p.audience, pillar: p.pillar,
+        caption: p.caption, photo: p.photo_url, videoUrl: p.video_url,
+        mediaType: p.media_type || 'photo', videoMeta: p.video_meta,
+        status: p.status, scheduledFor: p.scheduled_for, publishedAt: p.published_at,
+        fbPostId: p.fb_post_id, watermark: p.watermark, performance: p.performance,
+        inquiryChecked: p.inquiry_checked, assignedChatId: p.assigned_chat_id,
+        responseToken: p.response_token, responseTimestamp: p.response_timestamp, createdAt: p.created_at
+      }));
+    }
+    if (data.brandProfiles) {
+      if (!APP.brandProfiles) APP.brandProfiles = {};
+      Object.assign(APP.brandProfiles, data.brandProfiles);
+    }
+    if (data.staff?.length) APP.staff = data.staff;
+    if (data.settings?.autopilot) APP.autopilot = data.settings.autopilot;
+    saveState();
+    updateDashboard(); updateReviewBadge(); renderCalendar();
+    showToast('Data synced ✓', 'success');
+  } catch (_e) {}
+}
+
+async function pushPostToSupabase(post) {
+  if (!_session || !_syncEnabled) return;
+  try { await syncRequest({ operation: 'push_post', post }); } catch (_e) {}
+}
+
+async function pushColorsToSupabase(company) {
+  if (!_session || !_syncEnabled) return;
+  try { await syncRequest({ operation: 'push_colors', company, colors: getColors(company) }); } catch (_e) {}
+}
+
+async function pushStaffToSupabase() {
+  if (!_session || !_syncEnabled) return;
+  try { await syncRequest({ operation: 'push_staff', staff: APP.staff || [] }); } catch (_e) {}
+}
+
+async function pushSettingToSupabase(key, value) {
+  if (!_session || !_syncEnabled) return;
+  try { await syncRequest({ operation: 'push_setting', key, value }); } catch (_e) {}
+}
+
+// Auto-publish on/off
+function isAutoPublishEnabled() {
+  return localStorage.getItem('scm_autopublish_enabled') !== 'false';
+}
+
+function setAutoPublishEnabled(val) {
+  localStorage.setItem('scm_autopublish_enabled', val ? 'true' : 'false');
+  if (val) {
+    startScheduler();
+  } else {
+    if (_schedulerInterval) { clearInterval(_schedulerInterval); _schedulerInterval = null; }
+    updateSchedulerIndicator('off', 'Auto-publish paused');
+  }
+  showToast(val ? 'Auto-publishing enabled' : 'Auto-publishing paused', val ? 'success' : 'info');
+  const toggle = document.getElementById('autopublish-toggle');
+  if (toggle) { toggle.classList.toggle('on', val); }
+}
+
+function getAutopilotSettings() {
+  return APP.autopilot || JSON.parse(localStorage.getItem('scm_autopilot') || '{}');
+}
+
+function saveAutopilotSettings(s) {
+  APP.autopilot = s;
+  localStorage.setItem('scm_autopilot', JSON.stringify(s));
+  pushSettingToSupabase('autopilot', s);
+}
+
+// AUTOPILOT SETTINGS UI
+function toggleAutopilot(el) {
+  toggleSwitch(el);
+  const isOn = el.classList.contains('on');
+  const config = document.getElementById('autopilot-config');
+  if (config) config.style.display = isOn ? 'block' : 'none';
+  const s = getAutopilotSettings();
+  s.enabled = isOn;
+  saveAutopilotSettings(s);
+  showToast(isOn ? 'Autopilot enabled — runs every Sunday night' : 'Autopilot disabled', isOn ? 'success' : 'info');
+}
+
+function renderAutopilotRecipients() {
+  const el = document.getElementById('ap-telegram-recipients');
+  if (!el) return;
+  const staff = APP.staff || [];
+  const withIds = staff.filter(s => s.chatId || s.telegram_chat_id);
+  if (!withIds.length) {
+    el.innerHTML = '<div style="font-size:11.5px;color:var(--text3)">No staff with Telegram Chat IDs yet — add them in Team & Notifications first.</div>';
+    return;
+  }
+  const saved = (getAutopilotSettings().telegramRecipients || []);
+  el.innerHTML = withIds.map(s => {
+    const chatId = s.chatId || s.telegram_chat_id;
+    const checked = saved.includes(chatId);
+    return `<label style="display:flex;align-items:center;gap:8px;font-size:12.5px;cursor:pointer;padding:4px 0">
+      <input type="checkbox" value="${chatId}" class="ap-recipient" ${checked?'checked':''}> ${s.name}
+      <span style="font-size:10.5px;color:var(--text3)">${(s.companies||[]).join(', ') || 'all companies'}</span>
+    </label>`;
+  }).join('');
+}
+
+function saveAutopilotConfig() {
+  const companies = ['mssi','wcli','cwli'].filter(c => document.getElementById('ap-co-' + c)?.checked);
+  const postsCount = parseInt(document.getElementById('ap-posts-count')?.value || '5');
+  const recipients = [...document.querySelectorAll('.ap-recipient:checked')].map(el => el.value);
+  const rotateColors = document.getElementById('ap-toggle-colors')?.classList.contains('on');
+  const includeRetail = document.getElementById('ap-toggle-retail')?.classList.contains('on');
+
+  const s = {
+    ...getAutopilotSettings(),
+    companies, postsCount, telegramRecipients: recipients, rotateColors, includeRetail
+  };
+  saveAutopilotSettings(s);
+
+  // Push FB page configs to Supabase settings for autopilot to use
+  const fbPages = APP.fbPages || JSON.parse(localStorage.getItem('scm_fb_pages') || '{}');
+  pushSettingToSupabase('fb_pages', fbPages);
+  pushSettingToSupabase('autopilot_enabled', s.enabled || false);
+  pushSettingToSupabase('autopilot_companies', s.companies);
+  pushSettingToSupabase('autopilot_posts_per_company', s.postsCount);
+  pushSettingToSupabase('autopilot_telegram_recipients', s.telegramRecipients);
+
+  showToast('Autopilot settings saved', 'success');
+}
+
+async function runAutopilotNow() {
+  const btn = event.target;
+  btn.disabled = true; btn.textContent = 'Running…';
+  try {
+    // Save config first
+    saveAutopilotConfig();
+    // Trigger the Edge Function directly
+    const proxyBase = (APP.apiKeys.imgproxy || localStorage.getItem('scm_imgproxy_key') || '').replace(/generate-image\/?$/, '');
+    const res = await fetch(proxyBase + 'autopilot', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+    showToast(`Autopilot ran: ${data.posts_generated} posts generated${data.telegram_sent ? ', Telegram sent' : ''}`, 'success');
+    await pullFromSupabase();
+  } catch (err) {
+    showToast('Autopilot test failed: ' + err.message, 'error');
+  }
+  btn.disabled = false; btn.textContent = 'Run Now (Test)';
+}
+
+async function loadAutopilotLog() {
+  const el = document.getElementById('autopilot-log');
+  if (!el || !_session) return;
+  try {
+    const res = await fetch(SUPABASE_URL + '/rest/v1/autopilot_log?order=run_at.desc&limit=5', {
+      headers: { 'apikey': SUPABASE_ANON_KEY, 'Authorization': `Bearer ${_session.access_token}` }
+    });
+    const logs = await res.json();
+    if (!logs?.length) { el.textContent = 'No runs yet'; return; }
+    el.innerHTML = logs.map(l => `
+      <div style="padding:8px 0;border-top:1px solid var(--border);display:flex;align-items:center;gap:10px">
+        <span style="font-size:10.5px;color:var(--text3)">${new Date(l.run_at).toLocaleString('en-PH',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'})}</span>
+        <span style="font-size:12px;flex:1">${l.posts_generated} posts · ${(l.companies||[]).join(', ').toUpperCase()}</span>
+        <span style="font-size:10.5px;color:${l.telegram_sent?'var(--green)':'var(--text3)'}">${l.telegram_sent?'✓ Telegram sent':'No Telegram'}</span>
+      </div>`).join('');
+  } catch (_e) { el.textContent = 'Could not load log'; }
+}
+
 // INIT
 loadState();
 checkAndShowResponsePage();
-startScheduler();
+// Hide app until authenticated
+const _aw = document.getElementById('app-wrapper');
+if (_aw) _aw.style.display = 'none';
+// Start scheduler only if auto-publish is enabled
+if (isAutoPublishEnabled()) startScheduler();
+// Set initial autopublish toggle state
+const _apt = document.getElementById('autopublish-toggle');
+if (_apt) _apt.classList.toggle('on', isAutoPublishEnabled());
+// Check auth session — shows login screen or loads app
+checkExistingSession();
 </script>
 </body>
 </html>
