@@ -2283,7 +2283,7 @@ function copyCaption(id) {
 }
 
 function deletePost(id) {
-  APP.posts = APP.posts.filter(p => p.id !== id);
+  APP.posts = APP.posts.filter(p => String(p.id) !== String(id));
   saveState();
   updateReviewQueue();
   updateReviewBadge();
