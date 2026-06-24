@@ -3806,6 +3806,8 @@ async function publishToFacebook(post) {
   if (!pageData || !pageData.id || !pageData.token) {
     return { success: false, error: 'No Facebook Page ID/Token configured for ' + post.company.toUpperCase() + '. Add it in Settings → Facebook Pages.' };
   }
+  // DIAGNOSTIC — shows first/last 6 chars of token so you can verify it matches what Explorer has
+  console.log('Publishing with Page ID:', pageData.id, '| Token starts:', pageData.token.slice(0,6), '| Token ends:', pageData.token.slice(-6), '| Token length:', pageData.token.length);
 
   if (post.mediaType === 'video') {
     return await publishVideoToFacebook(post, pageData);
