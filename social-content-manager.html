@@ -344,9 +344,10 @@ select:focus{border-color:var(--accent-border);}
       </div>
     </div>
 
-    <div class="card" id="inquiry-check-card" style="margin-bottom:16px"></div>
-
-    <div class="card" id="sla-metrics-card" style="margin-bottom:16px"></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
+      <div class="card" id="inquiry-check-card" style="max-height:340px;overflow-y:auto"></div>
+      <div class="card" id="sla-metrics-card"></div>
+    </div>
 
     <div class="dash-row">
       <div class="card">
