@@ -511,7 +511,7 @@ select:focus{border-color:var(--accent-border);}
             <button class="btn btn-ghost btn-sm" id="btn-regenerate" style="display:none" onclick="generatePost()">Regenerate</button>
             <button class="btn btn-secondary btn-sm" id="btn-gen-image-from-caption" style="display:none" onclick="generateImageFromCaption()">✦ Generate Image from Caption</button>
             <button class="btn btn-secondary btn-sm" style="flex:1;display:none" id="btn-approve" onclick="saveDraft()">Save Draft</button>
-            <button class="btn btn-primary btn-sm" style="flex:1;display:none" id="btn-schedule" onclick="showScreen('review')">Schedule →</button>
+            <button class="btn btn-primary btn-sm" style="flex:1;display:none" id="btn-schedule" onclick="saveDraft(); showScreen('review')">Schedule →</button>
           </div>
         </div>
       </div>
