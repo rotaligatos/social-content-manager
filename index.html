@@ -109,7 +109,6 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 .btn-ghost:hover{background:var(--bg3);color:var(--text);}
 .btn-sm{padding:5px 12px;font-size:12px;}
 .btn-lg{padding:12px 24px;font-size:14px;}
-.app-hidden{display:none !important;}
 .content{padding:24px 28px;flex:1;overflow-y:auto;width:100%;box-sizing:border-box;}
 .card{background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius-lg);padding:20px;}
 .grid-3{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;}
@@ -363,7 +362,7 @@ select:focus{border-color:var(--accent-border);}
   </div>
 </nav>
 
-<main class="main" id="app-wrapper">
+<main class="main">
 
 <!-- DASHBOARD -->
 <div id="screen-dashboard" class="screen active">
@@ -6095,9 +6094,7 @@ async function showForgotPassword() {
 
 async function onLoginSuccess() {
   const loginScreen = document.getElementById('login-screen');
-  const appWrapper = document.getElementById('app-wrapper');
   if (loginScreen) loginScreen.style.display = 'none';
-  if (appWrapper) appWrapper.classList.remove('app-hidden');
   showToast('Signed in — syncing data…', 'info');
   await loadUserProfile();
   await pullFromSupabase();
@@ -6132,16 +6129,12 @@ async function checkExistingSession() {
 
 function showLoginScreen() {
   const loginScreen = document.getElementById('login-screen');
-  const appWrapper = document.getElementById('app-wrapper');
   if (loginScreen) loginScreen.style.display = 'flex';
-  if (appWrapper) appWrapper.classList.add('app-hidden');
 }
 
 function signOut() {
   localStorage.removeItem('scm_session');
   _session = null; _userProfile = null;
-  const appWrapper = document.getElementById('app-wrapper');
-  if (appWrapper) appWrapper.classList.add('app-hidden');
   showLoginScreen();
   showToast('Signed out', 'info');
 }
@@ -6337,17 +6330,15 @@ async function loadAutopilotLog() {
 // INIT
 loadState();
 checkAndShowResponsePage();
-// Hide both screens initially — auth check will show the right one
-const _aw = document.getElementById('app-wrapper');
-if (_aw) _aw.classList.add('app-hidden');
+// Login screen is a fixed overlay — show it immediately, hide when authenticated
 const _ls = document.getElementById('login-screen');
-if (_ls) _ls.style.display = 'none';
+if (_ls) _ls.style.display = 'flex';
 // Start scheduler only if auto-publish is enabled
 if (isAutoPublishEnabled()) startScheduler();
 // Set initial autopublish toggle state
 const _apt = document.getElementById('autopublish-toggle');
 if (_apt) _apt.classList.toggle('on', isAutoPublishEnabled());
-// Check auth session — shows login screen or loads app
+// Check auth session — hides login screen if already logged in
 checkExistingSession();
 </script>
 </body>
