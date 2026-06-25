@@ -109,6 +109,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 .btn-ghost:hover{background:var(--bg3);color:var(--text);}
 .btn-sm{padding:5px 12px;font-size:12px;}
 .btn-lg{padding:12px 24px;font-size:14px;}
+.app-hidden{display:none !important;}
 .content{padding:24px 28px;flex:1;overflow-y:auto;width:100%;box-sizing:border-box;}
 .card{background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius-lg);padding:20px;}
 .grid-3{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;}
@@ -1248,7 +1249,7 @@ select:focus{border-color:var(--accent-border);}
 
 </main>
 <!-- LOGIN SCREEN -->
-<div id="login-screen" style="display:none;position:fixed;inset:0;background:var(--bg);z-index:9000;display:flex;align-items:center;justify-content:center">
+<div id="login-screen" style="position:fixed;inset:0;background:var(--bg);z-index:9000;display:flex;align-items:center;justify-content:center">
   <div style="width:380px;padding:32px;background:var(--bg2);border:1px solid var(--border2);border-radius:var(--radius-lg);box-shadow:0 24px 64px rgba(0,0,0,0.4)">
     <div style="text-align:center;margin-bottom:28px">
       <div style="font-size:32px;margin-bottom:8px">✦</div>
@@ -6096,7 +6097,7 @@ async function onLoginSuccess() {
   const loginScreen = document.getElementById('login-screen');
   const appWrapper = document.getElementById('app-wrapper');
   if (loginScreen) loginScreen.style.display = 'none';
-  if (appWrapper) appWrapper.style.display = 'flex';
+  if (appWrapper) appWrapper.classList.remove('app-hidden');
   showToast('Signed in — syncing data…', 'info');
   await loadUserProfile();
   await pullFromSupabase();
@@ -6133,12 +6134,14 @@ function showLoginScreen() {
   const loginScreen = document.getElementById('login-screen');
   const appWrapper = document.getElementById('app-wrapper');
   if (loginScreen) loginScreen.style.display = 'flex';
-  if (appWrapper) appWrapper.style.display = 'none';
+  if (appWrapper) appWrapper.classList.add('app-hidden');
 }
 
 function signOut() {
   localStorage.removeItem('scm_session');
   _session = null; _userProfile = null;
+  const appWrapper = document.getElementById('app-wrapper');
+  if (appWrapper) appWrapper.classList.add('app-hidden');
   showLoginScreen();
   showToast('Signed out', 'info');
 }
@@ -6334,9 +6337,11 @@ async function loadAutopilotLog() {
 // INIT
 loadState();
 checkAndShowResponsePage();
-// Hide app until authenticated
+// Hide both screens initially — auth check will show the right one
 const _aw = document.getElementById('app-wrapper');
-if (_aw) _aw.style.display = 'none';
+if (_aw) _aw.classList.add('app-hidden');
+const _ls = document.getElementById('login-screen');
+if (_ls) _ls.style.display = 'none';
 // Start scheduler only if auto-publish is enabled
 if (isAutoPublishEnabled()) startScheduler();
 // Set initial autopublish toggle state
