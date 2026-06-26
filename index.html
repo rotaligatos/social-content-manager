@@ -1569,6 +1569,10 @@ function showScreen(id) {
   if (id === 'create') renderHolidayBanner();
   if (id === 'performance') { renderPerformance(); fetchAllInsights(); }
   if (id === 'changelog') renderChangelog();
+  if (id === 'settings') {
+    const firstBtn = document.querySelector('.settings-nav-item');
+    if (firstBtn) switchSettingsTab(firstBtn, 'api-keys');
+  }
 }
 
 // COMPANY
@@ -6153,15 +6157,22 @@ async function pullFromSupabase() {
     const data = await syncRequest({ operation: 'pull' });
     if (!data || data.error) return;
     if (data.posts?.length) {
-      APP.posts = data.posts.map(p => ({
-        id: p.id, company: p.company, audience: p.audience, pillar: p.pillar,
-        caption: p.caption, photo: p.photo_url, videoUrl: p.video_url,
-        mediaType: p.media_type || 'photo', videoMeta: p.video_meta,
-        status: p.status, scheduledFor: p.scheduled_for, publishedAt: p.published_at,
-        fbPostId: p.fb_post_id, watermark: p.watermark, performance: p.performance,
-        inquiryChecked: p.inquiry_checked, assignedChatId: p.assigned_chat_id,
-        responseToken: p.response_token, responseTimestamp: p.response_timestamp, createdAt: p.created_at
-      }));
+      const localPostMap = Object.fromEntries((APP.posts || []).map(p => [String(p.id), p]));
+      APP.posts = data.posts.map(p => {
+        const local = localPostMap[String(p.id)];
+        return {
+          id: p.id, company: p.company, audience: p.audience, pillar: p.pillar,
+          caption: p.caption, photo: p.photo_url, videoUrl: p.video_url,
+          mediaType: p.media_type || 'photo', videoMeta: p.video_meta,
+          status: p.status,
+          // Prefer local scheduledFor if Supabase has none
+          scheduledFor: p.scheduled_for || (local?.scheduledFor) || null,
+          publishedAt: p.published_at,
+          fbPostId: p.fb_post_id, watermark: p.watermark, performance: p.performance,
+          inquiryChecked: p.inquiry_checked, assignedChatId: p.assigned_chat_id,
+          responseToken: p.response_token, responseTimestamp: p.response_timestamp, createdAt: p.created_at
+        };
+      });
     }
     if (data.brandProfiles) {
       if (!APP.brandProfiles) APP.brandProfiles = {};
