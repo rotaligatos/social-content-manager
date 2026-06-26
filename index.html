@@ -93,9 +93,9 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 .sidebar-bottom{margin-top:auto;padding:12px;border-top:1px solid var(--border);}
 .settings-btn{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:var(--radius);cursor:pointer;font-size:13px;color:var(--text3);background:none;border:none;width:100%;transition:all .15s;font-family:'DM Sans',sans-serif;}
 .settings-btn:hover{color:var(--text2);background:var(--bg3);}
-.main{flex:1;height:100vh;overflow-y:auto;display:flex;flex-direction:column;min-width:0;align-items:stretch;}
-.screen{display:none;flex-direction:column;height:100%;width:100%;}
-.screen.active{display:flex;animation:fadeIn .2s ease;}
+.main{flex:1;height:100vh;overflow-y:auto;display:flex;flex-direction:column;}
+.screen{display:none;flex-direction:column;height:100%;}
+.screen.active{display:flex;}
 .topbar{display:flex;align-items:center;justify-content:space-between;padding:16px 28px;border-bottom:1px solid var(--border);flex-shrink:0;}
 .topbar-left h1{font-family:'Syne',sans-serif;font-size:18px;font-weight:700;color:var(--text);}
 .topbar-left p{font-size:13px;color:var(--text2);margin-top:2px;}
@@ -109,7 +109,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 .btn-ghost:hover{background:var(--bg3);color:var(--text);}
 .btn-sm{padding:5px 12px;font-size:12px;}
 .btn-lg{padding:12px 24px;font-size:14px;}
-.content{padding:24px 28px;flex:1;overflow-y:auto;width:100%;box-sizing:border-box;}
+.content{padding:24px 28px;flex:1;overflow-y:auto;}
 .card{background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius-lg);padding:20px;}
 .grid-3{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;}
 .dash-companies{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:24px;}
@@ -1317,8 +1317,6 @@ const CHANGELOG = [
     ]
   },
   {
-    date: '2026-06-24',
-    title: 'Background auto-publish scheduler (Supabase cron)',
     items: [
       'Posts now publish automatically even when the browser is closed — a Supabase Edge Function (publish-scheduled) runs every 15 minutes and publishes due posts directly to Facebook.',
       'When you Schedule & Approve a post, it is silently synced to Supabase. When the app reopens, it reads back any published/rescheduled/missed statuses automatically.',
@@ -1571,14 +1569,6 @@ function showScreen(id) {
   if (id === 'create') renderHolidayBanner();
   if (id === 'performance') { renderPerformance(); fetchAllInsights(); }
   if (id === 'changelog') renderChangelog();
-  if (id === 'settings') {
-    // Ensure first tab is active and visible
-    const firstBtn = document.querySelector('.settings-nav-item');
-    if (firstBtn && !document.querySelector('.settings-nav-item.active')) {
-      switchSettingsTab(firstBtn, 'api-keys');
-    }
-    updateApiStatusBadges();
-  }
 }
 
 // COMPANY
@@ -6329,7 +6319,7 @@ async function loadAutopilotLog() {
 // INIT
 loadState();
 checkAndShowResponsePage();
-// Login screen is a fixed overlay — show it immediately, hide when authenticated
+// Login screen is a fixed overlay — show immediately, auth check hides it if already logged in
 const _ls = document.getElementById('login-screen');
 if (_ls) _ls.style.display = 'flex';
 // Start scheduler only if auto-publish is enabled
