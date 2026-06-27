@@ -2269,19 +2269,52 @@ async function captionToVisualDescription(apiKey, caption, forVideo, company, pi
   const medium = forVideo ? 'an 8-second marketing video' : 'a photorealistic marketing image';
   const motionNote = forVideo ? ' Describe gentle, realistic motion or camera movement suitable for a short clip.' : '';
 
-  // Inject pillar-specific photography direction
+  // Pillar-specific photography direction
   const pillarKey = pillar ? Object.keys(PILLAR_PHOTO_DIRECTION).find(function(k) { return pillar.startsWith(k); }) : null;
   const pillarHint = pillarKey ? (' Photography direction for this post type: ' + PILLAR_PHOTO_DIRECTION[pillarKey]) : '';
 
-  // Inject brand visual style preferences from Brand Profile
+  // Brand visual style from Brand Profile
   const bp = APP.brandProfiles && company && APP.brandProfiles[company];
-  const visualStyle = (bp && bp.visualStyle) ? (' Brand visual style for this company: ' + bp.visualStyle) : '';
+  const visualStyle = (bp && bp.visualStyle) ? (' Brand visual style: ' + bp.visualStyle) : '';
 
-  // Inject color finish context
-  const colorHint = getColorImageContext(company, colorId || APP.currentColorId || '');
+  // Build rich color application context from actual color record
+  const resolvedColorId = colorId || APP.currentColorId || '';
+  let colorApplicationHint = '';
+  if (resolvedColorId) {
+    const colors = getColors(company);
+    const c = colors.find(x => x.id === resolvedColorId);
+    if (c) {
+      // Best furniture/space application per pattern
+      const applicationMap = {
+        'Woodgrain': 'kitchen cabinet doors, wardrobe panels, or office desk surfaces',
+        'Solid': 'modern minimalist cabinet faces, bedroom furniture, or office shelving',
+        'Marble': 'kitchen island panels, bathroom vanity, or feature wall cladding',
+        'Fabric': 'headboard panels, accent wall cladding, or wardrobe doors',
+        'Stone': 'feature wall panels, reception desk cladding, or kitchen backsplash',
+        'Cement': 'industrial-style office furniture, TV cabinet, or feature wall',
+        'HPL': 'high-traffic countertop, commercial desk surface, or kitchen worktop',
+      };
+      const bestUse = applicationMap[c.pattern] || 'cabinet doors or furniture surfaces';
 
-  const descPrompt = `Based on this Facebook post caption for a Philippine furniture/laminate company, write a single concise scene description (one sentence, under 40 words) for ${medium} that would pair well with it. Describe only the visual scene — product, setting, mood.${motionNote}${pillarHint}${visualStyle}${colorHint} Do not include any text, words, logos, or watermarks. Output ONLY the description, nothing else.\n\nCaption:\n${body}`;
-  const desc = await callClaude(apiKey, descPrompt, 200);
+      // Finish affects lighting
+      const finishLighting = {
+        'Matte': 'soft diffused lighting with no reflections to show the matte surface',
+        'Supermatte': 'very soft even lighting to highlight the velvety supermatte texture',
+        'Stipple': 'slight side lighting to bring out the tactile stipple texture',
+        'Glossy': 'dramatic lighting with controlled reflections showing the gloss',
+        'Crosscut': 'directional lighting to emphasize the crosscut grain pattern',
+        'Softwood': 'warm natural light to complement the soft wood grain',
+        'Hardwood': 'warm directional light to show the bold hardwood grain',
+      };
+      const primaryFinish = c.finishes?.[0];
+      const lightingNote = primaryFinish ? (finishLighting[primaryFinish] || '') : '';
+
+      colorApplicationHint = ` CRITICAL: The featured laminate color is "${c.name}" — a ${c.colorFamily || ''} ${c.pattern || 'laminate'} finish${primaryFinish ? ' with ' + primaryFinish.toLowerCase() + ' surface' : ''}. The image must show this color APPLIED to ${bestUse}. The furniture/surface must clearly show this exact ${c.colorFamily || ''} ${c.pattern ? c.pattern.toLowerCase() : ''} color — not a generic or different color. ${lightingNote ? 'Lighting: ' + lightingNote + '.' : ''} The laminate color is the hero of the image — show it prominently in a realistic Philippine home, office, or kitchen setting.`;
+    }
+  }
+
+  const descPrompt = `Based on this Facebook post caption for a Philippine furniture/laminate company, write a single scene description (one sentence, under 50 words) for ${medium} that would pair well with it. Describe the visual scene — product, setting, mood, and how the featured laminate color is applied.${motionNote}${pillarHint}${visualStyle}${colorApplicationHint} No text, words, logos, or watermarks in the image. Output ONLY the scene description.\n\nCaption:\n${body}`;
+  const desc = await callClaude(apiKey, descPrompt, 250);
   return desc.trim();
 }
 
@@ -2475,10 +2508,18 @@ async function confirmAndGenerateImage() {
   if (genBtn) { genBtn.textContent = 'Generating...'; genBtn.disabled = true; }
   try {
     const imgPrompt = 'Professional, photorealistic marketing photograph. ' + visualDesc + ' Bright, clean, high-quality commercial photography with natural lighting and sharp focus. Absolutely no text, words, logos, or watermarks in the image.';
-    const imageUrl = await generateImageViaProxy(imgPrompt, getWatermarkOpts(APP.currentCompany));
+    let imageUrl = await generateImageViaProxy(imgPrompt, getWatermarkOpts(APP.currentCompany));
+
+    // Apply real color swatch chip overlay if a color is selected
+    const colorId = APP.currentColorId || document.getElementById('post-color-id')?.value || '';
+    if (colorId && APP.currentCompany) {
+      if (genBtn) genBtn.textContent = 'Adding color chip…';
+      imageUrl = await applyColorSwatchOverlay(imageUrl, colorId, APP.currentCompany);
+    }
+
     setCurrentPhoto(imageUrl);
     if (modal) modal.remove();
-    showToast('Image generated!', 'success');
+    showToast('Image generated with color chip ✓', 'success');
   } catch (err) {
     if (genBtn) { genBtn.textContent = 'Generate Image'; genBtn.disabled = false; }
     showToast('Image generation failed: ' + err.message, 'error');
@@ -2507,13 +2548,52 @@ function updateColorFinishOptions() {
   const finishSel = document.getElementById('post-color-finish');
   if (!colorSel || !finishSel) return;
   const colorId = colorSel.value;
-  if (!colorId) { finishSel.style.display = 'none'; return; }
+  if (!colorId) {
+    finishSel.style.display = 'none';
+    // Clear swatch preview
+    const swatchHint = document.getElementById('color-swatch-hint');
+    if (swatchHint) swatchHint.style.display = 'none';
+    return;
+  }
   const colors = getColors(APP.currentCompany || '');
   const color = colors.find(c => c.id === colorId);
-  if (!color || !(color.finishes || []).length) { finishSel.style.display = 'none'; return; }
-  finishSel.style.display = '';
-  finishSel.innerHTML = '<option value="">Any finish</option>' +
-    (color.finishes || []).map(f => `<option value="${f}">${f}</option>`).join('');
+
+  // Show finishes
+  if (!color || !(color.finishes || []).length) {
+    finishSel.style.display = 'none';
+  } else {
+    finishSel.style.display = '';
+    finishSel.innerHTML = '<option value="">Any finish</option>' +
+      (color.finishes || []).map(f => `<option value="${f}">${f}</option>`).join('');
+  }
+
+  // Auto-load swatch as post image if available
+  if (color && color.swatchUrl) {
+    const previewEl = document.getElementById('preview-image');
+    if (previewEl) {
+      previewEl.innerHTML = `<img src="${color.swatchUrl}" style="width:100%;height:200px;object-fit:cover;border-radius:4px" alt="${color.name}">`;
+    }
+    APP.currentPhoto = color.swatchUrl;
+    APP.currentPhotoOriginal = color.swatchUrl;
+    APP.mediaType = 'photo';
+
+    // Show swatch hint
+    let swatchHint = document.getElementById('color-swatch-hint');
+    if (!swatchHint) {
+      swatchHint = document.createElement('div');
+      swatchHint.id = 'color-swatch-hint';
+      finishSel.parentNode.appendChild(swatchHint);
+    }
+    swatchHint.style.display = 'block';
+    swatchHint.innerHTML = `<div style="display:flex;align-items:center;gap:8px;margin-top:8px;padding:8px 10px;background:var(--bg3);border-radius:var(--radius);border:1px solid var(--border)">
+      <img src="${color.swatchUrl}" style="width:32px;height:32px;object-fit:cover;border-radius:4px;flex-shrink:0">
+      <div style="flex:1;min-width:0">
+        <div style="font-size:12px;font-weight:500">${color.name} swatch loaded as post image</div>
+        <div style="font-size:11px;color:var(--text3)">Using the actual product photo from the website. You can replace it with AI-generated or your own photo below.</div>
+      </div>
+    </div>`;
+    showToast(`"${color.name}" swatch loaded as post image`, 'info');
+  }
 }
 
 async function generatePost() {
@@ -5080,6 +5160,117 @@ async function applyWatermarkToPost(post) {
   }
 }
 
+// ── COLOR SWATCH OVERLAY ──────────────────────────────────────
+// Composites the real product swatch photo from the website as a
+// color chip in the bottom-left corner of the AI-generated image.
+// This ensures the viewer can see the exact laminate color clearly
+// even if the AI image doesn't perfectly reproduce it.
+
+async function applyColorSwatchOverlay(imageDataUrl, colorId, company) {
+  if (!colorId || !company) return imageDataUrl;
+  const colors = getColors(company);
+  const color = colors.find(c => c.id === colorId);
+  if (!color || !color.swatchUrl) return imageDataUrl;
+
+  try {
+    const [mainImg, swatchImg] = await Promise.all([
+      loadImageFromUrl(imageDataUrl),
+      loadImageFromUrl(color.swatchUrl),
+    ]);
+
+    const canvas = document.createElement('canvas');
+    canvas.width = mainImg.naturalWidth;
+    canvas.height = mainImg.naturalHeight;
+    const ctx = canvas.getContext('2d');
+
+    // Draw main AI image
+    ctx.drawImage(mainImg, 0, 0);
+
+    // Color chip size — 22% of shorter side
+    const chipSize = Math.min(canvas.width, canvas.height) * 0.22;
+    const margin = chipSize * 0.12;
+
+    // Position: bottom-left
+    const chipX = margin;
+    const chipY = canvas.height - chipSize - margin;
+
+    // Draw rounded rect shadow
+    ctx.save();
+    ctx.shadowColor = 'rgba(0,0,0,0.5)';
+    ctx.shadowBlur = 16;
+    ctx.shadowOffsetX = 2;
+    ctx.shadowOffsetY = 4;
+    roundRect(ctx, chipX, chipY, chipSize, chipSize, chipSize * 0.08);
+    ctx.fillStyle = '#fff';
+    ctx.fill();
+    ctx.restore();
+
+    // Clip and draw swatch inside rounded rect
+    ctx.save();
+    roundRect(ctx, chipX, chipY, chipSize, chipSize, chipSize * 0.08);
+    ctx.clip();
+    ctx.drawImage(swatchImg, chipX, chipY, chipSize, chipSize);
+    ctx.restore();
+
+    // Thin white border
+    ctx.save();
+    roundRect(ctx, chipX, chipY, chipSize, chipSize, chipSize * 0.08);
+    ctx.strokeStyle = 'rgba(255,255,255,0.9)';
+    ctx.lineWidth = 3;
+    ctx.stroke();
+    ctx.restore();
+
+    // Color name label below chip
+    const labelH = chipSize * 0.28;
+    const labelY = chipY + chipSize + margin * 0.5;
+    ctx.save();
+    ctx.fillStyle = 'rgba(0,0,0,0.65)';
+    roundRect(ctx, chipX, labelY, chipSize, labelH, labelH * 0.3);
+    ctx.fill();
+    ctx.fillStyle = '#fff';
+    ctx.font = `600 ${Math.round(labelH * 0.45)}px "DM Sans", sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    // Truncate name if too long
+    let name = color.name;
+    if (ctx.measureText(name).width > chipSize - 12) {
+      while (ctx.measureText(name + '…').width > chipSize - 12 && name.length > 0) name = name.slice(0, -1);
+      name += '…';
+    }
+    ctx.fillText(name, chipX + chipSize / 2, labelY + labelH / 2);
+    ctx.restore();
+
+    return canvas.toDataURL('image/jpeg', 0.93);
+  } catch (err) {
+    console.warn('Color swatch overlay failed:', err.message);
+    return imageDataUrl; // Return original if overlay fails
+  }
+}
+
+function roundRect(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.lineTo(x + w - r, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+  ctx.lineTo(x + w, y + h - r);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+  ctx.lineTo(x + r, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+  ctx.lineTo(x, y + r);
+  ctx.quadraticCurveTo(x, y, x + r, y);
+  ctx.closePath();
+}
+
+function loadImageFromUrl(url) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error('Could not load: ' + url));
+    img.src = url;
+  });
+}
+
 function removeWatermarkFromPost(post) {
   if (post.photoOriginal) post.photo = post.photoOriginal;
   post.watermark = false;
@@ -5537,28 +5728,96 @@ function getFeaturedColors(company, max = 3) {
 function getColorContextForPrompt(company, specificColorId) {
   const colors = getColors(company);
   if (!colors.length) return '';
+
   if (specificColorId) {
     const c = colors.find(x => x.id === specificColorId);
     if (c) {
-      const finishList = (c.finishes || []).join(', ');
-      return `\n\nFeatured product color: "${c.name}" — a ${c.colorFamily || ''} ${c.pattern || ''} finish${finishList ? `, available in: ${finishList}` : ''}. Work this color naturally into the post — name it and describe how it looks or feels in a real space.`;
+      const finishList = (c.finishes || []).slice(0, 3).join(', ');
+      const patternDesc = c.pattern ? c.pattern.toLowerCase() : 'laminate';
+      const colorDesc = c.colorFamily ? c.colorFamily.toLowerCase() : '';
+      const seriesNote = c.series ? ` from our ${c.series}` : '';
+      const hplNote = c.is_hpl ? ' (HPL — high-pressure laminate, premium grade)' : '';
+      const cebuNote = c.isCebuExclusive ? ' — exclusive to Cebu and Visayas' : '';
+      return `\n\nFeatured product color: "${c.name}"${seriesNote}${hplNote}${cebuNote}. This is a ${colorDesc} ${patternDesc} finish${finishList ? `, available in ${finishList} finishes` : ''}. Write this color into the post naturally — name it, describe how it looks or feels in a real interior space, and why a homeowner or trade buyer would love it. Don't just mention the name — make the finish come alive through words.`;
     }
   }
+
   const featured = getFeaturedColors(company, 3);
   if (!featured.length) return '';
-  const names = featured.map(c => `"${c.name}"`).join(', ');
-  return `\n\nCurrently featured colors from our collection: ${names}. If it fits naturally, reference one of these finishes in the post.`;
+  const names = featured.map(c => `"${c.name}" (${c.pattern || 'laminate'}${c.colorFamily ? ', ' + c.colorFamily : ''})`).join(', ');
+  return `\n\nCurrently featured colors from our collection: ${names}. If it fits naturally, reference one of these finishes in the post — name it and describe how it looks or feels.`;
 }
 
 // Build image prompt color context
 function getColorImageContext(company, specificColorId) {
   const colors = getColors(company);
   if (!colors.length) return '';
-  if (specificColorId) {
-    const c = colors.find(x => x.id === specificColorId);
-    if (c) return ` The surface finish shown should be a ${c.colorFamily || ''} ${c.pattern || ''} laminate named "${c.name}"${(c.finishes||[]).length ? `, with a ${c.finishes[0].toLowerCase()} texture` : ''}.`;
+  if (!specificColorId) return '';
+
+  const c = colors.find(x => x.id === specificColorId);
+  if (!c) return '';
+
+  // Build a precise visual description from actual color record data
+  const parts = [];
+
+  // Color tone
+  if (c.colorFamily) parts.push(c.colorFamily.toLowerCase());
+
+  // Pattern / texture type
+  const patternMap = {
+    'Woodgrain': 'woodgrain texture with visible grain lines',
+    'Solid': 'solid flat surface with uniform color',
+    'Marble': 'marble-look surface with natural veining',
+    'Fabric': 'fabric-texture surface with soft woven appearance',
+    'Stone': 'stone-look surface with natural mineral texture',
+    'Cement': 'cement-look surface with industrial matte texture',
+    'HPL': 'high-pressure laminate surface',
+    'Other': 'textured laminate surface'
+  };
+  const patternDesc = patternMap[c.pattern] || (c.pattern ? c.pattern.toLowerCase() + ' texture' : 'laminate surface');
+  parts.push(patternDesc);
+
+  // Series context
+  const seriesContext = {
+    'German Series': 'premium European design',
+    'Italian Series': 'premium Italian design aesthetic',
+    'De One HPL': 'De One high-pressure laminate',
+    'Elemental HPL': 'Elemental high-pressure laminate',
+    'Rehau HPL': 'Rehau high-pressure laminate',
+    'Cebu Exclusive': 'Cebu exclusive design',
+    'New Arrival': 'latest collection design'
+  };
+  const seriesText = c.series ? Object.entries(seriesContext).find(([k]) => (c.series||'').includes(k))?.[1] : '';
+
+  // Finish description
+  const finishMap = {
+    'Matte': 'smooth matte finish with no glare',
+    'Supermatte': 'ultra-soft supermatte finish, velvety to touch',
+    'Stipple': 'stippled tactile finish with subtle embossed texture',
+    'Crosscut': 'crosscut finish with cross-hatched grain pattern',
+    'Softwood': 'softwood grain finish with delicate wood texture',
+    'Hardwood': 'hardwood grain finish with bold pronounced grain',
+    'Glossy': 'high-gloss reflective finish',
+    'Brushed': 'brushed metallic-feel finish',
+    'Embossed': 'embossed textured finish'
+  };
+  const primaryFinish = c.finishes?.[0];
+  const finishDesc = primaryFinish ? finishMap[primaryFinish] || primaryFinish.toLowerCase() + ' finish' : '';
+
+  // Board type context
+  const boardDesc = (c.boardTypes||[]).length ? `on ${c.boardTypes.join('/')} board` : 'laminate board';
+
+  // Build final context string
+  let desc = ` The surface material shown should be the "${c.name}" laminate — a ${parts.join(', ')}${finishDesc ? ', with ' + finishDesc : ''}${boardDesc ? ', ' + boardDesc : ''}${seriesText ? ' (' + seriesText + ')' : ''}.`;
+
+  // Add photography direction based on company
+  if (company === 'wcli' || company === 'cwli') {
+    desc += ' Show the laminate board surface clearly — either as a stacked board display in a trade setting, or as a finished cabinet/furniture surface in an interior, so the texture and color are clearly visible.';
+  } else {
+    desc += ' Show the laminate as a finished furniture or cabinet surface in a real interior setting so the texture and color are clearly visible.';
   }
-  return '';
+
+  return desc;
 }
 
 // ============================================================
@@ -5874,9 +6133,15 @@ async function runAutoGenerate() {
         // Color rotation for WCLI/CWLI
         const rotateColors = document.getElementById('autogen-toggle-colors')?.classList.contains('on');
         let colorId = '';
+        let colorSwatchUrl = null;
         if (rotateColors && co !== 'mssi') {
           const companyColors = getColors(co).filter(c => c.status !== 'retired');
-          if (companyColors.length) colorId = companyColors[i % companyColors.length].id;
+          if (companyColors.length) {
+            const selectedColor = companyColors[i % companyColors.length];
+            colorId = selectedColor.id;
+            // Use the actual swatch photo from the website instead of AI-generating
+            if (selectedColor.swatchUrl) colorSwatchUrl = selectedColor.swatchUrl;
+          }
         }
         // Retail context for WCLI/CWLI
         const includeRetail = co !== 'mssi' && getRetailPartners().filter(p => p.status === 'active' && (p.companies||[]).includes(co)).length > 0;
@@ -5895,9 +6160,10 @@ async function runAutoGenerate() {
           audience: audience,
           pillar: pillar,
           caption: fullText,
-          photo: null,
+          // Use swatch URL directly if available — real product photo from website
+          photo: colorSwatchUrl || null,
           watermark: false,
-          photoOriginal: null,
+          photoOriginal: colorSwatchUrl || null,
           mediaType: isVideoPost ? 'video' : 'photo',
           video: null,
           videoMeta: null,
@@ -5935,9 +6201,13 @@ async function runAutoGenerate() {
         } else if (isImagePost && genImages) {
           if (row) row.innerHTML = baseRowHtml + `<span style="font-size:11px;color:var(--text3)">🖼 image…</span>`;
           try {
-            const visualDesc = await captionToVisualDescription(apiKey, fullText, false, co, pillar);
+            const visualDesc = await captionToVisualDescription(apiKey, fullText, false, co, pillar, colorId);
             const imgPrompt = `Professional, photorealistic marketing photograph. ${visualDesc} Bright, clean, high-quality commercial photography with natural lighting and sharp focus. Absolutely no text, words, logos, or watermarks in the image.`;
-            const imageUrl = await generateImageViaProxy(imgPrompt, getWatermarkOpts(co));
+            let imageUrl = await generateImageViaProxy(imgPrompt, getWatermarkOpts(co));
+            // Apply real color swatch chip if a color was rotated for this post
+            if (colorId && !colorSwatchUrl) {
+              imageUrl = await applyColorSwatchOverlay(imageUrl, colorId, co);
+            }
             post.photo = imageUrl;
             post.photoOriginal = imageUrl;
             imageCount++;
