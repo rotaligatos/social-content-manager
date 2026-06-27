@@ -873,9 +873,10 @@ select:focus{border-color:var(--accent-border);}
     </div>
     <!-- COLORS TAB -->
     <div id="brand-colors" class="brand-content" style="display:none">
-      <!-- WCLI Colors -->
+
+      <!-- WCLI Colors — split into Melamine and HPL -->
       <div class="card">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
           <div>
             <div style="font-size:14px;font-weight:500;color:var(--wcli)">WCLI Color Collection</div>
             <div style="font-size:11.5px;color:var(--text3);margin-top:2px">Master list — imported from worldclasslaminate.com.ph</div>
@@ -885,20 +886,26 @@ select:focus{border-color:var(--accent-border);}
               <svg style="width:12px;height:12px" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 1v10M4 7l4 4 4-4"/><path d="M2 13h12"/></svg>
               Import from Website
             </button>
-            <button class="btn btn-ghost btn-sm" onclick="openAddColorModal('wcli')">+ Add Color</button>
+            <button class="btn btn-ghost btn-sm" onclick="openAddColorModal('wcli')">+ Add</button>
           </div>
         </div>
-        <!-- Search + filter -->
+
+        <!-- Melamine / HPL sub-tabs -->
+        <div style="display:flex;gap:0;margin-bottom:14px;border-bottom:1px solid var(--border)">
+          <button id="ctab-wcli-melamine" onclick="switchColorSubTab('wcli','melamine')" style="padding:7px 16px;font-size:12.5px;font-weight:500;background:none;border:none;border-bottom:2px solid var(--accent2);color:var(--accent2);cursor:pointer">Melamine</button>
+          <button id="ctab-wcli-hpl-deone" onclick="switchColorSubTab('wcli','hpl-deone')" style="padding:7px 16px;font-size:12.5px;background:none;border:none;border-bottom:2px solid transparent;color:var(--text3);cursor:pointer">De One HPL</button>
+          <button id="ctab-wcli-hpl-elemental" onclick="switchColorSubTab('wcli','hpl-elemental')" style="padding:7px 16px;font-size:12.5px;background:none;border:none;border-bottom:2px solid transparent;color:var(--text3);cursor:pointer">Elemental HPL</button>
+        </div>
+
         <div style="display:flex;gap:8px;margin-bottom:12px">
           <input type="text" id="color-search-wcli" placeholder="Search colors…" style="flex:1;font-size:12px;padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg3);color:var(--text)" oninput="renderColorList('wcli')">
           <select id="color-filter-wcli" style="font-size:12px;padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg3);color:var(--text)" onchange="renderColorList('wcli')">
-            <option value="">All categories</option>
+            <option value="">All patterns</option>
             <option value="Woodgrain">Woodgrain</option>
             <option value="Solid">Solid</option>
             <option value="Marble">Marble</option>
             <option value="Fabric">Fabric</option>
             <option value="Stone">Stone</option>
-            <option value="HPL">HPL</option>
           </select>
           <select id="color-status-wcli" style="font-size:12px;padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg3);color:var(--text)" onchange="renderColorList('wcli')">
             <option value="">All status</option>
@@ -907,35 +914,41 @@ select:focus{border-color:var(--accent-border);}
             <option value="retired">Retired</option>
           </select>
         </div>
-        <div id="color-list-wcli" style="max-height:400px;overflow-y:auto"></div>
+        <div id="color-list-wcli" style="max-height:420px;overflow-y:auto"></div>
         <div id="color-count-wcli" style="font-size:11px;color:var(--text3);margin-top:10px;text-align:right"></div>
       </div>
 
-      <!-- CWLI Colors -->
+      <!-- CWLI Colors — also split into Melamine and HPL -->
       <div class="card">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
           <div>
             <div style="font-size:14px;font-weight:500;color:var(--cwli)">CWLI Color Collection</div>
-            <div style="font-size:11.5px;color:var(--text3);margin-top:2px">Cebu/Visayas/Mindanao availability — subset of WCLI</div>
+            <div style="font-size:11.5px;color:var(--text3);margin-top:2px">Cebu/Visayas/Mindanao — subset of WCLI</div>
           </div>
           <div style="display:flex;gap:8px">
             <button class="btn btn-secondary btn-sm" onclick="copyWcliToCwli()">Copy from WCLI</button>
-            <button class="btn btn-ghost btn-sm" onclick="openAddColorModal('cwli')">+ Add Color</button>
+            <button class="btn btn-ghost btn-sm" onclick="openAddColorModal('cwli')">+ Add</button>
           </div>
         </div>
+
+        <div style="display:flex;gap:0;margin-bottom:14px;border-bottom:1px solid var(--border)">
+          <button id="ctab-cwli-melamine" onclick="switchColorSubTab('cwli','melamine')" style="padding:7px 16px;font-size:12.5px;font-weight:500;background:none;border:none;border-bottom:2px solid var(--accent2);color:var(--accent2);cursor:pointer">Melamine</button>
+          <button id="ctab-cwli-hpl-deone" onclick="switchColorSubTab('cwli','hpl-deone')" style="padding:7px 16px;font-size:12.5px;background:none;border:none;border-bottom:2px solid transparent;color:var(--text3);cursor:pointer">De One HPL</button>
+          <button id="ctab-cwli-hpl-elemental" onclick="switchColorSubTab('cwli','hpl-elemental')" style="padding:7px 16px;font-size:12.5px;background:none;border:none;border-bottom:2px solid transparent;color:var(--text3);cursor:pointer">Elemental HPL</button>
+        </div>
+
         <div style="display:flex;gap:8px;margin-bottom:12px">
           <input type="text" id="color-search-cwli" placeholder="Search colors…" style="flex:1;font-size:12px;padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg3);color:var(--text)" oninput="renderColorList('cwli')">
           <select id="color-filter-cwli" style="font-size:12px;padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg3);color:var(--text)" onchange="renderColorList('cwli')">
-            <option value="">All categories</option>
+            <option value="">All patterns</option>
             <option value="Woodgrain">Woodgrain</option>
             <option value="Solid">Solid</option>
             <option value="Marble">Marble</option>
             <option value="Fabric">Fabric</option>
             <option value="Stone">Stone</option>
-            <option value="HPL">HPL</option>
           </select>
         </div>
-        <div id="color-list-cwli" style="max-height:400px;overflow-y:auto"></div>
+        <div id="color-list-cwli" style="max-height:420px;overflow-y:auto"></div>
         <div id="color-count-cwli" style="font-size:11px;color:var(--text3);margin-top:10px;text-align:right"></div>
       </div>
     </div>
@@ -946,17 +959,29 @@ select:focus{border-color:var(--accent-border);}
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
           <div>
             <div style="font-size:14px;font-weight:500">Retail Partners & Depot Stores</div>
-            <div style="font-size:11.5px;color:var(--text3);margin-top:2px">Mentioned in captions when "Mention store availability" is on</div>
+            <div style="font-size:11.5px;color:var(--text3);margin-top:2px">Assign stores separately to WCLI (Luzon/national) and CWLI (Cebu/Visayas/Mindanao)</div>
           </div>
-          <button class="btn btn-primary btn-sm" onclick="openAddRetailModal()">+ Add Store</button>
+          <div style="display:flex;gap:8px">
+            <button class="btn btn-secondary btn-sm" onclick="scrapeRetailPartners()" id="scrape-retail-btn">
+              <svg style="width:12px;height:12px" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 1v10M4 7l4 4 4-4"/><path d="M2 13h12"/></svg>
+              Import from Website
+            </button>
+            <button class="btn btn-ghost btn-sm" onclick="openAddRetailModal()">+ Add Store</button>
+          </div>
         </div>
-        <div id="retail-list"></div>
-      </div>
-      <div class="card">
-        <div style="font-size:14px;font-weight:500;margin-bottom:10px">New Audience Type Added</div>
-        <div style="font-size:12.5px;color:var(--text2);line-height:1.7">
-          <strong>Hardware Store / Depot Buyer</strong> has been added as an audience type for WCLI and CWLI. Posts for this audience are written for procurement managers, store buyers, and depot purchasing teams — focused on volume availability, consistent supply, and trade terms.<br><br>
-          Select it in <strong>Create Post → Audience</strong> or it will be included in Auto-Generate Week when B2B trade content is toggled on.
+
+        <!-- WCLI Retail -->
+        <div style="margin-bottom:20px">
+          <div style="font-size:12.5px;font-weight:600;color:var(--wcli);margin-bottom:8px;padding-bottom:6px;border-bottom:1px solid var(--border)">WCLI — Luzon / National</div>
+          <div id="retail-list-wcli"></div>
+          <button class="btn btn-ghost btn-sm" style="margin-top:8px;font-size:11px" onclick="openAddRetailModal('wcli')">+ Add WCLI store</button>
+        </div>
+
+        <!-- CWLI Retail -->
+        <div>
+          <div style="font-size:12.5px;font-weight:600;color:var(--cwli);margin-bottom:8px;padding-bottom:6px;border-bottom:1px solid var(--border)">CWLI — Cebu / Visayas / Mindanao</div>
+          <div id="retail-list-cwli"></div>
+          <button class="btn btn-ghost btn-sm" style="margin-top:8px;font-size:11px" onclick="openAddRetailModal('cwli')">+ Add CWLI store</button>
         </div>
       </div>
     </div>
@@ -2402,7 +2427,9 @@ Write one complete Facebook post following these rules exactly:
 
 Output ONLY the caption and hashtags. No explanations, no labels, just the post.`;
 }
-async function callClaude(apiKey, prompt, maxTokens = 700) {
+// Token-optimized Claude caller
+// maxTokens is set per task type — never use a blanket 1000
+async function callClaude(apiKey, prompt, maxTokens = 450) {
   const res = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: {
@@ -2411,11 +2438,55 @@ async function callClaude(apiKey, prompt, maxTokens = 700) {
       'anthropic-version': '2023-06-01',
       'anthropic-dangerous-direct-browser-access': 'true'
     },
-    body: JSON.stringify({ model: 'claude-sonnet-4-6', max_tokens: maxTokens, messages: [{ role: 'user', content: prompt }] })
+    body: JSON.stringify({
+      model: 'claude-haiku-4-5',  // Use Haiku for captions/descriptions — much cheaper, same quality for marketing copy
+      max_tokens: maxTokens,
+      messages: [{ role: 'user', content: prompt }]
+    })
   });
   const data = await res.json();
   if (data.error) throw new Error(data.error.message);
   return data.content[0].text.trim();
+}
+
+// Sonnet for complex analysis tasks only (Performance AI Analyze)
+async function callClaudeSonnet(apiKey, prompt, maxTokens = 800) {
+  const res = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': apiKey,
+      'anthropic-version': '2023-06-01',
+      'anthropic-dangerous-direct-browser-access': 'true'
+    },
+    body: JSON.stringify({
+      model: 'claude-sonnet-4-6',
+      max_tokens: maxTokens,
+      messages: [{ role: 'user', content: prompt }]
+    })
+  });
+  const data = await res.json();
+  if (data.error) throw new Error(data.error.message);
+  return data.content[0].text.trim();
+}
+
+// Combined caption + image description in ONE call — saves 1 full API call per image post
+// Returns { caption, imageDesc } parsed from structured output
+async function callClaudeCombined(apiKey, captionPrompt, imageContext) {
+  const combinedPrompt = captionPrompt + `
+
+---
+After the caption and hashtags, add exactly this separator on its own line:
+===IMAGE===
+Then write a single photorealistic scene description (under 40 words) for an AI image that pairs with the caption above.${imageContext}
+Do not include any text, words, or logos in the image description.`;
+
+  const raw = await callClaude(apiKey, combinedPrompt, 600);
+  const parts = raw.split('===IMAGE===');
+  return {
+    caption: parts[0].trim(),
+    imageDesc: parts[1] ? parts[1].trim() : ''
+  };
 }
 function splitCaptionTags(fullText) {
   const lines = fullText.split('\n');
@@ -3544,7 +3615,7 @@ Recommend specific days and time windows for each company based on when their pu
 Write in plain, direct English. No fluff. This is for a busy business owner who needs clear direction, not a marketing textbook. Keep the whole report under 500 words.`;
 
   try {
-    const analysis = await callClaude(apiKey, prompt, 1000);
+    const analysis = await callClaudeSonnet(apiKey, prompt, 800);
     const analysisKey = 'scm_ai_analysis_' + PERF_ACTIVE_TAB;
     localStorage.setItem(analysisKey, analysis);
     localStorage.setItem(analysisKey + '_date', new Date().toLocaleString('en-PH', {month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}));
@@ -5516,12 +5587,25 @@ function renderColorList(company) {
   const filter = document.getElementById('color-filter-' + company)?.value || '';
   const status = document.getElementById('color-status-' + company)?.value || '';
 
+  // Filter by active sub-tab (Melamine vs De One HPL vs Elemental HPL)
+  const subTab = COLOR_SUBTAB[company] || 'melamine';
+  if (subTab === 'melamine') {
+    colors = colors.filter(c => !c.is_hpl && !(c.series || '').toLowerCase().includes('hpl'));
+  } else if (subTab === 'hpl-deone') {
+    colors = colors.filter(c => (c.series || '').toLowerCase().includes('de one'));
+  } else if (subTab === 'hpl-elemental') {
+    colors = colors.filter(c => (c.series || '').toLowerCase().includes('elemental'));
+  }
+
   if (search) colors = colors.filter(c => c.name.toLowerCase().includes(search) || (c.series || '').toLowerCase().includes(search));
-  if (filter) colors = colors.filter(c => (c.pattern || '').toLowerCase().includes(filter.toLowerCase()) || (c.boardTypes || []).join(' ').includes(filter));
+  if (filter) colors = colors.filter(c => (c.pattern || '').toLowerCase().includes(filter.toLowerCase()));
   if (status) colors = colors.filter(c => (c.status || 'active') === status);
 
+  // Sub-tab label for empty state
+  const subTabLabel = subTab === 'melamine' ? 'melamine' : subTab === 'hpl-deone' ? 'De One HPL' : 'Elemental HPL';
+
   if (!colors.length) {
-    el.innerHTML = `<div style="text-align:center;padding:20px;color:var(--text3);font-size:12.5px">${getColors(company).length ? 'No colors match your filter' : 'No colors yet — import from website or add manually'}</div>`;
+    el.innerHTML = `<div style="text-align:center;padding:20px;color:var(--text3);font-size:12.5px">${getColors(company).length ? `No ${subTabLabel} colors match your filter` : 'No colors yet — import from website or add manually'}</div>`;
     if (countEl) countEl.textContent = '';
     return;
   }
@@ -5836,27 +5920,148 @@ function getColorImageContext(company, specificColorId) {
 // ============================================================
 
 function renderRetailList() {
-  const el = document.getElementById('retail-list');
-  if (!el) return;
+  // Render separate lists for WCLI and CWLI
+  ['wcli', 'cwli'].forEach(co => {
+    const el = document.getElementById('retail-list-' + co);
+    if (!el) return;
+    const partners = getRetailPartners().filter(p => (p.companies || []).includes(co));
+    if (!partners.length) {
+      el.innerHTML = `<div style="font-size:12px;color:var(--text3);padding:8px 0">No stores added yet for ${co.toUpperCase()}</div>`;
+      return;
+    }
+    el.innerHTML = partners.map(p => `
+      <div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-top:1px solid var(--border)">
+        <div style="flex:1">
+          <div style="font-size:13px;font-weight:500">${p.name}</div>
+          <div style="font-size:11px;color:var(--text3)">${p.region || ''}</div>
+        </div>
+        <select style="font-size:11px;padding:3px 6px;border:1px solid var(--border);border-radius:4px;background:var(--bg3);color:var(--text)" onchange="setRetailStatus('${p.id}',this.value)">
+          <option value="active" ${p.status==='active'?'selected':''}>Active</option>
+          <option value="coming_soon" ${p.status==='coming_soon'?'selected':''}>Coming Soon</option>
+          <option value="inactive" ${p.status==='inactive'?'selected':''}>Inactive</option>
+        </select>
+        <button class="btn btn-ghost btn-sm" style="font-size:11px" onclick="removeRetailFromCompany('${p.id}','${co}')">✕</button>
+      </div>`).join('');
+  });
+}
+
+function removeRetailFromCompany(id, company) {
   const partners = getRetailPartners();
-  if (!partners.length) {
-    el.innerHTML = `<div style="text-align:center;padding:20px;color:var(--text3);font-size:12.5px">No retail partners added yet. Add stores like Wilcon, Home Depot, Ace Hardware.</div>`;
+  const p = partners.find(x => x.id === id);
+  if (!p) return;
+  p.companies = (p.companies || []).filter(c => c !== company);
+  // If no companies left, remove entirely
+  if (!p.companies.length) {
+    saveRetailPartners(partners.filter(x => x.id !== id));
+  } else {
+    saveRetailPartners(partners);
+  }
+  renderRetailList();
+}
+
+async function scrapeRetailPartners() {
+  const btn = document.getElementById('scrape-retail-btn');
+  if (btn) { btn.disabled = true; btn.innerHTML = '<div class="spinner" style="width:11px;height:11px;border-width:2px"></div> Fetching…'; }
+
+  const proxyBase = (APP.apiKeys.imgproxy || localStorage.getItem('scm_imgproxy_key') || '').replace(/generate-image\/?$/, '');
+  if (!proxyBase) {
+    showToast('Image Proxy URL not configured in Settings', 'error');
+    if (btn) { btn.disabled = false; btn.innerHTML = 'Import from Website'; }
     return;
   }
-  el.innerHTML = partners.map(p => `
-    <div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-top:1px solid var(--border)">
-      <div style="flex:1">
-        <div style="font-size:13px;font-weight:500">${p.name}</div>
-        <div style="font-size:11px;color:var(--text3)">${[p.companies?.join(', '), p.region].filter(Boolean).join(' · ')}</div>
+
+  try {
+    const res = await fetch(proxyBase + 'scrape-retail-partners');
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+
+    const existing = getRetailPartners();
+    const existingNames = new Set(existing.map(p => p.name.toLowerCase()));
+    const toAdd = (data.stores || []).filter(s => !existingNames.has(s.name.toLowerCase()));
+
+    if (!toAdd.length) {
+      showToast('All stores already in your list', 'info');
+      if (btn) { btn.disabled = false; btn.innerHTML = 'Import from Website'; }
+      return;
+    }
+
+    // Show selection modal
+    openRetailImportModal(toAdd);
+    if (btn) { btn.disabled = false; btn.innerHTML = 'Import from Website'; }
+
+  } catch (err) {
+    showToast('Import failed: ' + err.message, 'error');
+    if (btn) { btn.disabled = false; btn.innerHTML = 'Import from Website'; }
+  }
+}
+
+function openRetailImportModal(stores) {
+  const existing = document.getElementById('retail-import-modal');
+  if (existing) existing.remove();
+
+  const html = `<div id="retail-import-modal" style="position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:3000;display:flex;align-items:center;justify-content:center;overflow-y:auto;padding:20px" onclick="if(event.target.id==='retail-import-modal')this.remove()">
+    <div style="background:var(--bg2);border:1px solid var(--border2);border-radius:var(--radius-lg);width:500px;max-height:80vh;display:flex;flex-direction:column">
+      <div style="padding:18px 20px;border-bottom:1px solid var(--border);font-size:14px;font-weight:500">Import Retail Partners</div>
+      <div style="padding:14px 20px;font-size:12px;color:var(--text3)">Select which stores to add and assign them to WCLI, CWLI, or both. You can change assignments anytime.</div>
+      <div style="flex:1;overflow-y:auto;padding:0 20px">
+        ${stores.map(s => `
+          <div style="padding:12px 0;border-bottom:1px solid var(--border)">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+              <input type="checkbox" id="rim-${s.name.replace(/\s+/g,'_')}" checked style="width:14px;height:14px">
+              <label for="rim-${s.name.replace(/\s+/g,'_')}" style="font-size:13px;font-weight:500;cursor:pointer">${s.name}</label>
+              <span style="font-size:10.5px;color:var(--text3);background:var(--bg3);padding:2px 6px;border-radius:4px">${s.type}</span>
+            </div>
+            <div style="display:flex;gap:12px;margin-left:22px">
+              <label style="display:flex;align-items:center;gap:4px;font-size:12px;cursor:pointer">
+                <input type="checkbox" class="rim-wcli" data-name="${s.name}" ${s.defaultWcli ? 'checked' : ''}> WCLI
+              </label>
+              <label style="display:flex;align-items:center;gap:4px;font-size:12px;cursor:pointer">
+                <input type="checkbox" class="rim-cwli" data-name="${s.name}" ${s.defaultCwli ? 'checked' : ''}> CWLI
+              </label>
+              <input type="text" placeholder="Region / notes (optional)" data-name="${s.name}" class="rim-region" style="flex:1;font-size:11px;padding:3px 6px;border:1px solid var(--border);border-radius:4px;background:var(--bg3);color:var(--text)">
+            </div>
+          </div>`).join('')}
       </div>
-      <select style="font-size:11px;padding:3px 6px;border:1px solid var(--border);border-radius:4px;background:var(--bg3);color:var(--text)" onchange="setRetailStatus('${p.id}',this.value)">
-        <option value="active" ${p.status==='active'?'selected':''}>Active</option>
-        <option value="coming_soon" ${p.status==='coming_soon'?'selected':''}>Coming Soon</option>
-        <option value="inactive" ${p.status==='inactive'?'selected':''}>Inactive</option>
-      </select>
-      <button class="btn btn-ghost btn-sm" style="font-size:11px" onclick="deleteRetailPartner('${p.id}')">✕</button>
+      <div style="padding:16px 20px;border-top:1px solid var(--border);display:flex;gap:8px">
+        <button class="btn btn-primary" style="flex:1" onclick="confirmRetailImport()">Add Selected Stores</button>
+        <button class="btn btn-ghost" onclick="document.getElementById('retail-import-modal').remove()">Cancel</button>
+      </div>
     </div>
-  `).join('');
+  </div>`;
+
+  const div = document.createElement('div');
+  div.innerHTML = html;
+  document.body.appendChild(div.firstElementChild);
+}
+
+function confirmRetailImport() {
+  const modal = document.getElementById('retail-import-modal');
+  if (!modal) return;
+
+  const existing = getRetailPartners();
+  const newPartners = [];
+
+  modal.querySelectorAll('input[type="checkbox"][id^="rim-"]:checked').forEach(cb => {
+    const name = cb.nextElementSibling.textContent.trim();
+    const wcli = modal.querySelector(`.rim-wcli[data-name="${name}"]`)?.checked || false;
+    const cwli = modal.querySelector(`.rim-cwli[data-name="${name}"]`)?.checked || false;
+    const region = modal.querySelector(`.rim-region[data-name="${name}"]`)?.value?.trim() || '';
+    const companies = [...(wcli ? ['wcli'] : []), ...(cwli ? ['cwli'] : [])];
+    if (!companies.length) return;
+    newPartners.push({
+      id: 'rp_' + Date.now() + '_' + Math.random().toString(36).slice(2),
+      name,
+      companies,
+      region,
+      status: 'active',
+      addedAt: new Date().toISOString()
+    });
+  });
+
+  saveRetailPartners([...existing, ...newPartners]);
+  modal.remove();
+  renderRetailList();
+  showToast(`${newPartners.length} stores added`, 'success');
 }
 
 function setRetailStatus(id, status) {
@@ -5870,15 +6075,15 @@ function deleteRetailPartner(id) {
   renderRetailList();
 }
 
-function openAddRetailModal() {
+function openAddRetailModal(defaultCompany) {
   const html = `<div id="addretail-overlay" style="position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:3000;display:flex;align-items:center;justify-content:center" onclick="if(event.target.id==='addretail-overlay')closeAddRetailModal()">
     <div style="background:var(--bg2);border:1px solid var(--border2);border-radius:var(--radius-lg);width:400px;padding:20px">
       <div style="font-size:14px;font-weight:500;margin-bottom:16px">Add Retail Partner</div>
       <div class="form-group"><label class="form-label">Store Name *</label><input type="text" id="nr-name" placeholder="e.g. Wilcon Depot"></div>
-      <div class="form-group"><label class="form-label">Companies <span style="color:var(--text3);font-size:11px">(which companies sell here)</span></label>
+      <div class="form-group"><label class="form-label">Assign to</label>
         <div style="display:flex;gap:10px;margin-top:4px">
-          <label style="display:flex;align-items:center;gap:4px;font-size:12px;cursor:pointer"><input type="checkbox" value="wcli" class="nr-co" checked> WCLI</label>
-          <label style="display:flex;align-items:center;gap:4px;font-size:12px;cursor:pointer"><input type="checkbox" value="cwli" class="nr-co"> CWLI</label>
+          <label style="display:flex;align-items:center;gap:4px;font-size:12px;cursor:pointer"><input type="checkbox" value="wcli" class="nr-co" ${!defaultCompany || defaultCompany==='wcli' ? 'checked' : ''}> WCLI</label>
+          <label style="display:flex;align-items:center;gap:4px;font-size:12px;cursor:pointer"><input type="checkbox" value="cwli" class="nr-co" ${defaultCompany==='cwli' ? 'checked' : ''}> CWLI</label>
           <label style="display:flex;align-items:center;gap:4px;font-size:12px;cursor:pointer"><input type="checkbox" value="mssi" class="nr-co"> MSSI</label>
         </div>
       </div>
@@ -5917,13 +6122,32 @@ function saveNewRetailPartner() {
 
 // Build retail context for Claude prompts
 function getRetailContextForPrompt(company) {
-  const partners = getRetailPartners().filter(p => p.status === 'active' && (p.companies || []).includes(company));
+  const partners = getRetailPartners().filter(p =>
+    p.status === 'active' && (p.companies || []).includes(company)
+  );
   if (!partners.length) return '';
   const names = partners.map(p => p.name).join(', ');
-  return `\n\nAvailable at these retail stores: ${names}. If it fits naturally in the post, mention where customers can find our products.`;
+  const regionNote = company === 'cwli' ? ' in Cebu, Visayas, and Mindanao' : company === 'wcli' ? ' in Luzon and nationwide' : '';
+  return `\n\nAvailable at these retail stores${regionNote}: ${names}. If it fits naturally, mention where customers can find our products.`;
 }
 
 // ============================================================
+// Active color sub-tab per company: 'melamine' | 'hpl-deone' | 'hpl-elemental'
+const COLOR_SUBTAB = { wcli: 'melamine', cwli: 'melamine' };
+
+function switchColorSubTab(company, tab) {
+  COLOR_SUBTAB[company] = tab;
+  ['melamine','hpl-deone','hpl-elemental'].forEach(t => {
+    const btn = document.getElementById(`ctab-${company}-${t}`);
+    if (!btn) return;
+    const isActive = t === tab;
+    btn.style.borderBottomColor = isActive ? 'var(--accent2)' : 'transparent';
+    btn.style.color = isActive ? 'var(--accent2)' : 'var(--text3)';
+    btn.style.fontWeight = isActive ? '500' : '400';
+  });
+  renderColorList(company);
+}
+
 //  BRAND TAB SWITCHING — updated to handle colors + retail
 // ============================================================
 
@@ -6156,8 +6380,20 @@ async function runAutoGenerate() {
         }
         // Retail context for WCLI/CWLI
         const includeRetail = co !== 'mssi' && getRetailPartners().filter(p => p.status === 'active' && (p.companies||[]).includes(co)).length > 0;
-        const prompt = buildCaptionPrompt(co, audience, pillar, notes, colorId, includeRetail);
-        const fullText = await callClaude(apiKey, prompt);
+        const captionPrompt = buildCaptionPrompt(co, audience, pillar, notes, colorId, includeRetail);
+
+        // Use combined call if we need an image (saves 1 API call per image post)
+        // Skip image generation entirely if we already have a real color photo
+        let fullText = '';
+        let prebuiltImageDesc = '';
+        if (isImagePost && genImages && !colorSwatchUrl) {
+          const imageContext = getColorImageContext(co, colorId);
+          const combined = await callClaudeCombined(apiKey, captionPrompt, imageContext);
+          fullText = combined.caption;
+          prebuiltImageDesc = combined.imageDesc;
+        } else {
+          fullText = await callClaude(apiKey, captionPrompt, 450);
+        }
         // Default time uses the Auto-Schedule settings for this day of week if configured
         const defaultTime = getDefaultTimeForWeekday(postDate.getDay());
         const scheduledDateTime = new Date(postDate);
@@ -6212,7 +6448,8 @@ async function runAutoGenerate() {
         } else if (isImagePost && genImages) {
           if (row) row.innerHTML = baseRowHtml + `<span style="font-size:11px;color:var(--text3)">🖼 image…</span>`;
           try {
-            const visualDesc = await captionToVisualDescription(apiKey, fullText, false, co, pillar, colorId);
+            // Use prebuilt image description from combined call — no extra API call needed
+            const visualDesc = prebuiltImageDesc || await captionToVisualDescription(apiKey, fullText, false, co, pillar, colorId);
             const imgPrompt = `Professional, photorealistic marketing photograph. ${visualDesc} Bright, clean, high-quality commercial photography with natural lighting and sharp focus. Absolutely no text, words, logos, or watermarks in the image.`;
             let imageUrl = await generateImageViaProxy(imgPrompt, getWatermarkOpts(co));
             // Apply real color swatch chip if a color was rotated for this post
