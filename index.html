@@ -1187,6 +1187,12 @@ select:focus{border-color:var(--accent-border);}
       </div>
 
       <div id="stab-data" style="display:none">
+        <div class="card" style="margin-bottom:16px;border:1px solid var(--accent2)">
+          <div style="font-size:14px;font-weight:500;margin-bottom:4px">☁️ Push All Data to Cloud</div>
+          <div style="font-size:12px;color:var(--text3);margin-bottom:14px">Saves everything — API keys, Facebook tokens, posts, brand profiles, staff, settings — to Supabase. Any device that logs in will automatically get all your data.</div>
+          <button class="btn btn-primary" style="width:100%" id="push-cloud-btn" onclick="pushAllToCloud()">Push All to Cloud Now</button>
+          <div id="push-cloud-status" style="font-size:11.5px;color:var(--text3);margin-top:8px;display:none"></div>
+        </div>
         <div class="card" style="margin-bottom:16px">
           <div style="font-size:14px;font-weight:500;margin-bottom:4px">App Logo (top-right)</div>
           <div style="font-size:12px;color:var(--text3);margin-bottom:14px">Shown in the top-right corner of the app on every screen. Upload a new image anytime to replace it — no separate visibility setting, it's just always there once you've uploaded one.</div>
@@ -3981,6 +3987,76 @@ function switchSettingsTab(btn, tab) {
   }
 }
 
+async function pushAllToCloud() {
+  if (!_session) { showToast('Sign in first', 'error'); return; }
+  const btn = document.getElementById('push-cloud-btn');
+  const status = document.getElementById('push-cloud-status');
+  btn.disabled = true; btn.textContent = 'Pushing…';
+  status.style.display = 'block'; status.textContent = 'Starting…';
+
+  try {
+    // 1. Push all posts
+    status.textContent = 'Pushing posts…';
+    for (const post of (APP.posts || [])) {
+      await pushPostToSupabase(post);
+    }
+
+    // 2. Push brand profiles
+    status.textContent = 'Pushing brand profiles…';
+    for (const co of ['mssi','wcli','cwli']) {
+      await syncRequest({ operation: 'push_brand', company: co, data: APP.brandProfiles?.[co] || {} });
+    }
+
+    // 3. Push colors
+    status.textContent = 'Pushing colors…';
+    for (const co of ['wcli','cwli']) {
+      await pushColorsToSupabase(co);
+    }
+
+    // 4. Push staff
+    status.textContent = 'Pushing staff…';
+    await pushStaffToSupabase();
+
+    // 5. Push all API keys and settings
+    status.textContent = 'Pushing settings & API keys…';
+    const keys = {
+      anthropic_key: localStorage.getItem('scm_anthropic_key') || '',
+      ideogram_key: localStorage.getItem('scm_ideogram_key') || '',
+      imgproxy_url: localStorage.getItem('scm_imgproxy_key') || '',
+      veo_key: localStorage.getItem('scm_veo_key') || '',
+      telegram_token: localStorage.getItem('scm_telegram_token') || '',
+      facebook_key: localStorage.getItem('scm_facebook_key') || '',
+    };
+    for (const [key, value] of Object.entries(keys)) {
+      if (value) await pushSettingToSupabase(key, value);
+    }
+
+    // 6. Push Facebook page configs
+    status.textContent = 'Pushing Facebook pages…';
+    const fbPages = JSON.parse(localStorage.getItem('scm_fb_pages') || '{}');
+    if (Object.keys(fbPages).length) await pushSettingToSupabase('fb_pages', fbPages);
+
+    // 7. Push schedule times
+    const scheduleTimes = JSON.parse(localStorage.getItem('scm_schedule_times') || '{}');
+    if (Object.keys(scheduleTimes).length) await pushSettingToSupabase('schedule_times', scheduleTimes);
+
+    // 8. Push autopilot settings
+    const autopilot = getAutopilotSettings();
+    if (autopilot) await pushSettingToSupabase('autopilot', autopilot);
+
+    status.textContent = '✓ All data pushed to cloud successfully!';
+    status.style.color = 'var(--green)';
+    btn.textContent = '✓ Done';
+    showToast('All data saved to cloud — any device can now sync this', 'success');
+
+  } catch (err) {
+    status.textContent = 'Error: ' + err.message;
+    status.style.color = 'var(--red)';
+    btn.disabled = false;
+    btn.textContent = 'Retry';
+  }
+}
+
 function saveApiKey(service) {
   const val = document.getElementById('key-' + service).value.trim();
   if (!val) { showToast('Enter a key first', 'error'); return; }
@@ -6183,7 +6259,25 @@ async function pullFromSupabase() {
       Object.assign(APP.brandProfiles, data.brandProfiles);
     }
     if (data.staff?.length) APP.staff = data.staff;
-    if (data.settings?.autopilot) APP.autopilot = data.settings.autopilot;
+    if (data.settings) {
+      const s = data.settings;
+      // Restore API keys from cloud if not already set locally
+      if (s.anthropic_key && !localStorage.getItem('scm_anthropic_key')) localStorage.setItem('scm_anthropic_key', s.anthropic_key);
+      if (s.ideogram_key && !localStorage.getItem('scm_ideogram_key')) localStorage.setItem('scm_ideogram_key', s.ideogram_key);
+      if (s.imgproxy_url && !localStorage.getItem('scm_imgproxy_key')) localStorage.setItem('scm_imgproxy_key', s.imgproxy_url);
+      if (s.veo_key && !localStorage.getItem('scm_veo_key')) localStorage.setItem('scm_veo_key', s.veo_key);
+      if (s.telegram_token && !localStorage.getItem('scm_telegram_token')) localStorage.setItem('scm_telegram_token', s.telegram_token);
+      if (s.facebook_key && !localStorage.getItem('scm_facebook_key')) localStorage.setItem('scm_facebook_key', s.facebook_key);
+      if (s.fb_pages) localStorage.setItem('scm_fb_pages', JSON.stringify(s.fb_pages));
+      if (s.schedule_times) localStorage.setItem('scm_schedule_times', JSON.stringify(s.schedule_times));
+      if (s.autopilot) APP.autopilot = s.autopilot;
+      // Update APP.apiKeys in memory
+      APP.apiKeys = APP.apiKeys || {};
+      if (s.anthropic_key) APP.apiKeys.anthropic = s.anthropic_key;
+      if (s.ideogram_key) APP.apiKeys.ideogram = s.ideogram_key;
+      if (s.imgproxy_url) APP.apiKeys.imgproxy = s.imgproxy_url;
+      if (s.veo_key) APP.apiKeys.veo = s.veo_key;
+    }
     saveState();
     updateDashboard(); updateReviewBadge(); renderCalendar();
     showToast('Data synced ✓', 'success');
