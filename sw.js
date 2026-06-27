@@ -1,50 +1,58 @@
-// Social Content Manager — Service Worker
-// Place this file at the root of the GitHub Pages repo (same level as social-content-manager.html)
+// Social Content Manager — Service Worker v2
+// Network-first for HTML, cache-first for assets only
 
-const CACHE = 'scm-v1';
-const PRECACHE = [
-  './social-content-manager.html',
-  'https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;1,9..40,300&display=swap'
+const CACHE = 'scm-v2';
+const NEVER_CACHE = [
+  'index.html',
+  'social-content-manager.html',
+  '/',
+  '/social-content-manager/',
+  'api.anthropic.com',
+  'graph.facebook.com',
+  'supabase.co',
+  'generativelanguage.googleapis.com',
+  'ideogram.ai'
 ];
 
 self.addEventListener('install', e => {
-  e.waitUntil(
-    caches.open(CACHE).then(c => c.addAll(PRECACHE).catch(() => {}))
-  );
   self.skipWaiting();
 });
 
 self.addEventListener('activate', e => {
+  // Delete ALL old caches on activate
   e.waitUntil(
     caches.keys().then(keys =>
-      Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k)))
+      Promise.all(keys.map(k => caches.delete(k)))
     )
   );
   self.clients.claim();
 });
 
 self.addEventListener('fetch', e => {
-  // Always use network for API calls — never cache these
   const url = e.request.url;
-  if (url.includes('api.anthropic.com') ||
-      url.includes('graph.facebook.com') ||
-      url.includes('supabase.co') ||
-      url.includes('generativelanguage.googleapis.com') ||
-      url.includes('ideogram.ai')) {
+  
+  // Never cache these — always go to network
+  if (NEVER_CACHE.some(nc => url.includes(nc))) {
+    e.respondWith(fetch(e.request));
     return;
   }
 
-  // Cache-first for app shell, network fallback
-  e.respondWith(
-    caches.match(e.request).then(cached => {
-      const networkFetch = fetch(e.request).then(res => {
-        if (res.ok) {
+  // Cache-first only for fonts and static CDN assets
+  if (url.includes('fonts.googleapis.com') || 
+      url.includes('fonts.gstatic.com') ||
+      url.includes('cdnjs.cloudflare.com')) {
+    e.respondWith(
+      caches.match(e.request).then(cached => {
+        return cached || fetch(e.request).then(res => {
           const clone = res.clone();
           caches.open(CACHE).then(c => c.put(e.request, clone));
-        }
-        return res;
-      }).catch(() => cached);
-      return cached || networkFetch;
-    })
-  );
+          return res;
+        });
+      })
+    );
+    return;
+  }
+
+  // Everything else — network first
+  e.respondWith(fetch(e.request).catch(() => caches.match(e.request)));
 });
