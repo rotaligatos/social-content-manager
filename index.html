@@ -2567,14 +2567,16 @@ function updateColorFinishOptions() {
       (color.finishes || []).map(f => `<option value="${f}">${f}</option>`).join('');
   }
 
-  // Auto-load swatch as post image if available
-  if (color && color.swatchUrl) {
+  // Auto-load color photo as post image if available
+  // Prefer mockupUrl (shows color on furniture) over swatchUrl (close-up chip)
+  const postImageUrl = color.mockupUrl || color.swatchUrl || '';
+  if (color && postImageUrl) {
     const previewEl = document.getElementById('preview-image');
     if (previewEl) {
-      previewEl.innerHTML = `<img src="${color.swatchUrl}" style="width:100%;height:200px;object-fit:cover;border-radius:4px" alt="${color.name}">`;
+      previewEl.innerHTML = `<img src="${postImageUrl}" style="width:100%;height:200px;object-fit:cover;border-radius:4px" alt="${color.name}">`;
     }
-    APP.currentPhoto = color.swatchUrl;
-    APP.currentPhotoOriginal = color.swatchUrl;
+    APP.currentPhoto = postImageUrl;
+    APP.currentPhotoOriginal = postImageUrl;
     APP.mediaType = 'photo';
 
     // Show swatch hint
@@ -2586,11 +2588,12 @@ function updateColorFinishOptions() {
     }
     swatchHint.style.display = 'block';
     swatchHint.innerHTML = `<div style="display:flex;align-items:center;gap:8px;margin-top:8px;padding:8px 10px;background:var(--bg3);border-radius:var(--radius);border:1px solid var(--border)">
-      <img src="${color.swatchUrl}" style="width:32px;height:32px;object-fit:cover;border-radius:4px;flex-shrink:0">
+      <img src="${postImageUrl}" style="width:32px;height:32px;object-fit:cover;border-radius:4px;flex-shrink:0">
       <div style="flex:1;min-width:0">
-        <div style="font-size:12px;font-weight:500">${color.name} swatch loaded as post image</div>
-        <div style="font-size:11px;color:var(--text3)">Using the actual product photo from the website. You can replace it with AI-generated or your own photo below.</div>
+        <div style="font-size:12px;font-weight:500">"${color.name}" photo loaded as post image</div>
+        <div style="font-size:11px;color:var(--text3)">${color.mockupUrl ? 'Mockup photo (color on furniture) loaded. ' : 'Swatch close-up loaded. '}When you generate an AI image, the real swatch will be added as a color chip in the corner.</div>
       </div>
+      ${color.swatchUrl && color.mockupUrl ? `<img src="${color.swatchUrl}" style="width:28px;height:28px;object-fit:cover;border-radius:4px;flex-shrink:0;border:1px solid var(--border)" title="Swatch chip — added to AI images">` : ''}
     </div>`;
     showToast(`"${color.name}" swatch loaded as post image`, 'info');
   }
@@ -5528,7 +5531,13 @@ function renderColorList(company) {
     const finishesTxt = (c.finishes || []).slice(0, 3).join(', ') + ((c.finishes || []).length > 3 ? '…' : '');
     return `
     <div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-top:1px solid var(--border)">
-      ${c.swatchUrl ? `<img src="${c.swatchUrl}" style="width:40px;height:40px;object-fit:cover;border-radius:4px;flex-shrink:0;border:1px solid var(--border)" alt="${c.name}">` : `<div style="width:40px;height:40px;border-radius:4px;background:var(--bg4);flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:16px">🎨</div>`}
+      ${c.swatchUrl 
+        ? `<div style="position:relative;flex-shrink:0">
+            <img src="${c.swatchUrl}" style="width:48px;height:48px;object-fit:cover;border-radius:6px;border:1px solid var(--border);display:block" alt="${c.name}" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
+            <div style="width:48px;height:48px;border-radius:6px;background:var(--bg4);display:none;align-items:center;justify-content:center;font-size:18px">🎨</div>
+            ${c.mockupUrl ? `<img src="${c.mockupUrl}" style="position:absolute;bottom:-4px;right:-4px;width:22px;height:22px;object-fit:cover;border-radius:3px;border:1.5px solid var(--bg2)" title="Mockup photo available" alt="mockup">` : ''}
+           </div>` 
+        : `<div style="width:48px;height:48px;border-radius:6px;background:var(--bg4);flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:18px">🎨</div>`}
       <div style="flex:1;min-width:0">
         <div style="font-size:12.5px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${c.name}</div>
         <div style="font-size:11px;color:var(--text3)">${[c.pattern, c.colorFamily, c.series].filter(Boolean).join(' · ')}</div>
@@ -5694,7 +5703,9 @@ async function importWcliColors() {
             boardTypes: d.boardTypes || [],
             series: Array.isArray(d.series) ? d.series.join(', ') : (d.series || ''),
             isCebuExclusive: d.isCebuExclusive || false,
-            swatchUrl: d.swatchUrl || '',
+            is_hpl: d.isHpl || false,
+            swatchUrl: d.swatchUrl || '',      // swatch close-up — used as color chip overlay
+            mockupUrl: d.mockupUrl || '',      // lifestyle/mockup photo — shows color on furniture
             status: 'active',
             importedAt: new Date().toISOString()
           };
