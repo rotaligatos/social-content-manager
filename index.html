@@ -5745,9 +5745,25 @@ async function importWcliColors() {
     return;
   }
 
+  // Show progress bar in color list area
+  const listEl = document.getElementById('color-list-wcli');
+  const countEl = document.getElementById('color-count-wcli');
+
+  function showProgress(msg, pct) {
+    if (listEl) listEl.innerHTML = `
+      <div style="padding:16px 0">
+        <div style="font-size:12.5px;color:var(--text2);margin-bottom:10px">${msg}</div>
+        <div style="background:var(--bg3);border-radius:4px;height:6px;overflow:hidden">
+          <div style="background:var(--accent2);height:100%;width:${pct}%;transition:width 0.3s;border-radius:4px"></div>
+        </div>
+        <div style="font-size:11px;color:var(--text3);margin-top:6px">${pct}% complete</div>
+      </div>`;
+    if (countEl) countEl.textContent = '';
+  }
+
   try {
-    // Step 1: Get full color list
-    showToast('Fetching color list from WCLI website…', 'info');
+    showProgress('Connecting to WCLI website…', 5);
+
     const listRes = await fetch(proxyBase + 'scrape-wcli-colors?mode=list');
     const listData = await listRes.json();
     if (listData.error) throw new Error(listData.error);
@@ -5755,23 +5771,33 @@ async function importWcliColors() {
     const slugs = (listData.colors || []).map((c) => c.slug).filter(Boolean);
     if (!slugs.length) throw new Error('No colors found on website');
 
-    showToast(`Found ${slugs.length} colors — fetching details (this takes ~1 min)…`, 'info');
-
-    // Step 2: Fetch details for each color in batches
     const existing = getColors('wcli');
     const existingSlugs = new Set(existing.map(c => c.slug));
     const toFetch = slugs.filter(s => !existingSlugs.has(s));
 
     if (!toFetch.length) {
-      showToast('All colors already imported — nothing new found', 'info');
+      showProgress('All colors already imported — nothing new found', 100);
       if (btn) { btn.disabled = false; btn.innerHTML = 'Re-sync from Website'; }
+      setTimeout(() => renderColorList('wcli'), 1500);
       return;
     }
 
+    showProgress(`Found ${slugs.length} colors — ${toFetch.length} new to import…`, 10);
+
     const newColors = [];
     const batchSize = 5;
+    const totalBatches = Math.ceil(Math.min(toFetch.length, 200) / batchSize);
+
     for (let i = 0; i < Math.min(toFetch.length, 200); i += batchSize) {
       const batch = toFetch.slice(i, i + batchSize);
+      const batchNum = Math.floor(i / batchSize) + 1;
+      const pct = Math.round(10 + (batchNum / totalBatches) * 85);
+
+      showProgress(
+        `Fetching color details… ${newColors.length + batch.length} of ${toFetch.length} colors (${batchNum}/${totalBatches} batches)`,
+        pct
+      );
+
       const results = await Promise.all(batch.map(async slug => {
         try {
           const res = await fetch(`${proxyBase}scrape-wcli-colors?mode=detail&slug=${encodeURIComponent(slug)}`);
@@ -5788,8 +5814,8 @@ async function importWcliColors() {
             series: Array.isArray(d.series) ? d.series.join(', ') : (d.series || ''),
             isCebuExclusive: d.isCebuExclusive || false,
             is_hpl: d.isHpl || false,
-            swatchUrl: d.swatchUrl || '',      // swatch close-up — used as color chip overlay
-            mockupUrl: d.mockupUrl || '',      // lifestyle/mockup photo — shows color on furniture
+            swatchUrl: d.swatchUrl || '',
+            mockupUrl: d.mockupUrl || '',
             status: 'active',
             importedAt: new Date().toISOString()
           };
@@ -5799,13 +5825,20 @@ async function importWcliColors() {
       await new Promise(r => setTimeout(r, 100));
     }
 
+    showProgress(`✓ Done! Imported ${newColors.length} new colors.`, 100);
+
     const updated = [...existing, ...newColors];
     saveColors('wcli', updated);
-    renderColorList('wcli');
-    showToast(`✓ Imported ${newColors.length} new colors (${updated.length} total)`, 'success');
+
+    setTimeout(() => {
+      renderColorList('wcli');
+      showToast(`✓ ${newColors.length} new colors imported (${updated.length} total)`, 'success');
+    }, 800);
+
     if (btn) { btn.disabled = false; btn.innerHTML = 'Re-sync from Website'; }
 
   } catch (err) {
+    if (listEl) listEl.innerHTML = `<div style="color:var(--red);font-size:12.5px;padding:12px 0">Import failed: ${err.message}</div>`;
     showToast('Import failed: ' + err.message, 'error');
     if (btn) { btn.disabled = false; btn.innerHTML = 'Import from Website'; }
   }
@@ -5961,7 +5994,7 @@ function removeRetailFromCompany(id, company) {
 
 async function scrapeRetailPartners() {
   const btn = document.getElementById('scrape-retail-btn');
-  if (btn) { btn.disabled = true; btn.innerHTML = '<div class="spinner" style="width:11px;height:11px;border-width:2px"></div> Fetching…'; }
+  if (btn) { btn.disabled = true; btn.innerHTML = '<div class="spinner" style="width:11px;height:11px;border-width:2px"></div> Fetching branches…'; }
 
   const proxyBase = (APP.apiKeys.imgproxy || localStorage.getItem('scm_imgproxy_key') || '').replace(/generate-image\/?$/, '');
   if (!proxyBase) {
@@ -5971,28 +6004,141 @@ async function scrapeRetailPartners() {
   }
 
   try {
-    const res = await fetch(proxyBase + 'scrape-retail-partners');
+    const res = await fetch(proxyBase + 'scrape-retail-partners?chain=all');
     const data = await res.json();
     if (data.error) throw new Error(data.error);
 
+    const branches = data.branches || [];
+    if (!branches.length) throw new Error('No branches found');
+
     const existing = getRetailPartners();
-    const existingNames = new Set(existing.map(p => p.name.toLowerCase()));
-    const toAdd = (data.stores || []).filter(s => !existingNames.has(s.name.toLowerCase()));
+    const existingIds = new Set(existing.map(p => p.id));
+    const newBranches = branches.filter(b => !existingIds.has(b.id));
 
-    if (!toAdd.length) {
-      showToast('All stores already in your list', 'info');
-      if (btn) { btn.disabled = false; btn.innerHTML = 'Import from Website'; }
-      return;
-    }
-
-    // Show selection modal
-    openRetailImportModal(toAdd);
+    openRetailBranchModal(newBranches, existing);
     if (btn) { btn.disabled = false; btn.innerHTML = 'Import from Website'; }
 
   } catch (err) {
-    showToast('Import failed: ' + err.message, 'error');
+    showToast('Fetch failed: ' + err.message, 'error');
     if (btn) { btn.disabled = false; btn.innerHTML = 'Import from Website'; }
   }
+}
+
+function openRetailBranchModal(branches, existing) {
+  const existingEl = document.getElementById('retail-branch-modal');
+  if (existingEl) existingEl.remove();
+
+  // Group by area
+  const areas = ['Metro Manila', 'Luzon', 'Visayas', 'Mindanao'];
+  const byArea = {};
+  areas.forEach(a => byArea[a] = []);
+  branches.forEach(b => {
+    const area = b.area || 'Luzon';
+    if (!byArea[area]) byArea[area] = [];
+    byArea[area].push(b);
+  });
+
+  const areaHtml = areas.map(area => {
+    const list = byArea[area] || [];
+    if (!list.length) return '';
+    return `<div style="margin-bottom:16px">
+      <div style="font-size:11px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px;padding:0 2px">${area} (${list.length})</div>
+      ${list.map(b => `
+        <div class="rbl-row" data-area="${area}" data-name="${b.name.toLowerCase()}" style="padding:8px 10px;border-radius:6px;margin-bottom:4px;border:1px solid var(--border)">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+            <input type="checkbox" id="rbl-${b.id}" value="${b.id}" class="rbl-check" style="width:14px;height:14px;flex-shrink:0">
+            <label for="rbl-${b.id}" style="font-size:12.5px;font-weight:500;cursor:pointer;flex:1">${b.name}</label>
+          </div>
+          <div style="display:flex;gap:12px;margin-left:22px">
+            <label style="display:flex;align-items:center;gap:4px;font-size:11.5px;cursor:pointer">
+              <input type="checkbox" class="rbl-wcli" data-id="${b.id}" ${area !== 'Visayas' && area !== 'Mindanao' ? 'checked' : ''}> WCLI
+            </label>
+            <label style="display:flex;align-items:center;gap:4px;font-size:11.5px;cursor:pointer">
+              <input type="checkbox" class="rbl-cwli" data-id="${b.id}" ${area === 'Visayas' || area === 'Mindanao' ? 'checked' : ''}> CWLI
+            </label>
+          </div>
+        </div>`).join('')}
+    </div>`;
+  }).join('');
+
+  const modal = document.createElement('div');
+  modal.id = 'retail-branch-modal';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:3000;display:flex;align-items:center;justify-content:center;padding:20px';
+  modal.innerHTML = `
+    <div style="background:var(--bg2);border:1px solid var(--border2);border-radius:var(--radius-lg);width:560px;max-height:85vh;display:flex;flex-direction:column">
+      <div style="padding:16px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
+        <div>
+          <div style="font-size:14px;font-weight:500">Select Store Branches</div>
+          <div style="font-size:11.5px;color:var(--text3);margin-top:2px">${branches.length} branches found — check the ones to add, assign to WCLI / CWLI</div>
+        </div>
+        <button class="btn btn-ghost btn-sm" onclick="document.getElementById('retail-branch-modal').remove()">✕</button>
+      </div>
+      <div style="padding:10px 20px;border-bottom:1px solid var(--border);display:flex;gap:8px">
+        <input type="text" id="rbl-search" placeholder="Search branches…" style="flex:1;font-size:12px;padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg3);color:var(--text)" oninput="filterRetailBranches(this.value)">
+        <select id="rbl-area-filter" style="font-size:12px;padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg3);color:var(--text)" onchange="filterRetailBranches(document.getElementById('rbl-search').value)">
+          <option value="">All areas</option>
+          <option value="metro manila">Metro Manila</option>
+          <option value="luzon">Luzon</option>
+          <option value="visayas">Visayas</option>
+          <option value="mindanao">Mindanao</option>
+        </select>
+        <button class="btn btn-ghost btn-sm" style="font-size:11px" onclick="selectAllRetailBranches(true)">All</button>
+        <button class="btn btn-ghost btn-sm" style="font-size:11px" onclick="selectAllRetailBranches(false)">None</button>
+      </div>
+      <div id="rbl-list" style="flex:1;overflow-y:auto;padding:14px 20px">
+        ${areaHtml || '<div style="color:var(--text3);font-size:12.5px;text-align:center;padding:20px">No new branches found</div>'}
+      </div>
+      <div style="padding:14px 20px;border-top:1px solid var(--border);display:flex;gap:8px">
+        <button class="btn btn-primary" style="flex:1" onclick="confirmRetailBranchImport()">Add Selected Branches</button>
+        <button class="btn btn-ghost" onclick="document.getElementById('retail-branch-modal').remove()">Cancel</button>
+      </div>
+    </div>`;
+  document.body.appendChild(modal);
+}
+
+function filterRetailBranches(search) {
+  const area = (document.getElementById('rbl-area-filter')?.value || '').toLowerCase();
+  document.querySelectorAll('.rbl-row').forEach(row => {
+    const name = row.getAttribute('data-name') || '';
+    const rowArea = (row.getAttribute('data-area') || '').toLowerCase();
+    const matchSearch = !search || name.includes(search.toLowerCase());
+    const matchArea = !area || rowArea.includes(area);
+    row.style.display = matchSearch && matchArea ? '' : 'none';
+  });
+}
+
+function selectAllRetailBranches(checked) {
+  document.querySelectorAll('.rbl-check').forEach(cb => {
+    if (cb.closest('.rbl-row').style.display !== 'none') cb.checked = checked;
+  });
+}
+
+function confirmRetailBranchImport() {
+  const existing = getRetailPartners();
+  const newPartners = [];
+
+  document.querySelectorAll('.rbl-check:checked').forEach(cb => {
+    const id = cb.value;
+    const wcli = document.querySelector(`.rbl-wcli[data-id="${id}"]`)?.checked || false;
+    const cwli = document.querySelector(`.rbl-cwli[data-id="${id}"]`)?.checked || false;
+    const name = cb.nextElementSibling?.textContent?.trim() || id;
+    const companies = [...(wcli ? ['wcli'] : []), ...(cwli ? ['cwli'] : [])];
+    if (!companies.length) return;
+    newPartners.push({
+      id: 'rp_' + id,
+      name,
+      companies,
+      region: '',
+      status: 'active',
+      addedAt: new Date().toISOString()
+    });
+  });
+
+  if (!newPartners.length) { showToast('No branches selected', 'info'); return; }
+  saveRetailPartners([...existing, ...newPartners]);
+  document.getElementById('retail-branch-modal')?.remove();
+  renderRetailList();
+  showToast(`${newPartners.length} branches added`, 'success');
 }
 
 function openRetailImportModal(stores) {
