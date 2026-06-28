@@ -1064,6 +1064,16 @@ select:focus{border-color:var(--accent-border);}
           <button class="btn btn-primary" style="margin-top:10px" onclick="saveFbPages()">Save Page Settings</button>
         </div>
         <div class="card" style="margin-top:16px">
+          <div style="font-size:14px;font-weight:500;margin-bottom:4px">📡 Facebook Webhook Subscription</div>
+          <div style="font-size:12px;color:var(--text3);margin-bottom:14px;line-height:1.6">Once the webhook is set up in Meta Developer portal, click below to subscribe each page. This tells Facebook to send real-time comments, reactions, and inquiries to the app. Only needs to be done once per page.</div>
+          <div id="webhook-subscribe-status" style="font-size:12px;margin-bottom:10px"></div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <button class="btn btn-secondary btn-sm" onclick="subscribePageToWebhook('mssi')">Subscribe MSSI Page</button>
+            <button class="btn btn-secondary btn-sm" onclick="subscribePageToWebhook('wcli')">Subscribe WCLI Page</button>
+            <button class="btn btn-secondary btn-sm" onclick="subscribePageToWebhook('cwli')">Subscribe CWLI Page</button>
+          </div>
+        </div>
+        <div class="card" style="margin-top:16px">
           <div style="font-size:13px;font-weight:500;margin-bottom:8px">About Comments &amp; Auto-Reply</div>
           <div style="font-size:12px;color:var(--text3);line-height:1.6">This app does not auto-reply to Facebook comments or DMs. Doing that safely requires a server running continuously to watch for new messages — not something a browser-only app can do, and risky for B2B trust if a bot replies with the wrong info. Instead, the Dashboard's <strong style="color:var(--text2)">Inquiry &amp; Comment Check</strong> reminds you which published posts to look at on Facebook directly, so real inquiries get a real reply from you.</div>
         </div>
@@ -2748,6 +2758,60 @@ async function upsertPost(post) {
 
 // Bulk-sync all posts in localStorage to Supabase posts table
 // Called on startup and after push-all-to-cloud
+async function subscribePageToWebhook(company) {
+  const pages = APP.fbPages || JSON.parse(localStorage.getItem('scm_fb_pages') || '{}');
+  const statusEl = document.getElementById('webhook-subscribe-status');
+
+  // Get the right page data
+  let pageId, token;
+  if (company === 'mssi') {
+    pageId = pages.mssi?.id;
+    token = pages.mssi?.token;
+  } else if (company === 'wcli') {
+    // Use first WCLI page
+    const wcliPages = pages.wcliPages || [];
+    pageId = wcliPages[0]?.id;
+    token = wcliPages[0]?.token;
+  } else if (company === 'cwli') {
+    pageId = pages.cwli?.id;
+    token = pages.cwli?.token;
+  }
+
+  if (!pageId || !token) {
+    if (statusEl) statusEl.innerHTML = `<span style="color:var(--red)">❌ No page ID or token saved for ${company.toUpperCase()} — save page settings first</span>`;
+    return;
+  }
+
+  if (statusEl) statusEl.innerHTML = `<span style="color:var(--text3)">Subscribing ${company.toUpperCase()} page…</span>`;
+
+  try {
+    // Call Facebook Graph API to subscribe this page to the app's webhook
+    const res = await fetch(
+      `https://graph.facebook.com/v19.0/${pageId}/subscribed_apps`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          subscribed_fields: 'feed,messages',
+          access_token: token
+        })
+      }
+    );
+    const data = await res.json();
+
+    if (data.success) {
+      if (statusEl) statusEl.innerHTML = `<span style="color:var(--green)">✓ ${company.toUpperCase()} page subscribed — real-time comments and reactions are now active</span>`;
+      showToast(`✓ ${company.toUpperCase()} page webhook active`, 'success');
+    } else {
+      const err = data.error?.message || JSON.stringify(data);
+      if (statusEl) statusEl.innerHTML = `<span style="color:var(--red)">❌ ${company.toUpperCase()} failed: ${err}</span>`;
+      showToast(`${company.toUpperCase()} subscription failed: ${err}`, 'error');
+    }
+  } catch (err) {
+    if (statusEl) statusEl.innerHTML = `<span style="color:var(--red)">❌ Error: ${err.message}</span>`;
+  }
+}
+
 async function syncAllPostsToSupabase() {
   const proxyBase = (APP.apiKeys.imgproxy || localStorage.getItem('scm_imgproxy_key') || '').replace(/generate-image\/?$/, '');
   if (!proxyBase) return;
