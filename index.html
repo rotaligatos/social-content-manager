@@ -7580,6 +7580,23 @@ async function pullFromSupabase() {
       Object.assign(APP.brandProfiles, data.brandProfiles);
     }
     if (data.staff?.length) APP.staff = data.staff;
+    // Pull colors from Supabase into localStorage — fixes series/is_hpl not matching
+    if (data.colors?.length) {
+      const byCompany = {};
+      for (const c of data.colors) {
+        if (!byCompany[c.company]) byCompany[c.company] = [];
+        byCompany[c.company].push({
+          id: c.id, name: c.name, pattern: c.pattern, colorFamily: c.color_family,
+          finishes: c.finishes || [], boardTypes: c.board_types || [],
+          series: c.series, is_hpl: c.is_hpl, slug: c.slug,
+          isCebuExclusive: c.is_cebu_exclusive, swatchUrl: c.swatch_url,
+          status: c.status || 'active', importedAt: c.imported_at,
+        });
+      }
+      for (const [co, cols] of Object.entries(byCompany)) {
+        saveColors(co, cols);
+      }
+    }
     if (data.settings) {
       const s = data.settings;
       // Restore API keys from cloud if not already set locally
