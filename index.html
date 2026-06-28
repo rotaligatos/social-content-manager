@@ -4687,7 +4687,9 @@ function saveTelegramBotToken() {
   if (!token) { showToast('Enter a bot token first', 'error'); return; }
   localStorage.setItem('scm_telegram_token', token);
   APP.telegramToken = token;
-  showToast('Telegram bot token saved', 'success');
+  // Push to Supabase so the webhook Edge Function can use it for auto-notifications
+  pushSettingToSupabase('telegram_bot_token', token);
+  showToast('Telegram bot token saved and synced to cloud', 'success');
 }
 
 function loadTelegramSettings() {
@@ -4714,11 +4716,16 @@ function renderStaffList() {
 
 function staffRowHtml(index, person) {
   const companies = person.companies || [];
+  const role = person.role || 'staff';
   return `
     <div style="background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius);padding:12px;margin-bottom:10px" data-staff-row="${index}">
       <div style="display:flex;gap:8px;margin-bottom:10px">
-        <input type="text" class="staff-name" placeholder="Staff name" value="${person.name || ''}" style="flex:1" onchange="saveStaffList()">
-        <input type="text" class="staff-chatid" placeholder="Telegram Chat ID" value="${person.chatId || ''}" style="flex:1" onchange="saveStaffList()">
+        <input type="text" class="staff-name" placeholder="Staff name" value="${person.name || ''}" style="flex:2" onchange="saveStaffList()">
+        <input type="text" class="staff-chatid" placeholder="Telegram Chat ID" value="${person.chatId || ''}" style="flex:2" onchange="saveStaffList()">
+        <select class="staff-role" style="font-size:12px;padding:6px 8px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg2);color:var(--text)" onchange="saveStaffList()">
+          <option value="staff" ${role==='staff'?'selected':''}>Staff</option>
+          <option value="manager" ${role==='manager'?'selected':''}>Manager</option>
+        </select>
         <button class="btn btn-secondary btn-sm" onclick="sendStaffTestMessage(${index}, this)">Test</button>
         <button class="btn btn-ghost btn-sm" style="color:var(--red)" onclick="removeStaffField(${index})">Remove</button>
       </div>
@@ -4744,7 +4751,7 @@ function staffRowHtml(index, person) {
 function addStaffField() {
   const list = document.getElementById('staff-list');
   const newIndex = list.querySelectorAll('[data-staff-row]').length;
-  list.insertAdjacentHTML('beforeend', staffRowHtml(newIndex, { name: '', chatId: '' }));
+  list.insertAdjacentHTML('beforeend', staffRowHtml(newIndex, { name: '', chatId: '', role: 'staff' }));
 }
 
 function collectStaffFields() {
@@ -4752,6 +4759,7 @@ function collectStaffFields() {
   return rows.map(row => ({
     name: row.querySelector('.staff-name').value.trim(),
     chatId: row.querySelector('.staff-chatid').value.trim(),
+    role: row.querySelector('.staff-role')?.value || 'staff',
     companies: [
       row.querySelector('.staff-company-mssi').checked ? 'mssi' : null,
       row.querySelector('.staff-company-wcli').checked ? 'wcli' : null,
@@ -4771,6 +4779,8 @@ function saveStaffList() {
   const data = collectStaffFields();
   APP.staff = data;
   localStorage.setItem('scm_staff', JSON.stringify(data));
+  // Push to Supabase so webhook can find staff for auto-notifications
+  pushStaffToSupabase();
 }
 
 // Sends a Telegram message to a specific staff member via their chat ID, using the saved bot token.
