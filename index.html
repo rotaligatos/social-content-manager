@@ -4548,7 +4548,14 @@ async function pushAllToCloud() {
     status.textContent = 'Pushing retail partners…';
     const retailPartners = getRetailPartners();
     if (retailPartners.length) {
-      await syncRequest({ operation: 'push_retail', partners: retailPartners });
+      const proxyBase = (APP.apiKeys.imgproxy || localStorage.getItem('scm_imgproxy_key') || '').replace(/generate-image\/?$/, '');
+      if (proxyBase) {
+        await fetch(proxyBase + 'upsert-retail-partners', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(retailPartners)
+        });
+      }
     }
 
     // 5. Push all API keys and settings
