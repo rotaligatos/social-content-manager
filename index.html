@@ -3263,6 +3263,24 @@ function updateDashboard() {
     const sched = weekPosts.filter(p => p.status === 'scheduled').length;
     const pub = weekPosts.filter(p => p.status === 'published').length;
     document.getElementById('dash-'+co+'-detail').textContent = sched+' scheduled · '+pub+' published';
+
+    // Facebook connection status
+    const fbPages = APP.fbPages || JSON.parse(localStorage.getItem('scm_fb_pages') || '{}');
+    let hasToken = false;
+    if (co === 'mssi') hasToken = !!(fbPages.mssi && fbPages.mssi.token);
+    else if (co === 'wcli') hasToken = !!(Array.isArray(fbPages.wcli) ? fbPages.wcli[0]?.token : fbPages.wcli?.token);
+    else if (co === 'cwli') hasToken = !!(fbPages.cwli && fbPages.cwli.token);
+    const dot = document.getElementById('dot-' + co);
+    const statusEl = document.getElementById('status-' + co);
+    if (dot && statusEl) {
+      if (hasToken) {
+        dot.className = 'status-dot green';
+        statusEl.textContent = 'Facebook connected';
+      } else {
+        dot.className = 'status-dot amber';
+        statusEl.textContent = 'Facebook not connected yet';
+      }
+    }
   });
   document.getElementById('dash-date').textContent = now.toLocaleDateString('en-PH', { weekday:'long', year:'numeric', month:'long', day:'numeric' });
   const recentPosts = APP.posts.slice(-6).reverse();
