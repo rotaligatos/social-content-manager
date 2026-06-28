@@ -289,50 +289,50 @@ select:focus{border-color:var(--accent-border);}
   </div>
   <div class="sidebar-section">
     <div class="sidebar-label">Main</div>
-    <button class="nav-item active" onclick="showScreen('dashboard')">
+    <button class="nav-item active" onclick="checkUnsavedBeforeNav('dashboard')">
       <svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1" y="1" width="6" height="6" rx="1.5"/><rect x="9" y="1" width="6" height="6" rx="1.5"/><rect x="1" y="9" width="6" height="6" rx="1.5"/><rect x="9" y="9" width="6" height="6" rx="1.5"/></svg>
       Dashboard
     </button>
-    <button class="nav-item" onclick="showScreen('create')">
+    <button class="nav-item" onclick="checkUnsavedBeforeNav('create')">
       <svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="7"/><line x1="8" y1="5" x2="8" y2="11"/><line x1="5" y1="8" x2="11" y2="8"/></svg>
       Create Post
     </button>
-    <button class="nav-item" onclick="showScreen('review')">
+    <button class="nav-item" onclick="checkUnsavedBeforeNav('review')">
       <svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 4h12M2 8h8M2 12h5"/></svg>
       Review &amp; Schedule
       <span class="nav-badge" id="review-badge" style="display:none">0</span>
     </button>
-    <button class="nav-item" onclick="showScreen('calendar')">
+    <button class="nav-item" onclick="checkUnsavedBeforeNav('calendar')">
       <svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1.5" y="2.5" width="13" height="12" rx="1.5"/><line x1="1.5" y1="6" x2="14.5" y2="6"/><line x1="5" y1="1" x2="5" y2="4"/><line x1="11" y1="1" x2="11" y2="4"/></svg>
       Calendar
     </button>
   </div>
   <div class="sidebar-section">
     <div class="sidebar-label">Tools</div>
-    <button class="nav-item" onclick="showScreen('autogen')">
+    <button class="nav-item" onclick="checkUnsavedBeforeNav('autogen')">
       <svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 1v3M8 12v3M1 8h3M12 8h3"/><circle cx="8" cy="8" r="3"/></svg>
       Auto-Generate Week
     </button>
-    <button class="nav-item" onclick="showScreen('library')">
+    <button class="nav-item" onclick="checkUnsavedBeforeNav('library')">
       <svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1" y="1" width="6" height="5" rx="1"/><rect x="9" y="1" width="6" height="5" rx="1"/><rect x="1" y="8" width="6" height="7" rx="1"/><rect x="9" y="8" width="6" height="7" rx="1"/></svg>
       Photo Library
     </button>
-    <button class="nav-item" onclick="showScreen('performance')">
+    <button class="nav-item" onclick="checkUnsavedBeforeNav('performance')">
       <svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M1.5 14.5h13M3 14.5V9M6.5 14.5V5M10 14.5V8M13.5 14.5V3"/></svg>
       Performance
     </button>
   </div>
   <div class="sidebar-section">
     <div class="sidebar-label">Config</div>
-    <button class="nav-item" onclick="showScreen('brands')">
+    <button class="nav-item" onclick="checkUnsavedBeforeNav('brands')">
       <svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 1L10.5 6H15L11 9.5L12.5 15L8 12L3.5 15L5 9.5L1 6H5.5Z"/></svg>
       Brand Profiles
     </button>
-    <button class="nav-item" onclick="showScreen('settings')">
+    <button class="nav-item" onclick="checkUnsavedBeforeNav('settings')">
       <svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="2.5"/><path d="M8 1.5v1.5M8 13v1.5M1.5 8h1.5M13 8h1.5M3.7 3.7l1 1M11.3 11.3l1 1M3.7 12.3l1-1M11.3 4.7l1-1"/></svg>
       Settings &amp; API Keys
     </button>
-    <button class="nav-item" onclick="showScreen('changelog')">
+    <button class="nav-item" onclick="checkUnsavedBeforeNav('changelog')">
       <svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 1.5h7l3 3v10h-10z"/><path d="M10 1.5v3h3"/><path d="M5.5 8h5M5.5 10.5h5M5.5 5.5h3"/></svg>
       What's New
     </button>
@@ -368,11 +368,11 @@ select:focus{border-color:var(--accent-border);}
   <div class="topbar">
     <div class="topbar-left"><h1>Dashboard</h1><p id="dash-date">Loading...</p></div>
     <div class="topbar-actions">
-      <button class="btn btn-secondary" onclick="showScreen('autogen')">
+      <button class="btn btn-secondary" onclick="checkUnsavedBeforeNav('autogen')">
         <svg style="width:13px;height:13px" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 1v3M8 12v3M1 8h3M12 8h3"/><circle cx="8" cy="8" r="3"/></svg>
         Auto-Generate Week
       </button>
-      <button class="btn btn-primary" onclick="showScreen('create')">
+      <button class="btn btn-primary" onclick="checkUnsavedBeforeNav('create')">
         <svg style="width:13px;height:13px" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="7"/><line x1="8" y1="5" x2="8" y2="11"/><line x1="5" y1="8" x2="11" y2="8"/></svg>
         New Post
       </button>
@@ -416,7 +416,7 @@ select:focus{border-color:var(--accent-border);}
       <div class="card">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
           <div style="font-size:14px;font-weight:500">This week's posts</div>
-          <button class="btn btn-ghost btn-sm" onclick="showScreen('calendar')">View calendar</button>
+          <button class="btn btn-ghost btn-sm" onclick="checkUnsavedBeforeNav('calendar')">View calendar</button>
         </div>
         <div id="dash-posts-list">
           <div class="empty-state" style="padding:30px 20px">
@@ -428,19 +428,19 @@ select:focus{border-color:var(--accent-border);}
       </div>
       <div style="display:flex;flex-direction:column;gap:10px">
         <div style="font-size:13px;font-weight:500;color:var(--text2);margin-bottom:4px">Quick Actions</div>
-        <button class="quick-action-btn" onclick="showScreen('create')">
+        <button class="quick-action-btn" onclick="checkUnsavedBeforeNav('create')">
           <div class="qa-icon" style="background:var(--accent-bg)"><svg style="width:16px;height:16px;color:var(--accent)" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="7"/><line x1="8" y1="5" x2="8" y2="11"/><line x1="5" y1="8" x2="11" y2="8"/></svg></div>
           <div><div class="qa-title">Create a post</div><div class="qa-sub">Manual post with Claude AI</div></div>
         </button>
-        <button class="quick-action-btn" onclick="showScreen('autogen')">
+        <button class="quick-action-btn" onclick="checkUnsavedBeforeNav('autogen')">
           <div class="qa-icon" style="background:var(--green-bg)"><svg style="width:16px;height:16px;color:var(--green)" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 1v3M8 12v3M1 8h3M12 8h3"/><circle cx="8" cy="8" r="3"/></svg></div>
           <div><div class="qa-title">Auto-generate week</div><div class="qa-sub">Fill all 3 pages automatically</div></div>
         </button>
-        <button class="quick-action-btn" onclick="showScreen('settings')">
+        <button class="quick-action-btn" onclick="checkUnsavedBeforeNav('settings')">
           <div class="qa-icon" style="background:var(--amber-bg)"><svg style="width:16px;height:16px;color:var(--amber)" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="2.5"/><path d="M8 1.5v1.5M8 13v1.5M1.5 8h1.5M13 8h1.5"/></svg></div>
           <div><div class="qa-title">Connect Facebook</div><div class="qa-sub">Add API keys to go live</div></div>
         </button>
-        <button class="quick-action-btn" onclick="showScreen('library')">
+        <button class="quick-action-btn" onclick="checkUnsavedBeforeNav('library')">
           <div class="qa-icon" style="background:rgba(62,207,142,0.08)"><svg style="width:16px;height:16px;color:var(--wcli)" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1" y="1" width="6" height="5" rx="1"/><rect x="9" y="1" width="6" height="5" rx="1"/></svg></div>
           <div><div class="qa-title">Upload photos</div><div class="qa-sub">Build your content library</div></div>
         </button>
@@ -449,10 +449,10 @@ select:focus{border-color:var(--accent-border);}
     <div class="card" style="margin-top:16px">
       <div style="font-size:14px;font-weight:500;margin-bottom:14px">Setup Checklist <span style="font-size:12px;color:var(--text3);font-weight:400;margin-left:8px">Complete these to go live</span></div>
       <div style="display:flex;flex-direction:column;gap:8px">
-        <div class="checklist-item" onclick="showScreen('settings')"><div class="check-circle pending" id="check-anthropic"><svg style="width:10px;height:10px" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="2"><circle cx="5" cy="5" r="4"/></svg></div><div><div style="font-size:13px;font-weight:500">Add Anthropic API key</div><div style="font-size:12px;color:var(--text3)">Required for AI caption generation</div></div><div style="margin-left:auto;font-size:12px;color:var(--text3)">→ Settings</div></div>
-        <div class="checklist-item" onclick="showScreen('settings')"><div class="check-circle pending"><svg style="width:10px;height:10px" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="2"><circle cx="5" cy="5" r="4"/></svg></div><div><div style="font-size:13px;font-weight:500">Connect Facebook Pages (3)</div><div style="font-size:12px;color:var(--text3)">MSSI, WCLI, CWLI page tokens</div></div><div style="margin-left:auto;font-size:12px;color:var(--text3)">→ Settings</div></div>
-        <div class="checklist-item" onclick="showScreen('brands')"><div class="check-circle pending"><svg style="width:10px;height:10px" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="2"><circle cx="5" cy="5" r="4"/></svg></div><div><div style="font-size:13px;font-weight:500">Review Brand Profiles</div><div style="font-size:12px;color:var(--text3)">Voice and tone settings per company</div></div><div style="margin-left:auto;font-size:12px;color:var(--text3)">→ Brand Profiles</div></div>
-        <div class="checklist-item" onclick="showScreen('library')"><div class="check-circle pending"><svg style="width:10px;height:10px" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="2"><circle cx="5" cy="5" r="4"/></svg></div><div><div style="font-size:13px;font-weight:500">Upload first photos</div><div style="font-size:12px;color:var(--text3)">Add product and project photos to library</div></div><div style="margin-left:auto;font-size:12px;color:var(--text3)">→ Library</div></div>
+        <div class="checklist-item" onclick="checkUnsavedBeforeNav('settings')"><div class="check-circle pending" id="check-anthropic"><svg style="width:10px;height:10px" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="2"><circle cx="5" cy="5" r="4"/></svg></div><div><div style="font-size:13px;font-weight:500">Add Anthropic API key</div><div style="font-size:12px;color:var(--text3)">Required for AI caption generation</div></div><div style="margin-left:auto;font-size:12px;color:var(--text3)">→ Settings</div></div>
+        <div class="checklist-item" onclick="checkUnsavedBeforeNav('settings')"><div class="check-circle pending"><svg style="width:10px;height:10px" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="2"><circle cx="5" cy="5" r="4"/></svg></div><div><div style="font-size:13px;font-weight:500">Connect Facebook Pages (3)</div><div style="font-size:12px;color:var(--text3)">MSSI, WCLI, CWLI page tokens</div></div><div style="margin-left:auto;font-size:12px;color:var(--text3)">→ Settings</div></div>
+        <div class="checklist-item" onclick="checkUnsavedBeforeNav('brands')"><div class="check-circle pending"><svg style="width:10px;height:10px" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="2"><circle cx="5" cy="5" r="4"/></svg></div><div><div style="font-size:13px;font-weight:500">Review Brand Profiles</div><div style="font-size:12px;color:var(--text3)">Voice and tone settings per company</div></div><div style="margin-left:auto;font-size:12px;color:var(--text3)">→ Brand Profiles</div></div>
+        <div class="checklist-item" onclick="checkUnsavedBeforeNav('library')"><div class="check-circle pending"><svg style="width:10px;height:10px" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="2"><circle cx="5" cy="5" r="4"/></svg></div><div><div style="font-size:13px;font-weight:500">Upload first photos</div><div style="font-size:12px;color:var(--text3)">Add product and project photos to library</div></div><div style="margin-left:auto;font-size:12px;color:var(--text3)">→ Library</div></div>
       </div>
     </div>
   </div>
@@ -618,7 +618,7 @@ select:focus{border-color:var(--accent-border);}
       <div class="empty-icon">📋</div>
       <div class="empty-title">Review queue is empty</div>
       <div class="empty-sub">Generated posts will appear here for approval before scheduling.</div>
-      <button class="btn btn-primary" style="margin-top:20px" onclick="showScreen('create')">Create a Post</button>
+      <button class="btn btn-primary" style="margin-top:20px" onclick="checkUnsavedBeforeNav('create')">Create a Post</button>
     </div>
   </div>
 </div>
@@ -644,7 +644,7 @@ select:focus{border-color:var(--accent-border);}
         <button class="btn btn-ghost btn-sm" onclick="changeMonth(1)">→</button>
         <button class="btn btn-ghost btn-sm" onclick="goToToday()" style="margin-left:8px">Today</button>
       </div>
-      <button class="btn btn-primary btn-sm" onclick="showScreen('autogen')">+ Fill Week</button>
+      <button class="btn btn-primary btn-sm" onclick="checkUnsavedBeforeNav('autogen')">+ Fill Week</button>
     </div>
     <div class="cal-grid" id="calendar-grid"></div>
     <div id="cal-day-detail"></div>
@@ -928,6 +928,7 @@ select:focus{border-color:var(--accent-border);}
           </div>
           <div style="display:flex;gap:8px">
             <button class="btn btn-secondary btn-sm" onclick="copyWcliToCwli()">Copy from WCLI</button>
+            <button class="btn btn-secondary btn-sm" onclick="refetchColorImages('cwli')" title="Re-fetch swatch images for CWLI colors missing them">🖼 Fetch Images</button>
             <button class="btn btn-ghost btn-sm" onclick="openAddColorModal('cwli')">+ Add</button>
           </div>
         </div>
@@ -2705,6 +2706,7 @@ async function generatePost() {
     document.getElementById('btn-schedule').style.display = 'inline-flex';
 
     showToast('Caption generated!', 'success');
+    markUnsaved('generated post — not yet scheduled');
 
     // Surface the image-generation button now that there's an approved caption to base it on.
     // Image generation is a separate, deliberate step — the user regenerates the caption until
@@ -2762,6 +2764,7 @@ function saveDraft() {
   } else {
     showToast('Saved to review queue', 'success');
   }
+  markSaved(); // clear unsaved flag when saved to queue
 }
 
 // REVIEW QUEUE
@@ -2961,7 +2964,7 @@ function schedulePost(id) {
   updateReviewBadge();
   updateDashboard();
   showToast('Post scheduled!', 'success');
-  // Sync to both legacy cron table and new Supabase posts table
+  markSaved(); // clear unsaved flag
   syncPostToSupabase(post);
   pushPostToSupabase(post);
 }
@@ -2974,6 +2977,7 @@ function markCaptionEdited(id) {
     saveState();
     showToast('Edit saved', 'info');
   }
+  markUnsaved('caption edits — remember to schedule the post');
 }
 
 function copyCaption(id) {
@@ -3858,7 +3862,7 @@ function showDayDetail(year, month, day) {
           <button class="btn btn-ghost btn-sm" onclick="closeDayDetail()">Close</button>
         </div>
         <div style="font-size:13px;color:var(--text3)">No posts on this day.</div>
-        <button class="btn btn-primary btn-sm" style="margin-top:10px" onclick="showScreen('create')">Create a Post</button>
+        <button class="btn btn-primary btn-sm" style="margin-top:10px" onclick="checkUnsavedBeforeNav('create')">Create a Post</button>
       </div>`;
     return;
   }
@@ -5880,10 +5884,17 @@ async function importWcliColors() {
 }
 
 // Re-fetch swatch images for colors that are missing them
-async function refetchColorImages(company) {
+async function refetchColorImages(company, forceAll) {
   const colors = getColors(company);
-  const missing = colors.filter(c => c.slug && !c.swatchUrl);
-  if (!missing.length) { showToast('All colors already have swatch images ✓', 'info'); return; }
+  // forceAll = re-fetch even colors that already have images (for re-sync)
+  const missing = forceAll
+    ? colors.filter(c => c.slug)
+    : colors.filter(c => c.slug && !c.swatchUrl);
+
+  if (!missing.length) {
+    showToast('All ' + company.toUpperCase() + ' colors already have swatch images ✓', 'info');
+    return;
+  }
 
   const proxyBase = (APP.apiKeys.imgproxy || localStorage.getItem('scm_imgproxy_key') || '').replace(/generate-image\/?$/, '');
   if (!proxyBase) { showToast('Image Proxy URL not configured in Settings', 'error'); return; }
@@ -5892,19 +5903,21 @@ async function refetchColorImages(company) {
   const countEl = document.getElementById('color-count-' + company);
 
   function showProgress(msg, pct) {
+    // Show progress regardless of whether the tab is active
     if (listEl) listEl.innerHTML = `
       <div style="padding:16px 0">
         <div style="font-size:12.5px;color:var(--text2);margin-bottom:10px">${msg}</div>
         <div style="background:var(--bg3);border-radius:4px;height:6px;overflow:hidden">
           <div style="background:var(--accent2);height:100%;width:${pct}%;transition:width 0.3s;border-radius:4px"></div>
         </div>
-        <div style="font-size:11px;color:var(--text3);margin-top:6px">${pct}% complete</div>
+        <div style="font-size:11px;color:var(--text3);margin-top:6px">${pct}% complete — ${company.toUpperCase()} colors</div>
       </div>`;
     if (countEl) countEl.textContent = '';
+    // Also show in toast for background progress
+    if (pct === 100) showToast(`✓ ${company.toUpperCase()} swatch images loaded`, 'success');
   }
 
-  showToast(`Fetching images for ${missing.length} colors…`, 'info');
-  showProgress(`Fetching swatch images for ${missing.length} colors without photos…`, 5);
+  showProgress(`Fetching swatch images for ${missing.length} ${company.toUpperCase()} colors…`, 5);
 
   const updatedColors = [...colors];
   const batchSize = 5;
@@ -5935,12 +5948,9 @@ async function refetchColorImages(company) {
     await new Promise(r => setTimeout(r, 100));
   }
 
-  showProgress(`✓ Done! Fetched images for ${fetched} of ${missing.length} colors.`, 100);
+  showProgress(`✓ Done! ${fetched} swatch images fetched for ${company.toUpperCase()}.`, 100);
   saveColors(company, updatedColors);
-  setTimeout(() => {
-    renderColorList(company);
-    showToast(`✓ ${fetched} swatch images loaded`, 'success');
-  }, 800);
+  setTimeout(() => renderColorList(company), 800);
 }
 
 // Get active/featured colors for a company (for caption injection)
@@ -7300,6 +7310,63 @@ async function loadAutopilotLog() {
         <span style="font-size:10.5px;color:${l.telegram_sent?'var(--green)':'var(--text3)'}">${l.telegram_sent?'✓ Telegram sent':'No Telegram'}</span>
       </div>`).join('');
   } catch (_e) { el.textContent = 'Could not load log'; }
+}
+
+// ============================================================
+//  UNSAVED CHANGES WARNING
+//  Tracks dirty state and warns before navigation / tab close
+// ============================================================
+
+let _unsavedChanges = false;
+let _unsavedContext = ''; // what changed
+
+function markUnsaved(context) {
+  _unsavedChanges = true;
+  _unsavedContext = context || 'changes';
+}
+
+function markSaved() {
+  _unsavedChanges = false;
+  _unsavedContext = '';
+}
+
+// Browser tab/window close warning
+window.addEventListener('beforeunload', function(e) {
+  if (_unsavedChanges) {
+    e.preventDefault();
+    e.returnValue = 'You have unsaved ' + _unsavedContext + '. Are you sure you want to leave?';
+    return e.returnValue;
+  }
+});
+
+// In-app navigation guard — called before switching screens
+function checkUnsavedBeforeNav(targetScreen) {
+  if (!_unsavedChanges) { showScreen(targetScreen); return; }
+  showUnsavedDialog(
+    'You have unsaved ' + _unsavedContext + '.',
+    function() { markSaved(); showScreen(targetScreen); }, // leave anyway
+    null // cancel = stay
+  );
+}
+
+function showUnsavedDialog(message, onLeave, onSave) {
+  const existing = document.getElementById('unsaved-dialog');
+  if (existing) existing.remove();
+
+  const div = document.createElement('div');
+  div.id = 'unsaved-dialog';
+  div.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:5000;display:flex;align-items:center;justify-content:center';
+  div.innerHTML = `
+    <div style="background:var(--bg2);border:1px solid var(--border2);border-radius:var(--radius-lg);width:340px;padding:20px;box-shadow:0 16px 48px rgba(0,0,0,0.4)">
+      <div style="font-size:15px;font-weight:600;margin-bottom:8px">Unsaved Changes</div>
+      <div style="font-size:13px;color:var(--text2);margin-bottom:20px;line-height:1.6">${message}</div>
+      <div style="display:flex;gap:8px">
+        ${onSave ? `<button class="btn btn-primary" style="flex:1" onclick="document.getElementById('unsaved-dialog').remove();(${onSave})()">Save</button>` : ''}
+        <button class="btn btn-secondary" style="flex:1" onclick="document.getElementById('unsaved-dialog').remove();(${onLeave})()">Leave anyway</button>
+        <button class="btn btn-ghost" onclick="document.getElementById('unsaved-dialog').remove()">Stay</button>
+      </div>
+    </div>`;
+  document.body.appendChild(div);
 }
 
 // INIT
