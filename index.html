@@ -886,6 +886,7 @@ select:focus{border-color:var(--accent-border);}
               <svg style="width:12px;height:12px" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 1v10M4 7l4 4 4-4"/><path d="M2 13h12"/></svg>
               Import from Website
             </button>
+            <button class="btn btn-secondary btn-sm" onclick="refetchColorImages('wcli')" title="Re-fetch swatch images for colors that are missing them">🖼 Fetch Images</button>
             <button class="btn btn-ghost btn-sm" onclick="openAddColorModal('wcli')">+ Add</button>
           </div>
         </div>
@@ -5773,29 +5774,37 @@ async function importWcliColors() {
     if (!slugs.length) throw new Error('No colors found on website');
 
     const existing = getColors('wcli');
-    const existingSlugs = new Set(existing.map(c => c.slug));
-    const toFetch = slugs.filter(s => !existingSlugs.has(s));
+    const existingMap = Object.fromEntries(existing.map(c => [c.slug, c]));
+
+    // Fetch NEW colors (not in local list) AND existing colors missing swatch images
+    const newSlugs = slugs.filter(s => !existingMap[s]);
+    const missingSwatch = existing.filter(c => c.slug && !c.swatchUrl).map(c => c.slug);
+    const toFetch = [...newSlugs, ...missingSwatch];
 
     if (!toFetch.length) {
-      showProgress('All colors already imported — nothing new found', 100);
+      // All imported and all have images — nothing to do
+      showProgress('All colors imported and images up to date ✓', 100);
       if (btn) { btn.disabled = false; btn.innerHTML = 'Re-sync from Website'; }
       setTimeout(() => renderColorList('wcli'), 1500);
       return;
     }
 
-    showProgress(`Found ${slugs.length} colors — ${toFetch.length} new to import…`, 10);
+    const newCount = newSlugs.length;
+    const imageCount = missingSwatch.length;
+    showProgress(`Found ${newCount} new colors + ${imageCount} missing images to fetch…`, 10);
 
     const newColors = [];
+    const updatedColors = [...existing]; // start with full existing list
     const batchSize = 5;
-    const totalBatches = Math.ceil(Math.min(toFetch.length, 200) / batchSize);
+    const totalBatches = Math.ceil(Math.min(toFetch.length, 300) / batchSize);
 
-    for (let i = 0; i < Math.min(toFetch.length, 200); i += batchSize) {
+    for (let i = 0; i < Math.min(toFetch.length, 300); i += batchSize) {
       const batch = toFetch.slice(i, i + batchSize);
       const batchNum = Math.floor(i / batchSize) + 1;
       const pct = Math.round(10 + (batchNum / totalBatches) * 85);
 
       showProgress(
-        `Fetching color details… ${newColors.length + batch.length} of ${toFetch.length} colors (${batchNum}/${totalBatches} batches)`,
+        `Fetching… ${Math.min(i + batch.length, toFetch.length)} of ${toFetch.length} (${newColors.length} new, ${imageCount} images)`,
         pct
       );
 
@@ -5822,18 +5831,38 @@ async function importWcliColors() {
           };
         } catch { return null; }
       }));
-      newColors.push(...results.filter(Boolean));
+
+      for (const r of results.filter(Boolean)) {
+        const existingIdx = updatedColors.findIndex(c => c.slug === r.slug);
+        if (existingIdx >= 0) {
+          // Update existing color — preserve status/featured, just update images and data
+          updatedColors[existingIdx] = {
+            ...updatedColors[existingIdx],
+            swatchUrl: r.swatchUrl || updatedColors[existingIdx].swatchUrl,
+            mockupUrl: r.mockupUrl || updatedColors[existingIdx].mockupUrl,
+            pattern: r.pattern || updatedColors[existingIdx].pattern,
+            colorFamily: r.colorFamily || updatedColors[existingIdx].colorFamily,
+            finishes: r.finishes.length ? r.finishes : updatedColors[existingIdx].finishes,
+            is_hpl: r.is_hpl,
+            series: r.series || updatedColors[existingIdx].series,
+          };
+        } else {
+          // New color
+          updatedColors.push(r);
+          newColors.push(r);
+        }
+      }
       await new Promise(r => setTimeout(r, 100));
     }
 
-    showProgress(`✓ Done! Imported ${newColors.length} new colors.`, 100);
+    const addedImages = updatedColors.filter(c => c.swatchUrl).length;
+    showProgress(`✓ Done! ${newColors.length} new colors added. ${addedImages} colors now have swatch images.`, 100);
 
-    const updated = [...existing, ...newColors];
-    saveColors('wcli', updated);
+    saveColors('wcli', updatedColors);
 
     setTimeout(() => {
       renderColorList('wcli');
-      showToast(`✓ ${newColors.length} new colors imported (${updated.length} total)`, 'success');
+      showToast(`✓ ${newColors.length} new + ${imageCount} images updated (${updatedColors.length} total)`, 'success');
     }, 800);
 
     if (btn) { btn.disabled = false; btn.innerHTML = 'Re-sync from Website'; }
@@ -5843,6 +5872,70 @@ async function importWcliColors() {
     showToast('Import failed: ' + err.message, 'error');
     if (btn) { btn.disabled = false; btn.innerHTML = 'Import from Website'; }
   }
+}
+
+// Re-fetch swatch images for colors that are missing them
+async function refetchColorImages(company) {
+  const colors = getColors(company);
+  const missing = colors.filter(c => c.slug && !c.swatchUrl);
+  if (!missing.length) { showToast('All colors already have swatch images ✓', 'info'); return; }
+
+  const proxyBase = (APP.apiKeys.imgproxy || localStorage.getItem('scm_imgproxy_key') || '').replace(/generate-image\/?$/, '');
+  if (!proxyBase) { showToast('Image Proxy URL not configured in Settings', 'error'); return; }
+
+  const listEl = document.getElementById('color-list-' + company);
+  const countEl = document.getElementById('color-count-' + company);
+
+  function showProgress(msg, pct) {
+    if (listEl) listEl.innerHTML = `
+      <div style="padding:16px 0">
+        <div style="font-size:12.5px;color:var(--text2);margin-bottom:10px">${msg}</div>
+        <div style="background:var(--bg3);border-radius:4px;height:6px;overflow:hidden">
+          <div style="background:var(--accent2);height:100%;width:${pct}%;transition:width 0.3s;border-radius:4px"></div>
+        </div>
+        <div style="font-size:11px;color:var(--text3);margin-top:6px">${pct}% complete</div>
+      </div>`;
+    if (countEl) countEl.textContent = '';
+  }
+
+  showToast(`Fetching images for ${missing.length} colors…`, 'info');
+  showProgress(`Fetching swatch images for ${missing.length} colors without photos…`, 5);
+
+  const updatedColors = [...colors];
+  const batchSize = 5;
+  let fetched = 0;
+
+  for (let i = 0; i < missing.length; i += batchSize) {
+    const batch = missing.slice(i, i + batchSize);
+    const pct = Math.round(5 + ((i / missing.length) * 90));
+    showProgress(`Fetching images… ${Math.min(i + batchSize, missing.length)} of ${missing.length}`, pct);
+
+    const results = await Promise.all(batch.map(async c => {
+      try {
+        const res = await fetch(`${proxyBase}scrape-wcli-colors?mode=detail&slug=${encodeURIComponent(c.slug)}`);
+        const d = await res.json();
+        if (d.swatchUrl) return { slug: c.slug, swatchUrl: d.swatchUrl, mockupUrl: d.mockupUrl || '' };
+        return null;
+      } catch { return null; }
+    }));
+
+    for (const r of results.filter(Boolean)) {
+      const idx = updatedColors.findIndex(c => c.slug === r.slug);
+      if (idx >= 0) {
+        updatedColors[idx].swatchUrl = r.swatchUrl;
+        if (r.mockupUrl) updatedColors[idx].mockupUrl = r.mockupUrl;
+        fetched++;
+      }
+    }
+    await new Promise(r => setTimeout(r, 100));
+  }
+
+  showProgress(`✓ Done! Fetched images for ${fetched} of ${missing.length} colors.`, 100);
+  saveColors(company, updatedColors);
+  setTimeout(() => {
+    renderColorList(company);
+    showToast(`✓ ${fetched} swatch images loaded`, 'success');
+  }, 800);
 }
 
 // Get active/featured colors for a company (for caption injection)
