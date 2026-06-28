@@ -8176,9 +8176,16 @@ function toggleScheduledPreview(postId) {
   const fbName = post.company === 'mssi' ? 'Module Systems & Services, Inc.' : post.company === 'wcli' ? 'World Class Laminate, Inc.' : 'Cebu World Laminate, Inc.';
   const photoSrc = post.photo || post.photoUrl || post.photo_url || null;
   const videoSrc = post.videoUrl || post.video_url || post.video || null;
+  const isVideo = post.mediaType === 'video';
 
-  const mediaHtml = post.mediaType === 'video' && videoSrc
+  const mediaHtml = isVideo && videoSrc
     ? `<video src="${videoSrc}" controls style="width:100%;max-height:340px;object-fit:cover;background:#000;display:block"></video>`
+    : isVideo
+    ? `<div style="width:100%;background:#000;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;padding:36px 0">
+        <span style="font-size:40px">🎬</span>
+        <span style="font-size:12.5px;color:#aaa">Video attached — preview not available in browser</span>
+        <span style="font-size:11px;color:#666">Video will publish correctly to Facebook</span>
+       </div>`
     : photoSrc
     ? `<img src="${photoSrc}" style="width:100%;max-height:340px;object-fit:cover;display:block" alt="Post photo">`
     : `<div style="width:100%;background:#f0f2f5;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;padding:28px 0">
@@ -8228,7 +8235,7 @@ function toggleScheduledPreview(postId) {
           <span>👤 ${post.audience}</span>
         </div>
         <div style="display:flex;gap:8px">
-          <button class="btn btn-secondary btn-sm" style="flex:1" onclick="document.getElementById('post-preview-modal').remove();showScreen('create')">Edit in Create Post</button>
+          <button class="btn btn-secondary btn-sm" style="flex:1" onclick="document.getElementById('post-preview-modal').remove();loadPostIntoCreate('${postId}')">Edit in Create Post</button>
           <button class="btn btn-primary btn-sm" style="flex:1" onclick="document.getElementById('post-preview-modal').remove();schedulePost('${postId}')">Schedule &amp; Approve</button>
         </div>
       </div>
@@ -8262,6 +8269,68 @@ async function generateImageForPreview(postId) {
   }
 }
 
+function loadPostIntoCreate(postId) {
+  const post = APP.posts.find(p => String(p.id) === String(postId));
+  if (!post) { showScreen('create'); return; }
+
+  // Store which post we're editing so saving updates it instead of creating new
+  APP._editingPostId = postId;
+
+  showScreen('create');
+
+  // Slight delay to let the screen render first
+  setTimeout(() => {
+    // Company
+    selectCompany(post.company);
+
+    // Audience — find and click the matching button
+    const audBtns = document.querySelectorAll('.audience-btn');
+    audBtns.forEach(btn => {
+      const label = btn.querySelector('.audience-label')?.textContent || '';
+      if (label === post.audience) btn.click();
+    });
+
+    // Pillar — find and click the matching button
+    const pillarBtns = document.querySelectorAll('.pillar-btn');
+    pillarBtns.forEach(btn => {
+      const name = btn.querySelector('.pillar-name')?.textContent || '';
+      if (name === post.pillar) btn.click();
+    });
+
+    // Caption
+    APP.currentCaption = post.caption;
+    const captionEl = document.getElementById('caption-output');
+    if (captionEl) captionEl.value = post.caption;
+    const captionSection = document.getElementById('caption-section');
+    if (captionSection) captionSection.style.display = 'block';
+
+    // Photo
+    if (post.photo || post.photoUrl || post.photo_url) {
+      const src = post.photo || post.photoUrl || post.photo_url;
+      APP.currentPhoto = src;
+      APP.mediaType = 'photo';
+      const previewEl = document.getElementById('preview-image');
+      if (previewEl) previewEl.innerHTML = `<img src="${src}" style="width:100%;height:200px;object-fit:cover" alt="Post photo">`;
+      const enhanceBtn = document.getElementById('ai-enhance-btn');
+      if (enhanceBtn) enhanceBtn.style.display = '';
+    } else if (post.mediaType === 'video' && (post.videoUrl || post.video_url)) {
+      const src = post.videoUrl || post.video_url;
+      APP.mediaType = 'video';
+      const previewEl = document.getElementById('preview-image');
+      if (previewEl) previewEl.innerHTML = `<video src="${src}" controls style="width:100%;height:200px;object-fit:cover;background:#000"></video>`;
+      // Switch to video tab
+      document.getElementById('media-tab-video')?.click();
+    }
+
+    // Color if set
+    if (post.colorId) {
+      const colorSel = document.getElementById('post-color-id');
+      if (colorSel) { colorSel.value = post.colorId; updateColorFinishOptions(); }
+    }
+
+    showToast('Post loaded — make your edits then save or schedule', 'info');
+  }, 150);
+}
 
 // ── IN-APP USER REGISTRATION ──────────────────────────────────
 function openRegisterModal() {
