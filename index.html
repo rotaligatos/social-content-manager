@@ -5664,12 +5664,17 @@ function copyWcliToCwli() {
   if (!wcliColors.length) { showToast('Import WCLI colors first', 'error'); return; }
   const cwliColors = getColors('cwli');
   const existingIds = new Set(cwliColors.map(c => c.id));
-  const cebuColors = wcliColors.filter(c => c.isCebuExclusive || !existingIds.has(c.id));
-  const toAdd = cebuColors.filter(c => !existingIds.has(c.id));
+  const toAdd = wcliColors.filter(c => !existingIds.has(c.id));
   if (!toAdd.length) { showToast('All WCLI colors already in CWLI', 'info'); return; }
   saveColors('cwli', [...cwliColors, ...toAdd]);
   renderColorList('cwli');
   showToast(`${toAdd.length} colors copied to CWLI`, 'success');
+  // Auto-fetch images for CWLI colors that are missing swatches
+  const cwliMissingImages = getColors('cwli').filter(c => c.slug && !c.swatchUrl);
+  if (cwliMissingImages.length) {
+    showToast(`Fetching images for ${cwliMissingImages.length} colors…`, 'info');
+    setTimeout(() => refetchColorImages('cwli'), 500);
+  }
 }
 
 // Add color modal
@@ -6317,26 +6322,44 @@ function deleteRetailPartner(id) {
 
 function openAddRetailModal(defaultCompany) {
   const html = `<div id="addretail-overlay" style="position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:3000;display:flex;align-items:center;justify-content:center" onclick="if(event.target.id==='addretail-overlay')closeAddRetailModal()">
-    <div style="background:var(--bg2);border:1px solid var(--border2);border-radius:var(--radius-lg);width:420px;padding:20px">
+    <div style="background:var(--bg2);border:1px solid var(--border2);border-radius:var(--radius-lg);width:440px;padding:20px">
       <div style="font-size:14px;font-weight:500;margin-bottom:4px">Add Retail Partner / Store</div>
-      <div style="font-size:11.5px;color:var(--text3);margin-bottom:16px">Add a specific branch manually, or search the web to find branches of a chain.</div>
-      <div class="form-group">
-        <label class="form-label">Store / Branch Name *</label>
-        <div style="display:flex;gap:6px">
-          <input type="text" id="nr-name" placeholder="e.g. Wilcon Depot — Balintawak, QC" style="flex:1">
-          <button class="btn btn-secondary btn-sm" onclick="searchWebForStore()" title="Search web for branches of this chain">🔍</button>
+      <div style="font-size:11.5px;color:var(--text3);margin-bottom:16px">Search by store name + area, or enter manually. Not all stores are in our database — you can always type a name directly.</div>
+
+      <div style="display:flex;gap:8px;margin-bottom:8px">
+        <div style="flex:1">
+          <label class="form-label">Store / Chain Name</label>
+          <input type="text" id="nr-search-name" placeholder="e.g. Wilcon, AllHome, Bohol Quality" style="width:100%" oninput="debounceStoreSearch()">
         </div>
-        <div style="font-size:11px;color:var(--text3);margin-top:4px">Enter a chain name then click 🔍 to find specific branches</div>
+        <div style="flex:1">
+          <label class="form-label">Area / Province</label>
+          <input type="text" id="nr-search-area" placeholder="e.g. Cebu, Iloilo, Davao" style="width:100%" oninput="debounceStoreSearch()">
+        </div>
       </div>
-      <div id="nr-search-results" style="display:none;max-height:160px;overflow-y:auto;border:1px solid var(--border);border-radius:var(--radius);margin-bottom:12px;background:var(--bg3)"></div>
-      <div class="form-group"><label class="form-label">Assign to</label>
+
+      <div id="nr-search-results" style="display:none;max-height:180px;overflow-y:auto;border:1px solid var(--border);border-radius:var(--radius);margin-bottom:12px;background:var(--bg3)"></div>
+
+      <div style="border-top:1px solid var(--border);padding-top:12px;margin-bottom:12px">
+        <div style="font-size:11.5px;color:var(--text3);margin-bottom:8px">Or enter manually:</div>
+        <div class="form-group" style="margin-bottom:8px">
+          <label class="form-label">Full Branch Name *</label>
+          <input type="text" id="nr-name" placeholder="e.g. Bohol Quality — Mandaue Branch">
+        </div>
+        <div class="form-group" style="margin-bottom:0">
+          <label class="form-label">Address / Notes</label>
+          <input type="text" id="nr-region" placeholder="e.g. A.S. Fortuna St., Mandaue City, Cebu">
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">Assign to</label>
         <div style="display:flex;gap:10px;margin-top:4px">
           <label style="display:flex;align-items:center;gap:4px;font-size:12px;cursor:pointer"><input type="checkbox" value="wcli" class="nr-co" ${!defaultCompany || defaultCompany==='wcli' ? 'checked' : ''}> WCLI</label>
           <label style="display:flex;align-items:center;gap:4px;font-size:12px;cursor:pointer"><input type="checkbox" value="cwli" class="nr-co" ${defaultCompany==='cwli' ? 'checked' : ''}> CWLI</label>
           <label style="display:flex;align-items:center;gap:4px;font-size:12px;cursor:pointer"><input type="checkbox" value="mssi" class="nr-co"> MSSI</label>
         </div>
       </div>
-      <div class="form-group"><label class="form-label">Region / Notes</label><input type="text" id="nr-region" placeholder="e.g. Nationwide, Cebu branches only"></div>
+
       <div style="display:flex;gap:8px;margin-top:16px">
         <button class="btn btn-primary" style="flex:1" onclick="saveNewRetailPartner()">Add Store</button>
         <button class="btn btn-ghost" onclick="closeAddRetailModal()">Cancel</button>
@@ -6347,46 +6370,73 @@ function openAddRetailModal(defaultCompany) {
   document.body.appendChild(div);
 }
 
-async function searchWebForStore() {
-  const nameInput = document.getElementById('nr-name');
-  const query = nameInput?.value?.trim();
-  if (!query) { showToast('Enter a store chain name first', 'error'); return; }
+// Debounce store search so it doesn't fire on every keystroke
+let _storeSearchTimer = null;
+function debounceStoreSearch() {
+  clearTimeout(_storeSearchTimer);
+  _storeSearchTimer = setTimeout(runStoreSearch, 400);
+}
 
+async function runStoreSearch() {
+  const nameQuery = (document.getElementById('nr-search-name')?.value || '').trim().toLowerCase();
+  const areaQuery = (document.getElementById('nr-search-area')?.value || '').trim().toLowerCase();
   const resultsEl = document.getElementById('nr-search-results');
   if (!resultsEl) return;
-  resultsEl.style.display = 'block';
-  resultsEl.innerHTML = '<div style="padding:10px;font-size:12px;color:var(--text3)">Searching WCLI store list…</div>';
 
-  // Search from already-scraped branches in retail partners, or re-fetch
-  const proxyBase = (APP.apiKeys.imgproxy || localStorage.getItem('scm_imgproxy_key') || '').replace(/generate-image\/?$/, '');
-  if (!proxyBase) {
-    resultsEl.innerHTML = '<div style="padding:10px;font-size:12px;color:var(--red)">Image Proxy URL not configured in Settings</div>';
+  if (!nameQuery && !areaQuery) {
+    resultsEl.style.display = 'none';
     return;
   }
 
+  resultsEl.style.display = 'block';
+  resultsEl.innerHTML = '<div style="padding:10px;font-size:12px;color:var(--text3)">Searching…</div>';
+
+  // 1. Search in already-scraped WCLI list first (fast, no API call)
+  const proxyBase = (APP.apiKeys.imgproxy || localStorage.getItem('scm_imgproxy_key') || '').replace(/generate-image\/?$/, '');
+  let branches = [];
+
   try {
-    const res = await fetch(proxyBase + 'scrape-retail-partners');
-    const data = await res.json();
-    const branches = (data.branches || []).filter(b =>
-      b.name.toLowerCase().includes(query.toLowerCase()) ||
-      b.chain.toLowerCase().includes(query.toLowerCase())
-    );
-
-    if (!branches.length) {
-      resultsEl.innerHTML = `<div style="padding:10px;font-size:12px;color:var(--text3)">No branches found for "${query}" in WCLI store list</div>`;
-      return;
+    if (proxyBase) {
+      const res = await fetch(proxyBase + 'scrape-retail-partners');
+      const data = await res.json();
+      branches = data.branches || [];
     }
+  } catch (_e) {}
 
-    resultsEl.innerHTML = branches.slice(0, 30).map(b => `
-      <div onclick="selectRetailBranch('${b.name.replace(/'/g,"\\'").replace(/"/g,'&quot;')}','${(b.address||'').replace(/'/g,"\\'").replace(/"/g,'&quot;')}','${b.area}')"
-           style="padding:8px 10px;cursor:pointer;border-bottom:1px solid var(--border);display:flex;flex-direction:column;gap:2px"
-           onmouseover="this.style.background='var(--bg4)'" onmouseout="this.style.background=''">
-        <div style="font-size:12.5px;font-weight:500">${b.name}</div>
-        <div style="font-size:11px;color:var(--text3)">${b.address || b.area}</div>
-      </div>`).join('');
-  } catch (err) {
-    resultsEl.innerHTML = `<div style="padding:10px;font-size:12px;color:var(--red)">Search failed: ${err.message}</div>`;
+  // Filter by name and area
+  const filtered = branches.filter(b => {
+    const bName = b.name.toLowerCase();
+    const bAddr = (b.address || '').toLowerCase() + ' ' + (b.area || '').toLowerCase();
+    const matchName = !nameQuery || bName.includes(nameQuery) || b.chain?.toLowerCase().includes(nameQuery);
+    const matchArea = !areaQuery || bAddr.includes(areaQuery) || bName.includes(areaQuery);
+    return matchName && matchArea;
+  });
+
+  if (!filtered.length) {
+    resultsEl.innerHTML = `<div style="padding:10px 12px">
+      <div style="font-size:12px;color:var(--text3);margin-bottom:8px">No matches found in WCLI store list${nameQuery ? ' for "' + nameQuery + '"' : ''}${areaQuery ? ' in "' + areaQuery + '"' : ''}.</div>
+      <div style="font-size:12px;color:var(--text2)">Enter the store name and address manually in the fields below, or try a different spelling.</div>
+    </div>`;
+    // Pre-fill name field with search query as convenience
+    const nameInput = document.getElementById('nr-name');
+    if (nameInput && !nameInput.value && nameQuery) {
+      const chainName = nameQuery.charAt(0).toUpperCase() + nameQuery.slice(1);
+      const areaName = areaQuery ? ' — ' + areaQuery.charAt(0).toUpperCase() + areaQuery.slice(1) : '';
+      nameInput.value = chainName + areaName;
+    }
+    return;
   }
+
+  resultsEl.innerHTML = filtered.slice(0, 25).map(b => {
+    const safeN = b.name.replace(/'/g,"\\'").replace(/"/g,'&quot;');
+    const safeA = (b.address||'').replace(/'/g,"\\'").replace(/"/g,'&quot;');
+    return `<div onclick="selectRetailBranch('${safeN}','${safeA}','${b.area}')"
+         style="padding:9px 12px;cursor:pointer;border-bottom:1px solid var(--border)"
+         onmouseover="this.style.background='var(--bg4)'" onmouseout="this.style.background=''">
+      <div style="font-size:12.5px;font-weight:500">${b.name}</div>
+      <div style="font-size:11px;color:var(--text3)">${b.address || b.area || ''}</div>
+    </div>`;
+  }).join('') + (filtered.length > 25 ? `<div style="padding:8px 12px;font-size:11px;color:var(--text3)">${filtered.length - 25} more — narrow your search</div>` : '');
 }
 
 function selectRetailBranch(name, address, area) {
