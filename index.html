@@ -1357,6 +1357,89 @@ select:focus{border-color:var(--accent-border);}
 // Newest entries go at the top. Each entry should describe what changed in plain language.
 const CHANGELOG = [
   {
+    date: '2026-06-28',
+    title: 'Facebook Webhooks — real-time comments & auto Telegram alerts',
+    items: [
+      'Facebook Webhook set up via Meta Developer portal — MSSI and WCLI pages now push real-time comments and reactions to Supabase within seconds of each event.',
+      'New post_comments table stores every comment with: author, message, arrival timestamp, company, inquiry flag, response tracking fields.',
+      'AI inquiry detection runs automatically on every comment — flags buying signals (price, magkano, saan, interested, available, etc.) as Inquiry type.',
+      'Dashboard Inquiry & Comment Check card rebuilt — now shows actual individual comments from Supabase, grouped as Inquiries first then regular comments, with SLA breach warnings.',
+      'Staff auto-notification: when a comment arrives, Telegram alert sent immediately to all staff assigned to that company — no manual assignment needed.',
+      'Manager escalation: SLA-Escalation Edge Function runs every 30 minutes via pg_cron, notifies managers on Telegram when any comment is unresponded past SLA target.',
+      'Staff role field added — each staff member is now tagged as Staff (handles comments) or Manager (receives escalations). Set in Settings → Team.',
+      'Permanent Facebook Page Token exchange built in — Settings → Facebook Pages → Convert to Permanent Token. Exchanges short-lived Graph API Explorer tokens server-side via Supabase Edge Function. Never expires.',
+      'SLA targets: MSSI 2 hours, WCLI/CWLI 4 hours. Configurable in Settings → SLA Targets.'
+    ]
+  },
+  {
+    date: '2026-06-28',
+    title: 'Post data persistence & cross-device sync',
+    items: [
+      'Every post now writes directly to Supabase posts table on create, schedule, and publish — no longer dependent on bulk sync. Posts are permanent even if localStorage is cleared.',
+      'New upsert-post Edge Function handles individual post writes including performance data updates after Facebook insight fetches.',
+      'Push All to Cloud now backfills all existing localStorage posts into Supabase in batches of 50.',
+      'Cross-device sync confirmed working — login on Android/tablet pulls latest posts, brand profiles, colors, API keys, and settings from Supabase. Tap ↻ Sync to pull latest.',
+      'Performance insights now sync to Supabase after each fetch — analytics data is permanent.',
+      'syncStatusFromSupabase improved — handles stale publishing locks, picks up posts published by offline cron, and updates local state correctly on app load.'
+    ]
+  },
+  {
+    date: '2026-06-28',
+    title: 'Duplicate post bug fixed + offline publishing improved',
+    items: [
+      'Root cause of duplicate Facebook posts identified and fixed: in-browser scheduler was firing on every page refresh before Supabase sync completed.',
+      'Publishing lock added — post status set to "publishing" before calling Facebook API, blocking any re-entry from refresh or next scheduler tick.',
+      'Hard guard added: if a post already has a fbPostId, it is never re-posted regardless of status.',
+      'Startup now waits 3 seconds for syncStatusFromSupabase to complete before first scheduler tick runs.',
+      'After successful publish, syncPostPublishedToSupabase immediately patches the Supabase row — offline cron will not retry it.',
+      'Stale publishing locks from crashed sessions are cleared on app startup and reset to scheduled.'
+    ]
+  },
+  {
+    date: '2026-06-28',
+    title: 'Colors — HPL split, image fetching, CWLI sync',
+    items: [
+      'Colors tab split into three sub-tabs per company: Melamine | De One HPL | Elemental HPL. Campaigns can now target one category specifically.',
+      'Import from Website now shows a live progress bar inside the color list — batch number, count, and percentage visible while fetching.',
+      'Import detects colors missing swatch images and re-fetches them in the same pass — no longer skips colors already in the list.',
+      '🖼 Fetch Images button added to both WCLI and CWLI color cards — fetches swatch images for any color missing them.',
+      'Copy WCLI → CWLI now auto-triggers image fetch for CWLI colors missing swatches after copy completes.',
+      'AI Pick color upgraded — now reads per-color engagement data from post history, avoids recently featured colors, and respects active sub-tab (Melamine vs HPL).'
+    ]
+  },
+  {
+    date: '2026-06-28',
+    title: 'Retail Partners — branch-level with area search',
+    items: [
+      'Retail Partners scraper now reads directly from worldclasslaminate.com.ph/pages/store-locations — all depots and dealers with branch names and addresses.',
+      'Import shows scrollable branch-level modal grouped by area: Metro Manila → Luzon → Visayas → Mindanao. Search + area filter + All/None selection.',
+      'WCLI and CWLI retail lists are now separate — each store assigned independently. Metro Manila/Luzon defaults to WCLI, Visayas/Mindanao defaults to CWLI.',
+      'Add Store modal has two search fields: Store/Chain Name + Area/Province. Results appear from WCLI store list as you type. Stores not in the list can be entered manually.',
+      'Caption generation filters retail stores by company — WCLI posts mention WCLI stores, CWLI posts mention CWLI stores.'
+    ]
+  },
+  {
+    date: '2026-06-28',
+    title: 'Analytics — live Facebook insights + AI strategy',
+    items: [
+      'Performance screen now auto-fetches Facebook insights (likes, comments, shares, reactions) in the background when opened.',
+      'After each insight fetch, AI strategy hints are generated using Claude Haiku — reads last 30 posts performance and produces 3-5 specific adjustments (e.g. "post woodgrain for contractors on Thursdays").',
+      'Strategy hints are stored and injected automatically into every caption prompt — AI writing posts already knows what is working.',
+      'get-comments Edge Function deployed — dashboard reads unresponded comments directly from Supabase post_comments table.',
+      'Mark as Responded in dashboard logs response time to Supabase — response_time_minutes calculated from arrived_at to responded_at.'
+    ]
+  },
+  {
+    date: '2026-06-28',
+    title: 'Unsaved changes warning + navigation fixes',
+    items: [
+      'Unsaved changes warning added — if a post caption is generated or edited but not yet scheduled, navigating away shows a dialog: Leave anyway / Stay.',
+      'Browser tab close also triggers the standard browser beforeunload warning when unsaved changes exist.',
+      'Warning clears automatically when post is saved to draft, scheduled, or published.',
+      'Duplicate showScreen function bug fixed — was causing all navigation buttons to stop working after the analytics auto-fetch feature was added.',
+      'Unsaved dialog rebuilt using stored callbacks instead of inline function strings — previously broken in all browsers.'
+    ]
+  },{
     date: '2026-06-24',
     title: 'Color collection + retail partners',
     items: [
@@ -1367,18 +1450,17 @@ const CHANGELOG = [
       'Auto-Generate Week: "Rotate featured colors" toggle — each post in the batch features a different color from the collection.',
       'Brand Profiles → Retail Partners tab: add stores (Wilcon, Home Depot, Ace Hardware, etc.) with company assignment and region notes.',
       '"Mention store availability" toggle in Create Post — when on, Claude adds a natural store callout to the caption.',
-      'New audience type added: "Hardware Store / Depot Buyer" — written for procurement managers and depot buyers, focused on volume, consistent supply, and trade pricing. Available in Create Post and Auto-Generate Week.'
+      'New audience type added: "Hardware Store / Depot Buyer" — written for procurement managers and depot buyers, focused on volume, consistent supply, and trade pricing.'
     ]
   },
   {
     date: '2026-06-24',
-    title: 'Performance analytics & AI strategy analysis — full rebuild',
+    title: 'Performance analytics & AI strategy analysis',
     items: [
-      'Facebook Insights now auto-fetched — reach, reactions, comments, shares pulled automatically for all published posts when you open Performance. Only inquiries need manual entry.',
+      'Facebook Insights now auto-fetched — reach, reactions, comments, shares pulled automatically for all published posts when you open Performance.',
       'Full analytics dashboard with per-company tabs, pillar/audience bar charts, best day heatmap, and week-over-week trend line.',
-      'AI Analyze & Recommend button — Claude reads all your performance data and writes a plain-English strategy report: what\'s working, what\'s not, best posting times, and specific actions for next week.',
-      'Self-learning strengthened — performance context is now per-company and per-audience, not one generic summary. Each company\'s Claude prompts get relevant context from that company\'s own data.',
-      'Best posting times are automatically applied to Auto-Schedule settings when enough data is available.',
+      'AI Analyze & Recommend button — Claude reads all performance data and writes a plain-English strategy report.',
+      'Self-learning strengthened — performance context is now per-company and per-audience.',
       'KPI cards show total reach, total inquiries, and posts tracked at a glance.'
     ]
   },
@@ -1386,116 +1468,57 @@ const CHANGELOG = [
     date: '2026-06-24',
     title: 'Background auto-publish scheduler (Supabase cron)',
     items: [
-      'Posts now publish automatically even when the browser is closed — a Supabase Edge Function (publish-scheduled) runs every 15 minutes and publishes due posts directly to Facebook.',
-      'When you Schedule & Approve a post, it is silently synced to Supabase. When the app reopens, it reads back any published/rescheduled/missed statuses automatically.',
-      'Late post handling: posts less than 6 hours overdue publish immediately; posts more than 6 hours overdue are rescheduled after the last queued post (30 min apart) so no content is wasted.',
+      'Posts now publish automatically even when the browser is closed — publish-scheduled Edge Function runs every 15 minutes.',
+      'Late post handling: posts less than 6 hours overdue publish immediately; older posts rescheduled 30 min apart.',
       'In-browser scheduler (60-second tick) still runs as a fast fallback when the browser is open.'
     ]
   },
   {
     date: '2026-06-24',
-    title: 'Video storage + Facebook video publishing fixed',
+    title: 'Video storage + Facebook video publishing',
     items: [
-      'Veo-generated videos now upload to Supabase Storage immediately after generation — videos survive page reloads and can be published in any future session.',
-      'Facebook video publishing switched from the Resumable Upload API (CORS-blocked in browsers) to direct multipart upload — same pattern as photos. App ID no longer required.',
-      'If the in-memory video file is gone after a reload, the app automatically re-fetches it from Supabase before publishing.',
-      'Review queue now shows a playable video preview for video posts — no more blind approval.',
-      'Scheduled row now shows 🎬 or 🖼 so you can see at a glance which posts have media attached.'
-    ]
-  },
-  {
-    date: '2026-06-24',
-    title: 'Auto-Generate Week with images confirmed working',
-    items: [
-      'Auto-Generate Week now generates captions, AI images (via Ideogram), and Veo videos in a single run.',
-      'Image generation is on by default (up to 4 images per company per run). Video generation is off by default due to cost — toggle it on when needed.',
-      'Each image is derived from its caption via captionToVisualDescription — image and caption are genuinely connected, not generic.',
-      'Generation queue shows live status per post: ✓ 🖼 (image done), ✓ 🎬 (video done), ✓ 🎬⚠️ (video generated but storage upload failed).'
-    ]
-  },
-  {
-    date: '2026-06-24',
-    title: 'Scheduled auto-publish + Cancel fix',
-    items: [
-      'In-browser scheduler added — runs every 60 seconds, automatically publishes scheduled posts when their time arrives without any manual action.',
-      'Scheduler status indicator added to Review & Schedule topbar: green dot shows it is running and when it last checked; amber dot shows when it is actively publishing.',
-      'Fixed Cancel/Delete buttons on scheduled posts — was broken by the same float-precision ID comparison bug fixed earlier.',
-      'WCLI Facebook Page Token setup completed — all three companies (MSSI, WCLI) now publishing live. CWLI pending admin access.'
+      'Veo-generated videos now upload to Supabase Storage immediately after generation.',
+      'Facebook video publishing switched to direct multipart upload — CORS issues resolved.',
+      'Review queue shows playable video preview for video posts.'
     ]
   },
   {
     date: '2026-06-18',
     title: 'Staff assignment + Telegram notifications',
     items: [
-      'Added a Telegram bot integration (free, no approval process) under Settings → Team & Notifications.',
-      'Add staff members with their Telegram Chat ID, then assign them to specific posts on the Inquiry & Comment Check card.',
-      'Click "Notify on Telegram" to send the assigned staff member a message about the post needing attention.'
+      'Telegram bot integration under Settings → Team & Notifications.',
+      'Add staff members with Telegram Chat ID, assign to companies.',
+      'Notify on Telegram button sends alert to assigned staff member.'
     ]
   },
   {
     date: '2026-06-18',
-    title: 'WCLI multi-page support',
+    title: 'AI video generation (Veo 3.1) + WCLI multi-page',
     items: [
-      'WCLI can now have more than one Facebook Page configured (e.g. a regional pilot page alongside the eventual official page) — MSSI and CWLI stay single-page.',
-      'When publishing a WCLI post, you can choose which specific page it goes to if more than one is set up.'
-    ]
-  },
-  {
-    date: '2026-06-18',
-    title: 'AI video generation (Veo 3.1) + company structure update',
-    items: [
-      'Added "AI Generate Video" in Create Post — describe a scene and Google\'s Veo 3.1 generates a short video clip, company-aware prompt suggestions included.',
-      'Brand Profiles now distinguish WCLI (supplies boards, partners with MSSI for fabrication) from CWLI (manufactures boards AND fabricates furniture in-house) — this flows into every generated caption.',
-      'Documented Veo setup: requires a Google Gemini API key with billing enabled.'
-    ]
-  },
-  {
-    date: '2026-06-18',
-    title: 'Video post support',
-    items: [
-      'Create Post now has a Photo/Video tab — upload a video (max 200MB) alongside the existing photo flow.',
-      'Facebook video publishing wired in via the Resumable Upload API (needs a Facebook App ID in Settings, separate from Page ID/Token).',
-      'Added a clear warning when a video draft\'s file is no longer attached after a page reload, since large video files can\'t be saved to browser storage the way photos and captions can.'
+      'AI Generate Video in Create Post via Google Veo 3.1.',
+      'WCLI now supports multiple Facebook Pages — choose which page to publish to per post.',
+      'Brand Profiles distinguish WCLI (supplies boards) from CWLI (manufactures and fabricates).'
     ]
   },
   {
     date: '2026-06-17',
-    title: 'Performance self-learning',
+    title: 'Performance self-learning + Philippine holidays',
     items: [
-      'New Performance screen — manually log reach, reactions, comments, shares, and inquiries on published posts.',
-      'Shows your best-performing content pillar and audience based on logged results.',
-      'New posts now get a short summary of what\'s worked injected into the Claude prompt automatically — the actual "self-learning" loop.',
-      'Added "Mark Published (testing)" so this can be tested before Facebook access is fully set up.'
-    ]
-  },
-  {
-    date: '2026-06-17',
-    title: 'Philippine holidays + inquiry check',
-    items: [
-      'Auto-Generate Week now recognizes 2026 Philippine holidays and swaps in a holiday-themed post instead of the regular weekday pillar.',
-      'Holidays show directly on the Calendar, and Create Post shows a heads-up banner when one is coming up within 7 days.',
-      'Added an Inquiry & Comment Check card to the Dashboard — since true auto-reply to comments isn\'t safe or possible yet, this reminds you which published posts to check on Facebook manually.'
-    ]
-  },
-  {
-    date: '2026-06-17',
-    title: 'AI image generation, Calendar polish, backups',
-    items: [
-      'Added AI Generate Image in Create Post via Ideogram (requires billing on your Ideogram account).',
-      'Calendar now has real month navigation, a Today button, and click-into-day details.',
-      'Settings now has a full backup/restore (.json) covering posts, photos, brand profiles, and API keys.',
-      'Auto-Generate Week now follows the actual Mon-Sun content pillar rotation from the original brand strategy, with real calendar dates.'
+      'Performance screen — log reach, reactions, comments, shares, inquiries on published posts.',
+      'Performance context injected into Claude prompts automatically.',
+      'Auto-Generate Week recognizes 2026 Philippine holidays and swaps in holiday-themed posts.',
+      'Inquiry & Comment Check card added to Dashboard.'
     ]
   },
   {
     date: '2026-06-16',
-    title: 'Phase 1 core fixes',
+    title: 'Phase 1 core',
     items: [
-      'Fixed the Claude API CORS/header issue blocking generation on GitHub Pages.',
-      'Brand Profiles now actually drive Claude\'s tone and voice per company and audience, not just cosmetic.',
-      'Photo Library now persists across sessions, with a working "Choose from Library" picker in Create Post.',
-      'Facebook Graph API publishing wired in for text/photo posts (pending page access).',
-      'Captions in Review & Schedule are now editable, with a Copy Caption button.'
+      'Claude API CORS fix for GitHub Pages.',
+      'Brand Profiles drive Claude tone and voice per company.',
+      'Photo Library persists across sessions.',
+      'Facebook Graph API publishing wired in.',
+      'Captions in Review & Schedule editable with Copy button.'
     ]
   }
 ];
