@@ -8219,8 +8219,8 @@ function toggleScheduledPreview(postId) {
             <div style="font-size:12px;color:#65676b">${post.scheduledFor ? new Date(post.scheduledFor).toLocaleDateString('en-PH',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}) : 'Just now'} · 🌐</div>
           </div>
         </div>
-        <div style="padding:0 16px 12px;font-size:14px;line-height:1.65;color:#050505">${caption}</div>
-        ${mediaHtml}
+        <div id="preview-fb-caption-${postId}" style="padding:0 16px 12px;font-size:14px;line-height:1.65;color:#050505">${caption}</div>
+        <div id="preview-media-${postId}">${mediaHtml}</div>
         <div style="padding:10px 16px;border-top:1px solid #e4e6eb;display:flex;gap:4px">
           <div style="flex:1;display:flex;align-items:center;justify-content:center;gap:5px;padding:6px;border-radius:6px;font-size:13px;color:#65676b">👍 Like</div>
           <div style="flex:1;display:flex;align-items:center;justify-content:center;gap:5px;padding:6px;border-radius:6px;font-size:13px;color:#65676b">💬 Comment</div>
@@ -8234,10 +8234,14 @@ function toggleScheduledPreview(postId) {
           <span>🎯 ${post.pillar}</span>
           <span>👤 ${post.audience}</span>
         </div>
-        <div style="display:flex;gap:8px">
-          <button class="btn btn-secondary btn-sm" style="flex:1" onclick="document.getElementById('post-preview-modal').remove();loadPostIntoCreate('${postId}')">Edit in Create Post</button>
-          <button class="btn btn-primary btn-sm" style="flex:1" onclick="document.getElementById('post-preview-modal').remove();schedulePost('${postId}')">Schedule &amp; Approve</button>
+        <!-- Editable caption inside preview -->
+        <textarea id="preview-caption-edit-${postId}" style="width:100%;font-size:13px;line-height:1.65;padding:10px 12px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg3);color:var(--text);font-family:'DM Sans',sans-serif;resize:vertical;min-height:80px;margin-bottom:8px" onchange="previewSaveCaption('${postId}', this.value)">${rawCaption}</textarea>
+        <div style="display:flex;gap:6px;margin-bottom:8px;flex-wrap:wrap">
+          <button class="btn btn-secondary btn-sm" style="flex:1" id="preview-regen-caption-${postId}" onclick="previewRegenCaption('${postId}')">↺ Regen Caption</button>
+          <button class="btn btn-secondary btn-sm" style="flex:1" id="preview-regen-image-${postId}" onclick="previewRegenImage('${postId}')">↺ Regen Image</button>
+          <button class="btn btn-primary btn-sm" style="flex:1" onclick="document.getElementById('post-preview-modal').remove();schedulePost('${postId}')">✓ Schedule &amp; Approve</button>
         </div>
+        <div id="preview-action-status-${postId}" style="font-size:11.5px;color:var(--text3);text-align:center;display:none;margin-bottom:6px"></div>
       </div>
     </div>`;
   document.body.appendChild(div);
@@ -8266,6 +8270,79 @@ async function generateImageForPreview(postId) {
   } catch (err) {
     if (statusEl) { statusEl.textContent = '❌ ' + err.message; statusEl.style.color = 'var(--red)'; }
     if (btn) btn.style.display = 'block';
+  }
+}
+
+// Save caption edits made inside the preview modal
+function previewSaveCaption(postId, newCaption) {
+  const post = APP.posts.find(p => String(p.id) === String(postId));
+  if (!post) return;
+  post.caption = newCaption;
+  const queueEl = document.getElementById('caption-edit-' + postId);
+  if (queueEl) queueEl.value = newCaption;
+  saveState();
+  upsertPost(post);
+}
+
+async function previewRegenCaption(postId) {
+  const post = APP.posts.find(p => String(p.id) === String(postId));
+  if (!post) return;
+  const btn = document.getElementById('preview-regen-caption-' + postId);
+  const statusEl = document.getElementById('preview-action-status-' + postId);
+  if (btn) { btn.disabled = true; btn.textContent = 'Generating…'; }
+  if (statusEl) { statusEl.style.display = 'block'; statusEl.textContent = 'Writing new caption…'; }
+  try {
+    const bp = APP.brandProfiles?.[post.company] || {};
+    const colorCtx = getColorContextForPrompt(post.company, post.colorId || '');
+    const strategyCtx = typeof getAiStrategyContext === 'function' ? getAiStrategyContext() : '';
+    const retailCtx = post.company !== 'mssi' ? getRetailContextForPrompt(post.company) : '';
+    const prompt = buildCaptionPrompt(post.company, post.audience, post.pillar, bp, colorCtx, strategyCtx, retailCtx, '', '');
+    const newCaption = await callClaude(prompt);
+    post.caption = newCaption;
+    saveState();
+    upsertPost(post);
+    const textarea = document.getElementById('preview-caption-edit-' + postId);
+    if (textarea) textarea.value = newCaption;
+    const queueEl = document.getElementById('caption-edit-' + postId);
+    if (queueEl) queueEl.value = newCaption;
+    const fbCaptionEl = document.getElementById('preview-fb-caption-' + postId);
+    if (fbCaptionEl) fbCaptionEl.innerHTML = newCaption.replace(/\*\*(.*?)\*\*/g,'<strong>$1</strong>').replace(/\*(.*?)\*/g,'<em>$1</em>').replace(/\n/g,'<br>');
+    if (statusEl) { statusEl.textContent = '✓ Caption regenerated'; setTimeout(() => { if(statusEl) statusEl.style.display='none'; }, 2500); }
+    showToast('Caption regenerated', 'success');
+  } catch (err) {
+    if (statusEl) statusEl.textContent = '❌ ' + err.message;
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '↺ Regen Caption'; }
+  }
+}
+
+async function previewRegenImage(postId) {
+  const post = APP.posts.find(p => String(p.id) === String(postId));
+  if (!post) return;
+  const btn = document.getElementById('preview-regen-image-' + postId);
+  const statusEl = document.getElementById('preview-action-status-' + postId);
+  if (btn) { btn.disabled = true; btn.textContent = 'Generating…'; }
+  if (statusEl) { statusEl.style.display = 'block'; statusEl.textContent = 'Generating image — takes ~20 seconds…'; }
+  try {
+    const caption = post.caption || '';
+    const visualPrompt = await buildVisualPromptFromCaption(caption, post.pillar, post.company, post.audience);
+    const url = await generateImageViaProxy(visualPrompt, getWatermarkOpts(post.company));
+    post.photo = url;
+    saveState();
+    upsertPost(post);
+    const mediaContainer = document.getElementById('preview-media-' + postId);
+    if (mediaContainer) {
+      mediaContainer.innerHTML = '<img src="' + url + '" style="width:100%;max-height:340px;object-fit:cover;display:block" alt="Post photo">';
+    } else {
+      document.getElementById('post-preview-modal')?.remove();
+      toggleScheduledPreview(postId);
+    }
+    if (statusEl) { statusEl.textContent = '✓ Image generated'; setTimeout(() => { if(statusEl) statusEl.style.display='none'; }, 2500); }
+    showToast('Image generated and attached', 'success');
+  } catch (err) {
+    if (statusEl) statusEl.textContent = '❌ ' + err.message;
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '↺ Regen Image'; }
   }
 }
 
