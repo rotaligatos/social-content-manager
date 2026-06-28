@@ -7799,61 +7799,9 @@ checkExistingSession();
 //  Desktop always see the same data.
 
 async function syncFromCloud() {
-  const proxyBase = (APP.apiKeys.imgproxy || localStorage.getItem('scm_imgproxy_key') || '').replace(/generate-image\/?$/, '');
-  if (!proxyBase) return;
-  try {
-    // Pull posts from Supabase posts table
-    const res = await fetch(proxyBase + 'upsert-post?mode=pull', {
-      method: 'GET', headers: { 'Content-Type': 'application/json' }
-    });
-    if (!res.ok) return;
-    const data = await res.json();
-    if (!data.posts || !data.posts.length) return;
-
-    // Merge: Supabase is source of truth for status/fbPostId
-    // Keep local posts that aren't in Supabase yet (just created)
-    const cloudMap = Object.fromEntries(data.posts.map(p => [String(p.id), p]));
-    const localIds = new Set(APP.posts.map(p => String(p.id)));
-
-    // Update local posts from cloud
-    for (const local of APP.posts) {
-      const cloud = cloudMap[String(local.id)];
-      if (!cloud) continue;
-      if (cloud.status === 'published' && local.status !== 'published') {
-        local.status = 'published';
-        local.fbPostId = cloud.fb_post_id;
-        local.publishedAt = cloud.published_at;
-      }
-    }
-
-    // Add cloud posts not in local (posted from another device)
-    for (const cloud of data.posts) {
-      if (!localIds.has(String(cloud.id))) {
-        APP.posts.push({
-          id: cloud.id,
-          company: cloud.company,
-          audience: cloud.audience,
-          pillar: cloud.pillar,
-          caption: cloud.caption,
-          photo: cloud.photo_url || null,
-          mediaType: cloud.media_type || 'photo',
-          status: cloud.status,
-          scheduledFor: cloud.scheduled_for,
-          publishedAt: cloud.published_at,
-          fbPostId: cloud.fb_post_id,
-          watermark: cloud.watermark || false,
-          performance: cloud.performance || null,
-          createdAt: cloud.created_at,
-        });
-      }
-    }
-
-    saveState();
-    updateDashboard();
-    updateReviewQueue();
-    updateReviewBadge();
-    renderCalendar();
-  } catch (_e) { /* non-fatal */ }
+  // Posts are pulled via pullFromSupabase (app-sync) which already handles this correctly
+  // This function is kept as a no-op to avoid breaking any callers
+  // Cross-device post sync happens in pullFromSupabase on login
 }
 
 // ── FEATURED COLOR IMPROVEMENTS ──────────────────────────────
