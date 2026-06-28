@@ -1064,6 +1064,24 @@ select:focus{border-color:var(--accent-border);}
           <button class="btn btn-primary" style="margin-top:10px" onclick="saveFbPages()">Save Page Settings</button>
         </div>
         <div class="card" style="margin-top:16px">
+          <div style="font-size:14px;font-weight:500;margin-bottom:4px">🔄 Convert to Permanent Token</div>
+          <div style="font-size:12px;color:var(--text3);margin-bottom:14px;line-height:1.6">Paste the short-lived token from Graph API Explorer here. Click Convert — the app exchanges it server-side for a permanent Page Access Token that never expires, then saves it automatically.</div>
+          <div class="form-group">
+            <label class="form-label">Short-lived token from Graph API Explorer</label>
+            <input type="text" id="short-lived-token-input" placeholder="EAAOno…" style="font-size:11px">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Which page?</label>
+            <select id="token-exchange-company" style="font-size:12px;padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg3);color:var(--text);width:100%">
+              <option value="mssi">MSSI — Module Systems & Services Inc.</option>
+              <option value="wcli">WCLI — first page</option>
+              <option value="cwli">CWLI</option>
+            </select>
+          </div>
+          <div id="token-exchange-status" style="font-size:12px;margin-bottom:10px"></div>
+          <button class="btn btn-primary" onclick="convertToPermanentToken()">Convert & Save Permanently</button>
+        </div>
+        <div class="card" style="margin-top:16px">
           <div style="font-size:14px;font-weight:500;margin-bottom:4px">📡 Facebook Webhook Subscription</div>
           <div style="font-size:12px;color:var(--text3);margin-bottom:14px;line-height:1.6">Once the webhook is set up in Meta Developer portal, click below to subscribe each page. This tells Facebook to send real-time comments, reactions, and inquiries to the app. Only needs to be done once per page.</div>
           <div id="webhook-subscribe-status" style="font-size:12px;margin-bottom:10px"></div>
@@ -2758,18 +2776,88 @@ async function upsertPost(post) {
 
 // Bulk-sync all posts in localStorage to Supabase posts table
 // Called on startup and after push-all-to-cloud
+async function convertToPermanentToken() {
+  const shortToken = document.getElementById('short-lived-token-input')?.value?.trim();
+  const company = document.getElementById('token-exchange-company')?.value;
+  const statusEl = document.getElementById('token-exchange-status');
+
+  if (!shortToken) { showToast('Paste the short-lived token first', 'error'); return; }
+
+  const proxyBase = (APP.apiKeys.imgproxy || localStorage.getItem('scm_imgproxy_key') || '').replace(/generate-image\/?$/, '');
+  if (!proxyBase) { showToast('Image Proxy URL not configured in Settings', 'error'); return; }
+
+  if (statusEl) statusEl.innerHTML = '<span style="color:var(--text3)">Converting token… (this takes a few seconds)</span>';
+
+  // Get the page ID for the selected company
+  const pages = APP.fbPages || JSON.parse(localStorage.getItem('scm_fb_pages') || '{}');
+  let pageId = null;
+  if (company === 'mssi') pageId = pages.mssi?.id;
+  else if (company === 'wcli') pageId = (Array.isArray(pages.wcli) ? pages.wcli[0]?.id : null);
+  else if (company === 'cwli') pageId = pages.cwli?.id;
+
+  try {
+    const res = await fetch(proxyBase + 'exchange-fb-token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ short_lived_token: shortToken, page_id: pageId })
+    });
+    const data = await res.json();
+
+    if (data.error) {
+      // If page not found but we got a list, show them
+      if (data.pages) {
+        const list = data.pages.map(p => `${p.name} (${p.id})`).join(', ');
+        if (statusEl) statusEl.innerHTML = `<span style="color:var(--red)">❌ ${data.error}<br><span style="font-size:11px">Pages on this token: ${list}</span></span>`;
+      } else {
+        if (statusEl) statusEl.innerHTML = `<span style="color:var(--red)">❌ ${data.error}</span>`;
+      }
+      return;
+    }
+
+    // Got permanent token — save it
+    const permanentToken = data.page_token;
+    const fbPages = APP.fbPages || JSON.parse(localStorage.getItem('scm_fb_pages') || '{}');
+
+    if (company === 'mssi') {
+      fbPages.mssi = fbPages.mssi || {};
+      fbPages.mssi.token = permanentToken;
+    } else if (company === 'wcli') {
+      if (!Array.isArray(fbPages.wcli)) fbPages.wcli = [{}];
+      fbPages.wcli[0].token = permanentToken;
+    } else if (company === 'cwli') {
+      fbPages.cwli = fbPages.cwli || {};
+      fbPages.cwli.token = permanentToken;
+    }
+
+    localStorage.setItem('scm_fb_pages', JSON.stringify(fbPages));
+    APP.fbPages = fbPages;
+
+    // Clear the input
+    const inputEl = document.getElementById('short-lived-token-input');
+    if (inputEl) inputEl.value = '';
+
+    if (statusEl) statusEl.innerHTML = `<span style="color:var(--green)">✓ Permanent token saved for ${company.toUpperCase()} — ${data.page_name}. This token does not expire.</span>`;
+    showToast(`✓ Permanent token saved for ${company.toUpperCase()}`, 'success');
+
+    // Now try webhook subscription automatically
+    setTimeout(() => subscribePageToWebhook(company), 1000);
+
+  } catch (err) {
+    if (statusEl) statusEl.innerHTML = `<span style="color:var(--red)">❌ ${err.message}</span>`;
+  }
+}
+
 async function subscribePageToWebhook(company) {
   const pages = APP.fbPages || JSON.parse(localStorage.getItem('scm_fb_pages') || '{}');
   const statusEl = document.getElementById('webhook-subscribe-status');
 
-  // Get the right page data
   let pageId, token;
   if (company === 'mssi') {
     pageId = pages.mssi?.id;
     token = pages.mssi?.token;
   } else if (company === 'wcli') {
-    // Use first WCLI page
-    const wcliPages = pages.wcliPages || [];
+    // WCLI pages stored as array in pages.wcli
+    const wcliPages = Array.isArray(pages.wcli) ? pages.wcli : [];
     pageId = wcliPages[0]?.id;
     token = wcliPages[0]?.token;
   } else if (company === 'cwli') {
@@ -2785,14 +2873,16 @@ async function subscribePageToWebhook(company) {
   if (statusEl) statusEl.innerHTML = `<span style="color:var(--text3)">Subscribing ${company.toUpperCase()} page…</span>`;
 
   try {
-    // Call Facebook Graph API to subscribe this page to the app's webhook
+    // Subscribe to feed only — covers comments and reactions
+    // pages_manage_metadata permission is needed, which requires App Review for public apps
+    // but works in Development mode for pages connected to your app
     const res = await fetch(
       `https://graph.facebook.com/v19.0/${pageId}/subscribed_apps`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          subscribed_fields: 'feed,messages',
+          subscribed_fields: 'feed',
           access_token: token
         })
       }
@@ -2800,12 +2890,21 @@ async function subscribePageToWebhook(company) {
     const data = await res.json();
 
     if (data.success) {
-      if (statusEl) statusEl.innerHTML = `<span style="color:var(--green)">✓ ${company.toUpperCase()} page subscribed — real-time comments and reactions are now active</span>`;
-      showToast(`✓ ${company.toUpperCase()} page webhook active`, 'success');
+      if (statusEl) statusEl.innerHTML = `<span style="color:var(--green)">✓ ${company.toUpperCase()} subscribed — real-time comments and reactions now active</span>`;
+      showToast(`✓ ${company.toUpperCase()} webhook active`, 'success');
     } else {
-      const err = data.error?.message || JSON.stringify(data);
-      if (statusEl) statusEl.innerHTML = `<span style="color:var(--red)">❌ ${company.toUpperCase()} failed: ${err}</span>`;
-      showToast(`${company.toUpperCase()} subscription failed: ${err}`, 'error');
+      const errCode = data.error?.code;
+      const errMsg = data.error?.message || JSON.stringify(data);
+
+      // Error 200 = missing permission pages_manage_metadata
+      if (errCode === 200) {
+        if (statusEl) statusEl.innerHTML = `
+          <div style="color:var(--red);margin-bottom:8px">❌ ${company.toUpperCase()}: Missing permission — <strong>pages_manage_metadata</strong></div>
+          <div style="font-size:11.5px;color:var(--text2);line-height:1.6">This permission is needed for webhook subscriptions. Since your app is in <strong>Development mode</strong>, you need to add this permission in the App Review section of Meta Developer portal, OR generate a new page token that includes this permission scope.</div>`;
+        showToast(`${company.toUpperCase()}: Need pages_manage_metadata permission`, 'error');
+      } else {
+        if (statusEl) statusEl.innerHTML = `<span style="color:var(--red)">❌ ${company.toUpperCase()}: ${errMsg}</span>`;
+      }
     }
   } catch (err) {
     if (statusEl) statusEl.innerHTML = `<span style="color:var(--red)">❌ Error: ${err.message}</span>`;
