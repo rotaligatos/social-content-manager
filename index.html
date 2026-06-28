@@ -7532,11 +7532,25 @@ async function onLoginSuccess() {
   if (loginScreen) loginScreen.style.display = 'none';
   showToast('Signed in — syncing data…', 'info');
   await loadUserProfile();
-  await pullFromSupabase();         // sync settings/colors/profiles
-  await syncFromCloud();            // sync posts from other devices
+  applyRoleAccess();
+  await pullFromSupabase();
+  await syncFromCloud();
   updateUserBadge();
-  // Quietly fetch FB insights for any published posts
   setTimeout(() => fetchFacebookInsights(), 2000);
+}
+
+function applyRoleAccess() {
+  const role = _userProfile?.role || 'staff';
+  const isAdmin = role === 'admin';
+
+  // Hide Settings nav item for non-admins
+  const settingsNav = document.querySelector('.nav-item[onclick*="settings"]');
+  if (settingsNav) settingsNav.style.display = isAdmin ? '' : 'none';
+
+  // If non-admin is somehow on settings, redirect to dashboard
+  if (!isAdmin && document.getElementById('screen-settings')?.classList.contains('active')) {
+    showScreen('dashboard');
+  }
 }
 
 async function loadUserProfile() {
@@ -7850,6 +7864,11 @@ window.addEventListener('beforeunload', function(e) {
 
 // In-app navigation guard — called before switching screens
 function checkUnsavedBeforeNav(targetScreen) {
+  // Block Settings for non-admins
+  if (targetScreen === 'settings' && (_userProfile?.role || 'staff') !== 'admin') {
+    showToast('Settings are restricted to admins', 'error');
+    return;
+  }
   if (!_unsavedChanges) { showScreen(targetScreen); return; }
   showUnsavedDialog(
     'You have unsaved ' + _unsavedContext + '.',
@@ -7891,7 +7910,87 @@ if (_ls) _ls.style.display = 'flex';
 if (isAutoPublishEnabled()) startScheduler();
 const _apt = document.getElementById('autopublish-toggle');
 if (_apt) _apt.classList.toggle('on', isAutoPublishEnabled());
-checkExistingSession();
+
+// Handle invite and password-reset links — Supabase puts tokens in URL hash
+(async function handleAuthRedirect() {
+  const hash = window.location.hash;
+  if (!hash) { checkExistingSession(); return; }
+  const params = new URLSearchParams(hash.replace('#', ''));
+  const accessToken = params.get('access_token');
+  const type = params.get('type'); // 'invite' or 'recovery'
+  if (!accessToken || (type !== 'invite' && type !== 'recovery')) { checkExistingSession(); return; }
+
+  // Clear hash from URL
+  history.replaceState(null, '', window.location.pathname);
+
+  // Show password setup screen
+  const loginScreen = document.getElementById('login-screen');
+  if (loginScreen) loginScreen.style.display = 'flex';
+  const loginBox = loginScreen?.querySelector('div');
+  if (!loginBox) return;
+
+  const title = type === 'invite' ? 'Set Your Password' : 'Reset Your Password';
+  const sub = type === 'invite' ? 'Welcome! Create a password to access the app.' : 'Enter a new password for your account.';
+
+  loginBox.innerHTML = `
+    <div style="text-align:center;margin-bottom:24px">
+      <div style="font-size:32px;margin-bottom:8px">✦</div>
+      <div style="font-size:18px;font-weight:700;font-family:'Syne',sans-serif">${title}</div>
+      <div style="font-size:12.5px;color:var(--text3);margin-top:4px">${sub}</div>
+    </div>
+    <div id="setup-error" style="display:none;background:var(--red-bg,#2a1515);border:1px solid var(--red,#e05555);border-radius:var(--radius);padding:10px 12px;font-size:12.5px;color:var(--red,#e05555);margin-bottom:16px"></div>
+    <div class="form-group">
+      <label class="form-label">New Password</label>
+      <input type="password" id="setup-password" placeholder="At least 8 characters" style="font-size:14px" autocomplete="new-password">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Confirm Password</label>
+      <input type="password" id="setup-password2" placeholder="Repeat password" style="font-size:14px" autocomplete="new-password" onkeydown="if(event.key==='Enter')setNewPassword('${accessToken}')">
+    </div>
+    <button class="btn btn-primary" style="width:100%;font-size:14px;padding:12px" onclick="setNewPassword('${accessToken}')">Set Password & Sign In</button>
+  `;
+})();
+
+async function setNewPassword(accessToken) {
+  const pw = document.getElementById('setup-password')?.value || '';
+  const pw2 = document.getElementById('setup-password2')?.value || '';
+  const errEl = document.getElementById('setup-error');
+  if (pw.length < 8) { if(errEl){errEl.style.display='block';errEl.textContent='Password must be at least 8 characters';} return; }
+  if (pw !== pw2) { if(errEl){errEl.style.display='block';errEl.textContent='Passwords do not match';} return; }
+
+  try {
+    // Use the invite token to set password
+    const res = await fetch(`${SUPABASE_URL}/auth/v1/user`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${accessToken}`, 'apikey': SUPABASE_ANON_KEY },
+      body: JSON.stringify({ password: pw })
+    });
+    const data = await res.json();
+    if (data.error || !res.ok) throw new Error(data.error_description || data.msg || 'Failed to set password');
+
+    // Auto sign in with new password using email from the token
+    const payload = JSON.parse(atob(accessToken.split('.')[1]));
+    const email = payload.email;
+    if (email) {
+      const signIn = await supabaseAuthRequest('/auth/v1/token?grant_type=password', {
+        method: 'POST', body: JSON.stringify({ email, password: pw })
+      });
+      if (signIn.access_token) {
+        _session = signIn;
+        localStorage.setItem('scm_session', JSON.stringify(signIn));
+        await onLoginSuccess();
+        return;
+      }
+    }
+    // Fallback — show login
+    const loginBox = document.getElementById('login-screen')?.querySelector('div');
+    if (loginBox) loginBox.innerHTML = `<div style="text-align:center;padding:20px;color:var(--green)">✓ Password set! Please sign in.</div>`;
+    setTimeout(() => location.reload(), 1500);
+  } catch (err) {
+    const errEl = document.getElementById('setup-error');
+    if (errEl) { errEl.style.display='block'; errEl.textContent = err.message; }
+  }
+}
 
 // ── CROSS-DEVICE SYNC ────────────────────────────────────────
 //  After login, pull latest state from Supabase so Android and
