@@ -2861,11 +2861,27 @@ function approveAll() {
 function getSupabaseConfig() {
   const proxyUrl = APP.apiKeys.imgproxy || localStorage.getItem('scm_imgproxy_key') || '';
   if (!proxyUrl) return null;
-  // Derive Supabase project URL and anon key from the proxy URL
-  // proxy URL format: https://<project>.supabase.co/functions/v1/generate-image
   const match = proxyUrl.match(/^(https:\/\/[^/]+\.supabase\.co)/);
   if (!match) return null;
   return { url: match[1] };
+}
+
+async function syncPostPublishedToSupabase(post) {
+  // Tell Supabase this post was published by the browser via the existing sync Edge Function
+  const cfg = getSupabaseConfig();
+  if (!cfg) return;
+  try {
+    await fetch(`${cfg.url}/functions/v1/sync-scheduled-post`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        id: String(post.id),
+        status: 'published',
+        fb_post_id: post.fbPostId,
+        published_at: post.publishedAt
+      })
+    });
+  } catch (_e) { /* non-fatal */ }
 }
 
 async function syncPostToSupabase(post) {
@@ -2902,14 +2918,15 @@ async function syncStatusFromSupabase() {
   if (!cfg) return;
   if (!APP.posts || !APP.posts.length) return;
 
-  const scheduledIds = APP.posts
-    .filter(p => p.status === 'scheduled' || p.status === 'published')
+  // Check all non-draft posts — scheduled, publishing, and already-published
+  const checkIds = APP.posts
+    .filter(p => p.status === 'scheduled' || p.status === 'publishing' || p.status === 'published')
     .map(p => String(p.id));
-  if (!scheduledIds.length) return;
+  if (!checkIds.length) return;
 
   const syncUrl = cfg.url + '/functions/v1/sync-scheduled-post';
   try {
-    const res = await fetch(syncUrl + '?ids=' + scheduledIds.join(','), {
+    const res = await fetch(syncUrl + '?ids=' + checkIds.join(','), {
       method: 'GET',
       headers: { 'Content-Type': 'application/json' }
     });
@@ -2923,18 +2940,18 @@ async function syncStatusFromSupabase() {
       if (!local) continue;
 
       if (remote.status === 'published' && local.status !== 'published') {
+        // Offline cron published it — update local state
         local.status = 'published';
         local.fbPostId = remote.fb_post_id;
         local.publishedAt = remote.published_at;
         changed = true;
-      } else if (remote.status === 'scheduled' && remote.rescheduled_to && local.scheduledFor !== remote.scheduled_for) {
-        // Post was rescheduled by the cron — update local scheduled time
-        local.scheduledFor = remote.scheduled_for;
-        local.rescheduledTo = remote.rescheduled_to;
-        changed = true;
-      } else if (remote.status === 'missed') {
+      } else if (remote.status === 'missed' && local.status !== 'published') {
         local.status = 'missed';
         local.errorMessage = remote.error_message;
+        changed = true;
+      } else if (remote.status === 'scheduled' && local.status === 'publishing') {
+        // Stale lock — cron hasn't published it yet, reset to scheduled
+        local.status = 'scheduled';
         changed = true;
       }
     }
@@ -2944,7 +2961,8 @@ async function syncStatusFromSupabase() {
       updateReviewQueue();
       updateDashboard();
       renderCalendar();
-      showToast('Post statuses synced from background scheduler', 'info');
+      updateReviewBadge();
+      showToast('✓ Post statuses synced from background scheduler', 'info');
     }
   } catch (_err) {
     // Sync failure is non-fatal
@@ -6896,8 +6914,12 @@ function updateSchedulerIndicator(state, msg) {
 
 async function runSchedulerTick() {
   const now = new Date();
+
+  // Guard: posts that are 'publishing' have already been sent to Facebook in this session.
+  // Only pick up 'scheduled' posts. Never touch 'publishing', 'published', or 'missed'.
   const due = APP.posts.filter(p =>
     p.status === 'scheduled' &&
+    !p.fbPostId &&           // hard guard: if we already have an FB post ID, never re-post
     p.scheduledFor &&
     new Date(p.scheduledFor) <= now
   );
@@ -6908,43 +6930,67 @@ async function runSchedulerTick() {
     return;
   }
 
-  // Publish each due post sequentially
   for (const post of due) {
+    // Lock immediately BEFORE calling Facebook — prevents re-entry on refresh / next tick
+    post.status = 'publishing';
+    saveState(); // persists the lock to localStorage
+
     updateSchedulerIndicator('publishing', 'Publishing ' + post.company.toUpperCase() + '…');
+
     const result = await publishToFacebook(post);
     if (result.success) {
       post.status = 'published';
       post.fbPostId = result.postId;
       post.publishedAt = new Date().toISOString();
       saveState();
+      // Mark published in Supabase so the offline scheduler knows too
+      syncPostPublishedToSupabase(post);
       updateReviewQueue();
       updateDashboard();
       renderCalendar();
       updateReviewBadge();
       showToast('⏰ Auto-published: ' + post.company.toUpperCase() + ' · ' + post.pillar, 'success');
     } else {
-      // Leave status as scheduled so it can be retried, but log the error
-      showToast('⚠️ Auto-publish failed (' + post.company.toUpperCase() + '): ' + result.error, 'error');
-      // Bump scheduledFor by 5 minutes to avoid hammering on a broken post every tick
+      // Unlock — reset to scheduled so it can retry, but bump by 5 min
+      post.status = 'scheduled';
       const retry = new Date(post.scheduledFor);
       retry.setMinutes(retry.getMinutes() + 5);
       post.scheduledFor = retry.toISOString();
       saveState();
       updateReviewQueue();
+      showToast('⚠️ Auto-publish failed (' + post.company.toUpperCase() + '): ' + result.error, 'error');
     }
   }
 
   const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  updateSchedulerIndicator('active', 'Auto-publish on · checked ' + timeStr);
+  updateSchedulerIndicator('active', 'Auto-publish on · last run ' + timeStr);
 }
 
 function startScheduler() {
   if (_schedulerInterval) clearInterval(_schedulerInterval);
-  // On startup: sync any statuses that changed while the browser was closed
+
+  // Clear stale 'publishing' locks left by a previous session that crashed mid-publish.
+  // A post stuck in 'publishing' on startup means the browser closed before we got
+  // a result from Facebook. We reset them to 'scheduled' — syncStatusFromSupabase()
+  // will then update any that actually succeeded while we were away.
+  let staleCleared = 0;
+  for (const p of APP.posts) {
+    if (p.status === 'publishing') {
+      p.status = 'scheduled';
+      staleCleared++;
+    }
+  }
+  if (staleCleared) saveState();
+
+  // Sync statuses from Supabase first (picks up anything the offline cron published)
   syncStatusFromSupabase();
-  // Run immediately on start, then every 60 seconds
-  runSchedulerTick();
-  _schedulerInterval = setInterval(runSchedulerTick, 60000);
+
+  // Small delay so syncStatusFromSupabase can finish before the first tick fires
+  // (avoids re-posting something the offline cron already handled)
+  setTimeout(() => {
+    runSchedulerTick();
+    _schedulerInterval = setInterval(runSchedulerTick, 60000);
+  }, 3000);
 }
 
 // ── PWA INSTALL PROMPT ───────────────────────────────────────
