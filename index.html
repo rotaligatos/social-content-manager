@@ -1118,6 +1118,7 @@ select:focus{border-color:var(--accent-border);}
           <div style="font-size:12px;color:var(--text3);margin-bottom:14px">Each staff member needs to message your bot once on Telegram first (search for it by username and send any message), so the bot can message them back. Then add them here with their Chat ID — they can get this by messaging <strong style="color:var(--text2)">@userinfobot</strong> on Telegram, which replies with their ID. Check which companies they're responsible for, and they'll only see posts from those companies.</div>
           <div id="staff-list"></div>
           <button class="btn btn-secondary btn-sm" onclick="addStaffField()">+ Add Staff Member</button>
+          <button class="btn btn-secondary btn-sm" onclick="openRegisterModal()">✉ Invite User</button>
         </div>
       </div>
       <div id="stab-sla" style="display:none">
@@ -3047,19 +3048,33 @@ function updateReviewQueue() {
           ${wcliPages.map((pg, i) => `<option value="${i}" ${p.targetPageIndex === i ? 'selected' : ''}>${pg.name || 'Page ' + (i+1)}</option>`).join('')}
         </select>` : '';
       return `
-      <div style="background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius-lg);padding:16px 20px;margin-bottom:10px;display:flex;align-items:center;gap:14px">
-        <span class="post-company-badge badge-${p.company}">${p.company.toUpperCase()}</span>
-        <div style="flex:1">
-          <div style="font-size:13px;color:var(--text2)">${p.pillar} · ${p.audience} ${p.mediaType === 'video' ? '🎬' : p.photo ? '🖼' : ''}</div>
-          <div style="font-size:11.5px;color:var(--text3)">Scheduled for ${p.scheduledFor ? new Date(p.scheduledFor).toLocaleString() : '—'}</div>
+      <div style="background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius-lg);padding:16px 20px;margin-bottom:10px">
+        <div style="display:flex;align-items:center;gap:14px">
+          <span class="post-company-badge badge-${p.company}">${p.company.toUpperCase()}</span>
+          <div style="flex:1">
+            <div style="font-size:13px;color:var(--text2)">${p.pillar} · ${p.audience} ${p.mediaType === 'video' ? '🎬' : p.photo ? '🖼' : ''}</div>
+            <div style="font-size:11.5px;color:var(--text3)">Scheduled for ${p.scheduledFor ? new Date(p.scheduledFor).toLocaleString() : '—'}</div>
+          </div>
+          ${pageSelectorHtml}
+          <button class="btn btn-ghost btn-sm" onclick="toggleScheduledPreview('${p.id}')" style="font-size:11px">👁 Preview</button>
+          <button class="btn btn-secondary btn-sm" onclick="copyCaption('${p.id}')">Copy</button>
+          <button class="btn btn-secondary btn-sm" onclick="deletePost('${p.id}')" style="color:var(--red)">Cancel</button>
+          <button class="btn btn-primary btn-sm" onclick="publishPostNow('${p.id}')">Publish Now</button>
         </div>
-        ${pageSelectorHtml}
-        <button class="btn btn-secondary btn-sm" onclick="copyCaption('${p.id}')">Copy Caption</button>
-        <button class="btn btn-secondary btn-sm" onclick="deletePost('${p.id}')" style="color:var(--red)">Cancel</button>
-        <button class="btn btn-ghost btn-sm" onclick="markAsPublishedTesting('${p.id}')" title="Simulates publishing for testing Performance/Inquiry features — does not post to Facebook">Mark Published (testing)</button>
-        <button class="btn btn-primary btn-sm" onclick="publishPostNow('${p.id}')">Publish Now</button>
-      </div>
-    `;
+        <div id="sched-preview-${p.id}" style="display:none;margin-top:14px;padding-top:14px;border-top:1px solid var(--border)">
+          <div style="display:flex;gap:12px">
+            ${p.photo ? `<img src="${p.photo}" style="width:80px;height:80px;object-fit:cover;border-radius:var(--radius);flex-shrink:0" alt="photo">` :
+              p.mediaType === 'video' && p.videoUrl ? `<video src="${p.videoUrl}" controls style="width:80px;height:80px;object-fit:cover;border-radius:var(--radius);flex-shrink:0;background:#000"></video>` :
+              `<div style="width:80px;height:80px;border-radius:var(--radius);background:var(--bg4);flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:20px">${p.mediaType === 'video' ? '🎬' : '📷'}</div>`}
+            <div style="flex:1">
+              <textarea id="caption-edit-${p.id}" style="width:100%;font-size:12.5px;line-height:1.7;color:var(--text);background:var(--bg3);padding:10px 12px;border-radius:var(--radius);border:1px solid var(--border);font-family:'DM Sans',sans-serif;resize:vertical;min-height:100px" onchange="markCaptionEdited('${p.id}')">${p.caption}</textarea>
+            </div>
+          </div>
+          <div style="display:flex;gap:8px;margin-top:8px;justify-content:flex-end">
+            <button class="btn btn-ghost btn-sm" onclick="markAsPublishedTesting('${p.id}')" style="font-size:10px;color:var(--text3)">Mark Published (test)</button>
+          </div>
+        </div>
+      </div>`;
     }).join('');
   }
 
@@ -7536,18 +7551,30 @@ async function checkExistingSession() {
   if (!saved) { showLoginScreen(); return; }
   try {
     const session = JSON.parse(saved);
-    const payload = JSON.parse(atob(session.access_token.split('.')[1]));
-    if (payload.exp * 1000 < Date.now()) {
-      const refreshed = await supabaseAuthRequest('/auth/v1/token?grant_type=refresh_token', {
-        method: 'POST', body: JSON.stringify({ refresh_token: session.refresh_token })
-      });
-      if (refreshed.access_token) {
-        _session = refreshed;
-        localStorage.setItem('scm_session', JSON.stringify(refreshed));
-      } else { localStorage.removeItem('scm_session'); showLoginScreen(); return; }
+    if (!session || !session.access_token) { showLoginScreen(); return; }
+    let expired = false;
+    try {
+      const payload = JSON.parse(atob(session.access_token.split('.')[1]));
+      expired = payload.exp * 1000 < Date.now();
+    } catch (_e) { expired = true; } // If JWT parse fails, try refresh
+
+    if (expired) {
+      if (!session.refresh_token) { localStorage.removeItem('scm_session'); showLoginScreen(); return; }
+      try {
+        const refreshed = await supabaseAuthRequest('/auth/v1/token?grant_type=refresh_token', {
+          method: 'POST', body: JSON.stringify({ refresh_token: session.refresh_token })
+        });
+        if (refreshed.access_token) {
+          _session = refreshed;
+          localStorage.setItem('scm_session', JSON.stringify(refreshed));
+        } else { localStorage.removeItem('scm_session'); showLoginScreen(); return; }
+      } catch (_e) { localStorage.removeItem('scm_session'); showLoginScreen(); return; }
     } else { _session = session; }
     await onLoginSuccess();
-  } catch (_e) { showLoginScreen(); }
+  } catch (_e) {
+    // Last resort — show login rather than blank screen
+    showLoginScreen();
+  }
 }
 
 function showLoginScreen() {
@@ -7902,22 +7929,48 @@ function openEnhanceModal() {
 
         <div style="margin-bottom:14px">
           <label class="form-label">Enhancement style</label>
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:6px">
-            ${[
-              ['better-lighting', '💡 Better Lighting', 'Professional studio lighting, bright and crisp'],
-              ['room-staging', '🏠 Room Staging', 'Place material in a realistic interior scene'],
-              ['magazine-shot', '📸 Magazine Quality', 'Editorial finish, vibrant colors, sharp detail'],
-              ['product-hero', '⭐ Product Hero', 'Clean background, product as the star'],
-              ['lifestyle', '☀️ Lifestyle Scene', 'Real home setting, warm and inviting'],
-              ['commercial', '🏢 Commercial Use', 'Professional B2B look, clean and credible']
-            ].map(([val, label, desc]) => `
-              <label style="display:flex;flex-direction:column;gap:4px;padding:10px;border:1.5px solid var(--border);border-radius:var(--radius);cursor:pointer;transition:border-color .15s" onclick="this.querySelector('input').checked=true;document.querySelectorAll('#enhance-modal .enhance-opt').forEach(l=>l.style.borderColor='var(--border)');this.style.borderColor='var(--accent2)'" class="enhance-opt">
-                <div style="display:flex;align-items:center;gap:6px">
-                  <input type="radio" name="enhance-style" value="${val}" style="flex-shrink:0"> 
-                  <span style="font-size:12.5px;font-weight:500">${label}</span>
-                </div>
-                <span style="font-size:11px;color:var(--text3);padding-left:18px">${desc}</span>
-              </label>`).join('')}
+          <div style="display:flex;gap:8px;margin-bottom:10px">
+            <button onclick="document.getElementById('enhance-mode-photo').style.display='block';document.getElementById('enhance-mode-video').style.display='none';this.style.background='var(--accent2)';this.style.color='#fff';this.nextElementSibling.style.background='';this.nextElementSibling.style.color=''" style="flex:1;padding:8px;font-size:12px;border:1px solid var(--border);border-radius:var(--radius);cursor:pointer;background:var(--accent2);color:#fff">🖼 Enhance Photo</button>
+            <button onclick="document.getElementById('enhance-mode-photo').style.display='none';document.getElementById('enhance-mode-video').style.display='block';this.style.background='var(--accent2)';this.style.color='#fff';this.previousElementSibling.style.background='';this.previousElementSibling.style.color=''" style="flex:1;padding:8px;font-size:12px;border:1px solid var(--border);border-radius:var(--radius);cursor:pointer">🎬 Generate Video</button>
+          </div>
+
+          <div id="enhance-mode-photo">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:6px">
+              ${[
+                ['better-lighting', '💡 Better Lighting', 'Professional studio lighting, bright and crisp'],
+                ['room-staging', '🏠 Room Staging', 'Place material in a realistic interior scene'],
+                ['magazine-shot', '📸 Magazine Quality', 'Editorial finish, vibrant colors, sharp detail'],
+                ['product-hero', '⭐ Product Hero', 'Clean background, product as the star'],
+                ['lifestyle', '☀️ Lifestyle Scene', 'Real home setting, warm and inviting'],
+                ['commercial', '🏢 Commercial Use', 'Professional B2B look, clean and credible']
+              ].map(([val, label, desc]) => `
+                <label style="display:flex;flex-direction:column;gap:4px;padding:10px;border:1.5px solid var(--border);border-radius:var(--radius);cursor:pointer;transition:border-color .15s" onclick="this.querySelector('input').checked=true;document.querySelectorAll('#enhance-modal .enhance-opt').forEach(l=>l.style.borderColor='var(--border)');this.style.borderColor='var(--accent2)'" class="enhance-opt">
+                  <div style="display:flex;align-items:center;gap:6px">
+                    <input type="radio" name="enhance-style" value="${val}" style="flex-shrink:0"> 
+                    <span style="font-size:12.5px;font-weight:500">${label}</span>
+                  </div>
+                  <span style="font-size:11px;color:var(--text3);padding-left:18px">${desc}</span>
+                </label>`).join('')}
+            </div>
+          </div>
+
+          <div id="enhance-mode-video" style="display:none">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:6px">
+              ${[
+                ['room-reveal', '🏠 Room Reveal', 'Cinematic pan through a beautiful interior'],
+                ['material-closeup', '🔍 Material Closeup', 'Macro glide over the surface texture'],
+                ['lifestyle-ambient', '☀️ Lifestyle Ambient', 'Warm family home atmosphere'],
+                ['product-spin', '🔄 Product Showcase', '360° spin on clean background'],
+                ['before-after', '✨ Before & After', 'Transformation reveal effect'],
+              ].map(([val, label, desc]) => `
+                <label style="display:flex;flex-direction:column;gap:4px;padding:10px;border:1.5px solid var(--border);border-radius:var(--radius);cursor:pointer;transition:border-color .15s" onclick="this.querySelector('input').checked=true;document.querySelectorAll('#enhance-modal .video-opt').forEach(l=>l.style.borderColor='var(--border)');this.style.borderColor='var(--accent2)'" class="video-opt">
+                  <div style="display:flex;align-items:center;gap:6px">
+                    <input type="radio" name="video-style" value="${val}" style="flex-shrink:0"> 
+                    <span style="font-size:12.5px;font-weight:500">${label}</span>
+                  </div>
+                  <span style="font-size:11px;color:var(--text3);padding-left:18px">${desc}</span>
+                </label>`).join('')}
+            </div>
           </div>
         </div>
 
@@ -7929,7 +7982,16 @@ function openEnhanceModal() {
         <div id="enhance-status" style="font-size:12px;color:var(--text3);margin-bottom:10px;display:none"></div>
 
         <div style="display:flex;gap:8px">
-          <button class="btn btn-primary" style="flex:1" onclick="enhancePhotoWithAI()">Enhance Photo</button>
+          <button class="btn btn-primary" style="flex:1" onclick="
+            const isVideo = document.getElementById('enhance-mode-video').style.display !== 'none';
+            if (isVideo) {
+              const vStyle = document.querySelector('#enhance-modal input[name=video-style]:checked');
+              if (!vStyle) { alert('Select a video style'); return; }
+              enhancePhotoToVideo(vStyle.value, document.getElementById('enhance-notes')?.value?.trim());
+            } else {
+              enhancePhotoWithAI();
+            }
+          ">Generate</button>
           <button class="btn btn-ghost" onclick="document.getElementById('enhance-modal').remove()">Cancel</button>
         </div>
       </div>
@@ -7991,6 +8053,195 @@ async function enhancePhotoWithAI() {
   } catch (err) {
     if (statusEl) statusEl.textContent = '❌ Enhancement failed: ' + err.message;
     showToast('Enhancement failed: ' + err.message, 'error');
+  }
+}
+
+function toggleScheduledPreview(postId) {
+  const post = APP.posts.find(p => String(p.id) === String(postId));
+  if (!post) return;
+
+  const existing = document.getElementById('post-preview-modal');
+  if (existing) { existing.remove(); return; }
+
+  const fbName = post.company === 'mssi' ? 'Module Systems & Services' : post.company === 'wcli' ? 'World Class Laminate' : 'Cebu World Laminate';
+  const mediaHtml = post.mediaType === 'video' && post.videoUrl
+    ? `<video src="${post.videoUrl}" controls style="width:100%;max-height:340px;object-fit:cover;border-radius:0;background:#000;display:block"></video>`
+    : post.photo
+    ? `<img src="${post.photo}" style="width:100%;max-height:340px;object-fit:cover;display:block" alt="Post photo">`
+    : '';
+
+  const div = document.createElement('div');
+  div.id = 'post-preview-modal';
+  div.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.75);z-index:4000;display:flex;align-items:center;justify-content:center;padding:20px';
+  div.onclick = e => { if (e.target === div) div.remove(); };
+  div.innerHTML = `
+    <div style="background:var(--bg2);border:1px solid var(--border2);border-radius:var(--radius-lg);width:480px;max-height:90vh;overflow-y:auto">
+      <div style="padding:12px 16px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center">
+        <div style="font-size:13px;font-weight:500">Facebook Post Preview</div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <span class="post-company-badge badge-${post.company}">${post.company.toUpperCase()}</span>
+          <button class="btn btn-ghost btn-sm" onclick="document.getElementById('post-preview-modal').remove()">✕</button>
+        </div>
+      </div>
+      <!-- FB-style post card -->
+      <div style="background:#fff;color:#050505;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif">
+        <div style="display:flex;align-items:center;gap:10px;padding:12px 16px">
+          <div style="width:40px;height:40px;border-radius:50%;background:#e4e6eb;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">🏢</div>
+          <div>
+            <div style="font-size:14px;font-weight:600;color:#050505">${fbName}</div>
+            <div style="font-size:12px;color:#65676b">Just now · 🌐</div>
+          </div>
+        </div>
+        <div style="padding:0 16px 12px;font-size:14px;line-height:1.6;color:#050505;white-space:pre-wrap">${post.caption}</div>
+        ${mediaHtml}
+        <div style="padding:12px 16px;border-top:1px solid #e4e6eb;display:flex;gap:4px">
+          <div style="flex:1;display:flex;align-items:center;justify-content:center;gap:6px;padding:6px;border-radius:6px;font-size:13px;color:#65676b;cursor:pointer">👍 Like</div>
+          <div style="flex:1;display:flex;align-items:center;justify-content:center;gap:6px;padding:6px;border-radius:6px;font-size:13px;color:#65676b;cursor:pointer">💬 Comment</div>
+          <div style="flex:1;display:flex;align-items:center;justify-content:center;gap:6px;padding:6px;border-radius:6px;font-size:13px;color:#65676b;cursor:pointer">↗ Share</div>
+        </div>
+      </div>
+      <!-- Post details -->
+      <div style="padding:14px 16px;border-top:1px solid var(--border)">
+        <div style="font-size:11.5px;color:var(--text3);display:flex;gap:16px;flex-wrap:wrap">
+          <span>📅 ${post.scheduledFor ? new Date(post.scheduledFor).toLocaleString('en-PH', {weekday:'short',month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}) : 'Not scheduled'}</span>
+          <span>🎯 ${post.pillar}</span>
+          <span>👤 ${post.audience}</span>
+        </div>
+      </div>
+    </div>`;
+  document.body.appendChild(div);
+}
+
+// ── IN-APP USER REGISTRATION ──────────────────────────────────
+function openRegisterModal() {
+  const existing = document.getElementById('register-modal');
+  if (existing) existing.remove();
+  const div = document.createElement('div');
+  div.id = 'register-modal';
+  div.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:9500;display:flex;align-items:center;justify-content:center;padding:20px';
+  div.innerHTML = `
+    <div style="background:var(--bg2);border:1px solid var(--border2);border-radius:var(--radius-lg);width:400px;padding:28px">
+      <div style="font-size:15px;font-weight:600;margin-bottom:4px">Add New User</div>
+      <div style="font-size:12px;color:var(--text3);margin-bottom:20px">They will receive an email to set their password.</div>
+      <div class="form-group">
+        <label class="form-label">Full Name</label>
+        <input type="text" id="reg-name" placeholder="e.g. Aira Sta. Cruz" style="width:100%">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Email Address</label>
+        <input type="email" id="reg-email" placeholder="e.g. aira@mssi.com.ph" style="width:100%">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Role</label>
+        <select id="reg-role" style="width:100%;font-size:13px;padding:8px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg3);color:var(--text)">
+          <option value="staff">Staff — handles comments</option>
+          <option value="manager">Manager — receives escalations</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Assigned Companies</label>
+        <div style="display:flex;gap:14px;margin-top:4px">
+          <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer"><input type="checkbox" id="reg-co-mssi"> MSSI</label>
+          <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer"><input type="checkbox" id="reg-co-wcli"> WCLI</label>
+          <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer"><input type="checkbox" id="reg-co-cwli"> CWLI</label>
+        </div>
+      </div>
+      <div id="reg-status" style="font-size:12px;margin-bottom:12px;display:none"></div>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-primary" style="flex:1" onclick="registerNewUser()">Send Invite</button>
+        <button class="btn btn-ghost" onclick="document.getElementById('register-modal').remove()">Cancel</button>
+      </div>
+    </div>`;
+  document.body.appendChild(div);
+}
+
+async function registerNewUser() {
+  const name = document.getElementById('reg-name')?.value?.trim();
+  const email = document.getElementById('reg-email')?.value?.trim();
+  const role = document.getElementById('reg-role')?.value || 'staff';
+  const companies = ['mssi','wcli','cwli'].filter(c => document.getElementById('reg-co-' + c)?.checked);
+  const statusEl = document.getElementById('reg-status');
+
+  if (!name || !email) { showToast('Name and email are required', 'error'); return; }
+  if (!email.includes('@')) { showToast('Enter a valid email address', 'error'); return; }
+
+  statusEl.style.display = 'block';
+  statusEl.style.color = 'var(--text3)';
+  statusEl.textContent = 'Creating account…';
+
+  try {
+    const proxyBase = (APP.apiKeys.imgproxy || localStorage.getItem('scm_imgproxy_key') || '').replace(/generate-image\/?$/, '');
+    const res = await fetch(proxyBase + 'invite-user', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, email, role, companies })
+    });
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+
+    // Also add to local staff list
+    const newStaff = { name, chatId: null, role, companies, id: 'staff_' + Date.now() };
+    APP.staff = APP.staff || [];
+    APP.staff.push(newStaff);
+    await pushStaffToSupabase();
+
+    statusEl.style.color = 'var(--green)';
+    statusEl.textContent = `✓ Invite sent to ${email} — they can now log in after setting their password.`;
+    setTimeout(() => document.getElementById('register-modal')?.remove(), 3000);
+    showToast('User invited: ' + name, 'success');
+  } catch (err) {
+    statusEl.style.color = 'var(--red)';
+    statusEl.textContent = '❌ ' + err.message;
+  }
+}
+
+// ── ENHANCE PHOTO → VIDEO ─────────────────────────────────────
+async function enhancePhotoToVideo(style, notes) {
+  const proxyBase = (APP.apiKeys.imgproxy || localStorage.getItem('scm_imgproxy_key') || '').replace(/generate-image\/?$/, '');
+  if (!proxyBase) { showToast('Image Proxy URL not configured', 'error'); return; }
+
+  const co = APP.currentCompany || 'wcli';
+  const colorId = document.getElementById('post-color-id')?.value;
+  const colors = getColors(co);
+  const selectedColor = colorId ? colors.find(c => c.id === colorId) : null;
+  const colorNote = selectedColor ? ` featuring ${selectedColor.name} ${selectedColor.is_hpl ? 'HPL' : 'melamine'} surface` : '';
+
+  const videoPrompts = {
+    'room-reveal': `Smooth cinematic reveal of a modern Philippine interior space${colorNote}. Camera slowly pans across the room, revealing beautiful laminate surfaces. Warm natural light. Professional real estate video style.`,
+    'material-closeup': `Macro closeup video of laminate board surface${colorNote}. Camera slowly glides across the texture, showing depth and finish quality. Studio lighting, ultra HD detail.`,
+    'lifestyle-ambient': `Ambient lifestyle video of a Filipino family home with beautiful laminate cabinetry${colorNote}. Warm morning light, subtle movement, feels like a real home. Cinematic and aspirational.`,
+    'product-spin': `360 product showcase video of laminate board sample${colorNote}. Clean white background, professional studio lighting, smooth rotation revealing all angles and texture.`,
+    'before-after': `Split screen transformation video showing plain space transforming into a beautiful interior with laminate finishes${colorNote}. Satisfying reveal effect, modern Philippine home aesthetic.`,
+  };
+
+  const statusEl = document.getElementById('enhance-status');
+  if (statusEl) { statusEl.style.display = 'block'; statusEl.textContent = 'Generating video from your photo…'; }
+
+  try {
+    const veoKey = APP.apiKeys.veo || localStorage.getItem('scm_veo_key');
+    if (!veoKey) throw new Error('Veo API key not configured in Settings');
+
+    const prompt = videoPrompts[style] + (notes ? ' ' + notes : '');
+    const res = await fetch(proxyBase + 'generate-video', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        prompt,
+        reference_image: APP.currentPhoto,
+        aspect_ratio: '9:16',
+        duration_seconds: 8,
+        veo_key: veoKey
+      })
+    });
+    const data = await res.json();
+    if (data.error || !data.url) throw new Error(data.error || 'No video returned');
+
+    APP.currentVideo = data.url;
+    APP.mediaType = 'video';
+    document.getElementById('enhance-modal')?.remove();
+    showToast('✓ Video generated — switch to Video tab to preview', 'success');
+  } catch (err) {
+    if (statusEl) statusEl.textContent = '❌ ' + err.message;
   }
 }
 
