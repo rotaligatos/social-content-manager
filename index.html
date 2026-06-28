@@ -1617,7 +1617,7 @@ function showScreen(id) {
   if (id === 'review') updateReviewQueue();
   if (id === 'dashboard') updateDashboard();
   if (id === 'create') renderHolidayBanner();
-  if (id === 'performance') { renderPerformance(); fetchAllInsights(); }
+  if (id === 'performance') { renderPerformance(); fetchAllInsights(); setTimeout(() => fetchFacebookInsights(), 1500); }
   if (id === 'changelog') renderChangelog();
   if (id === 'settings') {
     const firstBtn = document.querySelector('.settings-nav-item');
@@ -7586,7 +7586,12 @@ function checkUnsavedBeforeNav(targetScreen) {
   );
 }
 
+let _unsavedLeaveCallback = null;
+let _unsavedSaveCallback = null;
+
 function showUnsavedDialog(message, onLeave, onSave) {
+  _unsavedLeaveCallback = onLeave;
+  _unsavedSaveCallback = onSave;
   const existing = document.getElementById('unsaved-dialog');
   if (existing) existing.remove();
 
@@ -7598,8 +7603,8 @@ function showUnsavedDialog(message, onLeave, onSave) {
       <div style="font-size:15px;font-weight:600;margin-bottom:8px">Unsaved Changes</div>
       <div style="font-size:13px;color:var(--text2);margin-bottom:20px;line-height:1.6">${message}</div>
       <div style="display:flex;gap:8px">
-        ${onSave ? `<button class="btn btn-primary" style="flex:1" onclick="document.getElementById('unsaved-dialog').remove();(${onSave})()">Save</button>` : ''}
-        <button class="btn btn-secondary" style="flex:1" onclick="document.getElementById('unsaved-dialog').remove();(${onLeave})()">Leave anyway</button>
+        ${onSave ? `<button class="btn btn-primary" style="flex:1" onclick="document.getElementById('unsaved-dialog').remove();if(window._unsavedSaveCallback)window._unsavedSaveCallback()">Save</button>` : ''}
+        <button class="btn btn-secondary" style="flex:1" onclick="document.getElementById('unsaved-dialog').remove();if(window._unsavedLeaveCallback)window._unsavedLeaveCallback()">Leave anyway</button>
         <button class="btn btn-ghost" onclick="document.getElementById('unsaved-dialog').remove()">Stay</button>
       </div>
     </div>`;
@@ -7866,15 +7871,7 @@ async function fetchFacebookInsights() {
   }
 }
 
-// Auto-fetch insights every time the Performance screen is opened
-const _origShowScreen = showScreen;
-function showScreen(screen) {
-  _origShowScreen(screen);
-  if (screen === 'performance') {
-    // Fetch fresh FB insights quietly in the background
-    setTimeout(() => fetchFacebookInsights(), 800);
-  }
-}
+// Auto-fetch insights when Performance screen opens is handled inside showScreen above
 </script>
 </body>
 </html>
