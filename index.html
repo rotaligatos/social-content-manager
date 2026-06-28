@@ -4513,6 +4513,11 @@ function switchSettingsTab(btn, tab) {
     });
     const countEl = document.getElementById('ap-posts-count');
     if (countEl && s.postsCount) countEl.value = String(s.postsCount);
+    // Restore toggles
+    const colorsToggle = document.getElementById('ap-toggle-colors');
+    if (colorsToggle) colorsToggle.classList.toggle('on', !!s.rotateColors);
+    const retailToggle = document.getElementById('ap-toggle-retail');
+    if (retailToggle) retailToggle.classList.toggle('on', !!s.includeRetail);
     renderAutopilotRecipients();
     loadAutopilotLog();
     // Sync autopublish toggle
@@ -7746,6 +7751,8 @@ function saveAutopilotConfig() {
   pushSettingToSupabase('autopilot_companies', s.companies);
   pushSettingToSupabase('autopilot_posts_per_company', s.postsCount);
   pushSettingToSupabase('autopilot_telegram_recipients', s.telegramRecipients);
+  pushSettingToSupabase('autopilot_rotate_colors', s.rotateColors || false);
+  pushSettingToSupabase('autopilot_include_retail', s.includeRetail || false);
 
   showToast('Autopilot settings saved', 'success');
 }
