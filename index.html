@@ -2654,22 +2654,6 @@ async function confirmAndGenerateImage() {
 }
 
 // Update color dropdown when company changes
-function updateColorOptions() {
-  const sel = document.getElementById('post-color-id');
-  if (!sel) return;
-  const co = APP.currentCompany;
-  if (!co || co === 'mssi') {
-    sel.innerHTML = '<option value="">No specific color</option>';
-    sel.closest('.form-section').style.display = 'none';
-    return;
-  }
-  sel.closest('.form-section').style.display = '';
-  const colors = getColors(co).filter(c => c.status !== 'retired');
-  sel.innerHTML = '<option value="">No specific color — use featured colors</option>' +
-    colors.map(c => `<option value="${c.id}">${c.name}${c.pattern ? ' · ' + c.pattern : ''}</option>`).join('');
-  updateColorFinishOptions();
-}
-
 function updateColorFinishOptions() {
   const colorSel = document.getElementById('post-color-id');
   const finishSel = document.getElementById('post-color-finish');
