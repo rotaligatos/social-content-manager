@@ -4544,6 +4544,13 @@ async function pushAllToCloud() {
     status.textContent = 'Pushing staff…';
     await pushStaffToSupabase();
 
+    // 5. Push retail partners
+    status.textContent = 'Pushing retail partners…';
+    const retailPartners = getRetailPartners();
+    if (retailPartners.length) {
+      await syncRequest({ operation: 'push_retail', partners: retailPartners });
+    }
+
     // 5. Push all API keys and settings
     status.textContent = 'Pushing settings & API keys…';
     const keys = {
