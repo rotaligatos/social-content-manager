@@ -553,13 +553,16 @@ select:focus{border-color:var(--accent-border);}
         <div class="form-section">
           <div class="form-section-header"><div class="form-section-num">6</div><div class="form-section-title">Feature a Color <span style="color:var(--text3);font-weight:400">(optional)</span></div></div>
           <div class="form-section-body">
-            <select id="post-color-id" style="width:100%;margin-bottom:8px" onchange="updateColorFinishOptions()">
-              <option value="">No specific color — use featured colors</option>
-            </select>
-            <select id="post-color-finish" style="width:100%;display:none">
+            <div style="display:flex;gap:6px;margin-bottom:8px">
+              <select id="post-color-id" style="flex:1" onchange="updateColorFinishOptions()">
+                <option value="">No specific color — use featured</option>
+              </select>
+              <button id="ai-pick-color-btn" class="btn btn-secondary btn-sm" onclick="aiPickFeaturedColor()" title="Let AI pick the best colors to feature based on trends">✨ AI Pick</button>
+            </div>
+            <select id="post-color-finish" style="width:100%;display:none;margin-bottom:8px">
               <option value="">Any finish</option>
             </select>
-            <div style="font-size:11px;color:var(--text3);margin-top:6px">Claude will naturally work the selected color and finish into the caption. Ideogram will match the visual texture.</div>
+            <div style="font-size:11px;color:var(--text3)">⭐ = currently featured. AI Pick chooses colors based on PH interior trends + your performance data.</div>
             <div class="toggle-row" style="margin-top:10px;padding:0;border:none">
               <div><div class="toggle-label" style="font-size:12.5px">Mention store availability</div><div class="toggle-sub">Add retail partners (Wilcon, Home Depot, etc.) to the caption</div></div>
               <div class="toggle" id="post-retail-toggle" onclick="toggleSwitch(this)"><div class="toggle-thumb"></div></div>
@@ -2415,7 +2418,7 @@ Target Audience: ${audience}
 Content Pillar: ${pillar}
 Tone and Voice: ${getToneFor(co, audience)}
 Primary Goal: ${getGoalFor(co)}
-${notes ? 'Notes from manager: ' + notes : ''}${getPerformanceContextForPrompt(co)}${getColorContextForPrompt(co, colorId)}${includeRetail ? getRetailContextForPrompt(co) : ''}
+${notes ? 'Notes from manager: ' + notes : ''}${getPerformanceContextForPrompt(co)}${getAiStrategyContext()}${getColorContextForPrompt(co, colorId)}${includeRetail ? getRetailContextForPrompt(co) : ''}
 
 Write one complete Facebook post following these rules exactly:
 - 2 to 3 short paragraphs (not bullet points)
@@ -3350,14 +3353,24 @@ async function fetchAllInsights() {
   let fetched = 0;
   for (const post of published) {
     const ok = await fetchInsightsForPost(post);
-    if (ok) fetched++;
-    await new Promise(r => setTimeout(r, 200)); // avoid rate limits
+    if (ok) {
+      fetched++;
+      upsertPost(post); // persist updated performance data to Supabase
+    }
+    await new Promise(r => setTimeout(r, 200));
   }
 
   saveState();
   renderPerformance();
   if (btn) { btn.disabled = false; btn.innerHTML = 'Refresh Insights'; }
-  if (sub) sub.textContent = `Insights updated · ${fetched} posts fetched · ${new Date().toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})}`;
+  const timeStr = new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+  if (sub) sub.textContent = `Insights updated · ${fetched} posts · ${timeStr}`;
+  // Store last fetch time so we know when data is fresh
+  localStorage.setItem('scm_insights_last_fetch', new Date().toISOString());
+  // Trigger AI strategy update if in autonomous mode
+  if (fetched > 0 && getAutopilotSettings().enabled) {
+    refreshAiStrategyHints();
+  }
 }
 
 // ── ENGAGEMENT SCORE ──────────────────────────────────────────
@@ -3428,6 +3441,68 @@ function trendLine(weekData) {
 }
 
 // ── MAIN RENDER ───────────────────────────────────────────────
+// ── AI STRATEGY HINTS ──────────────────────────────────────
+// Reads live performance data and generates content strategy notes
+// used by the AI in autonomous mode and displayed in the performance screen
+
+async function refreshAiStrategyHints() {
+  const apiKey = APP.apiKeys.anthropic || localStorage.getItem('scm_anthropic_key') || '';
+  if (!apiKey) return;
+
+  const published = APP.posts.filter(p => p.status === 'published' && p.performance);
+  if (published.length < 3) return; // not enough data yet
+
+  // Build performance summary
+  const summary = published.slice(-30).map(p => {
+    const perf = p.performance || {};
+    return `${p.company}|${p.pillar}|${p.audience}|likes:${perf.reactions||perf.likes||0}|comments:${perf.comments||0}|shares:${perf.shares||0}|inquiries:${perf.inquiries||0}|day:${p.publishedAt ? new Date(p.publishedAt).toLocaleDateString('en-PH',{weekday:'short'}) : '?'}`;
+  }).join('\n');
+
+  try {
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
+      body: JSON.stringify({
+        model: 'claude-haiku-4-5',
+        max_tokens: 600,
+        messages: [{ role: 'user', content: `You are a social media strategist for MSSI (modular furniture), WCLI (laminate boards Luzon), CWLI (laminate boards Cebu/Visayas/Mindanao) in the Philippines.
+
+Based on this recent post performance data, generate 3-5 specific actionable strategy adjustments for the next week's content. Focus on what's working, what to do more of, and what to change.
+
+Performance data (company|pillar|audience|likes|comments|shares|inquiries|day):
+${summary}
+
+Reply ONLY with valid JSON, no markdown:
+{"insights": "2-sentence summary of what the data shows", "adjustments": [{"action": "specific change to make", "reason": "why based on data", "company": "mssi/wcli/cwli/all"}]}`
+        }]
+      })
+    });
+    const data = await res.json();
+    const text = data.content?.[0]?.text || '';
+    const parsed = JSON.parse(text.replace(/```json|```/g,'').trim());
+    // Store for use in autopilot prompts and performance screen
+    localStorage.setItem('scm_ai_strategy', JSON.stringify({
+      ...parsed,
+      generatedAt: new Date().toISOString()
+    }));
+    // Re-render performance screen if visible
+    if (document.getElementById('screen-performance')?.style.display !== 'none') {
+      renderPerformance();
+    }
+  } catch (_e) {}
+}
+
+function getAiStrategyContext() {
+  try {
+    const stored = JSON.parse(localStorage.getItem('scm_ai_strategy') || '{}');
+    if (!stored.adjustments?.length) return '';
+    const age = stored.generatedAt ? Math.round((Date.now() - new Date(stored.generatedAt)) / 86400000) : 99;
+    if (age > 7) return ''; // stale
+    const adj = stored.adjustments.slice(0, 3).map(a => `- ${a.action}`).join('\n');
+    return `\n\nCurrent content strategy adjustments (based on recent FB performance):\n${adj}`;
+  } catch { return ''; }
+}
+
 function renderPerformance() {
   const content = document.getElementById('performance-content');
   if (!content) return;
@@ -3969,6 +4044,8 @@ function switchBrandTab(c) {
   if (tab) tab.classList.add(c === 'colors' || c === 'retail' ? 'active-mssi' : 'active-' + c);
   const content = document.getElementById('brand-' + c);
   if (content) content.style.display = 'grid';
+  // Track which company is active so AI Pick knows which to use
+  if (c === 'mssi' || c === 'wcli' || c === 'cwli') window._activeBrandCompany = c;
   // Render dynamic content for special tabs
   if (c === 'colors') { renderColorList('wcli'); renderColorList('cwli'); }
   if (c === 'retail') renderRetailList();
@@ -7150,8 +7227,11 @@ async function onLoginSuccess() {
   if (loginScreen) loginScreen.style.display = 'none';
   showToast('Signed in — syncing data…', 'info');
   await loadUserProfile();
-  await pullFromSupabase();
+  await pullFromSupabase();         // sync settings/colors/profiles
+  await syncFromCloud();            // sync posts from other devices
   updateUserBadge();
+  // Quietly fetch FB insights for any published posts
+  setTimeout(() => fetchFacebookInsights(), 2000);
 }
 
 async function loadUserProfile() {
@@ -7465,16 +7545,272 @@ function showUnsavedDialog(message, onLeave, onSave) {
 // INIT
 loadState();
 checkAndShowResponsePage();
-// Login screen is a fixed overlay — show immediately, auth check hides it if already logged in
 const _ls = document.getElementById('login-screen');
 if (_ls) _ls.style.display = 'flex';
-// Start scheduler only if auto-publish is enabled
 if (isAutoPublishEnabled()) startScheduler();
-// Set initial autopublish toggle state
 const _apt = document.getElementById('autopublish-toggle');
 if (_apt) _apt.classList.toggle('on', isAutoPublishEnabled());
-// Check auth session — hides login screen if already logged in
 checkExistingSession();
+
+// ── CROSS-DEVICE SYNC ────────────────────────────────────────
+//  After login, pull latest state from Supabase so Android and
+//  Desktop always see the same data.
+
+async function syncFromCloud() {
+  const proxyBase = (APP.apiKeys.imgproxy || localStorage.getItem('scm_imgproxy_key') || '').replace(/generate-image\/?$/, '');
+  if (!proxyBase) return;
+  try {
+    // Pull posts from Supabase posts table
+    const res = await fetch(proxyBase + 'upsert-post?mode=pull', {
+      method: 'GET', headers: { 'Content-Type': 'application/json' }
+    });
+    if (!res.ok) return;
+    const data = await res.json();
+    if (!data.posts || !data.posts.length) return;
+
+    // Merge: Supabase is source of truth for status/fbPostId
+    // Keep local posts that aren't in Supabase yet (just created)
+    const cloudMap = Object.fromEntries(data.posts.map(p => [String(p.id), p]));
+    const localIds = new Set(APP.posts.map(p => String(p.id)));
+
+    // Update local posts from cloud
+    for (const local of APP.posts) {
+      const cloud = cloudMap[String(local.id)];
+      if (!cloud) continue;
+      if (cloud.status === 'published' && local.status !== 'published') {
+        local.status = 'published';
+        local.fbPostId = cloud.fb_post_id;
+        local.publishedAt = cloud.published_at;
+      }
+    }
+
+    // Add cloud posts not in local (posted from another device)
+    for (const cloud of data.posts) {
+      if (!localIds.has(String(cloud.id))) {
+        APP.posts.push({
+          id: cloud.id,
+          company: cloud.company,
+          audience: cloud.audience,
+          pillar: cloud.pillar,
+          caption: cloud.caption,
+          photo: cloud.photo_url || null,
+          mediaType: cloud.media_type || 'photo',
+          status: cloud.status,
+          scheduledFor: cloud.scheduled_for,
+          publishedAt: cloud.published_at,
+          fbPostId: cloud.fb_post_id,
+          watermark: cloud.watermark || false,
+          performance: cloud.performance || null,
+          createdAt: cloud.created_at,
+        });
+      }
+    }
+
+    saveState();
+    updateDashboard();
+    updateReviewQueue();
+    updateReviewBadge();
+    renderCalendar();
+  } catch (_e) { /* non-fatal */ }
+}
+
+// ── FEATURED COLOR IMPROVEMENTS ──────────────────────────────
+
+// Fix color dropdown: sort featured first, show ⭐ badge
+function updateColorOptions() {
+  const sel = document.getElementById('post-color-id');
+  if (!sel) return;
+  const co = APP.currentCompany;
+  if (!co || co === 'mssi') {
+    sel.innerHTML = '<option value="">No specific color</option>';
+    const section = sel.closest('.form-section');
+    if (section) section.style.display = 'none';
+    return;
+  }
+  const section = sel.closest('.form-section');
+  if (section) section.style.display = '';
+
+  const colors = getColors(co).filter(c => c.status !== 'retired');
+  const featured = colors.filter(c => c.status === 'featured');
+  const active = colors.filter(c => c.status !== 'featured');
+
+  const toOption = c => `<option value="${c.id}">${c.status === 'featured' ? '⭐ ' : ''}${c.name}${c.is_hpl ? ' (HPL)' : ''}${c.pattern ? ' · ' + c.pattern : ''}</option>`;
+
+  sel.innerHTML = '<option value="">No specific color — use featured</option>' +
+    (featured.length ? '<optgroup label="⭐ Featured">' + featured.map(toOption).join('') + '</optgroup>' : '') +
+    (active.length ? '<optgroup label="All Colors">' + active.map(toOption).join('') + '</optgroup>' : '');
+
+  updateColorFinishOptions();
+}
+
+// AI picks the best color to feature based on trends + performance + web signals
+async function aiPickFeaturedColor() {
+  // Work from Brand Profiles tab context OR Create Post company
+  const co = document.getElementById('brand-colors')?.closest('[id^="screen"]')
+    ? (window._activeBrandCompany || APP.currentCompany)
+    : APP.currentCompany;
+  if (!co || co === 'mssi') { showToast('Select WCLI or CWLI in Brand Profiles → Colors', 'error'); return; }
+
+  const btn = document.getElementById('ai-pick-color-btn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Picking…'; }
+
+  const apiKey = APP.apiKeys.anthropic || localStorage.getItem('scm_anthropic_key') || '';
+  if (!apiKey) { showToast('Add Anthropic API key in Settings', 'error'); if (btn) { btn.disabled = false; btn.textContent = '✨ AI Pick'; } return; }
+
+  const colors = getColors(co).filter(c => c.status !== 'retired');
+  if (!colors.length) { showToast('Import colors first', 'error'); if (btn) { btn.disabled = false; btn.textContent = '✨ AI Pick'; } return; }
+
+  // Build rich performance context — per-color engagement
+  const recentPosts = APP.posts.filter(p => p.company === co && p.status === 'published').slice(-20);
+  const colorPerf = {};
+  recentPosts.forEach(p => {
+    if (p.caption) {
+      // Try to match post caption to a color name
+      colors.forEach(c => {
+        if (p.caption.toLowerCase().includes(c.name.toLowerCase())) {
+          if (!colorPerf[c.id]) colorPerf[c.id] = { posts: 0, likes: 0, comments: 0, shares: 0 };
+          colorPerf[c.id].posts++;
+          colorPerf[c.id].likes += p.performance?.likes || p.performance?.reactions || 0;
+          colorPerf[c.id].comments += p.performance?.comments || 0;
+          colorPerf[c.id].shares += p.performance?.shares || 0;
+        }
+      });
+    }
+  });
+
+  const colorList = colors.slice(0, 80).map(c => {
+    const perf = colorPerf[c.id];
+    const perfNote = perf ? ` [${perf.posts} posts, ${perf.likes} likes, ${perf.comments} comments]` : '';
+    const currentlyFeatured = c.status === 'featured' ? ' [currently featured]' : '';
+    return `${c.id}|${c.name}|${c.pattern || 'laminate'}|${c.colorFamily || ''}|${c.is_hpl ? 'HPL' : 'melamine'}|${c.series || ''}${perfNote}${currentlyFeatured}`;
+  }).join('\n');
+
+  const activeTab = COLOR_SUBTAB[co] || 'melamine';
+  const categoryNote = activeTab === 'melamine' ? 'Melamine laminated boards' : activeTab === 'hpl-deone' ? 'De One HPL collection' : 'Elemental HPL collection';
+
+  const prompt = `You are a social media strategist for ${co.toUpperCase()}, a Philippine laminate board company selling ${categoryNote}.
+It is June 2026. Pick the 3 best colors to feature in this week's Facebook posts.
+
+Performance history (format: id|name|pattern|colorFamily|type|series [posts, likes, comments]):
+${colorList}
+
+Consider:
+- 2026 Philippine interior trends: warm wood tones, greige/beige neutrals, stone/marble looks, sage green, and bold mocha/terracotta accents are performing well on social media
+- Colors with prior engagement data should be weighted higher if performing well
+- Avoid colors featured in the last 2 weeks if good alternatives exist
+- For HPL: emphasize durability, texture depth, commercial/premium applications
+- For melamine: focus on value, variety, residential applications
+- Mix pattern types — don't pick all woodgrain or all solid
+- Strong visual contrast works best for Philippine home/kitchen settings on Facebook
+
+Reply ONLY with valid JSON, no markdown fences:
+{"picks": [{"id": "...", "reason": "one sentence why this color now"}, ...]}`;
+
+  try {
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
+      body: JSON.stringify({ model: 'claude-haiku-4-5', max_tokens: 400, messages: [{ role: 'user', content: prompt }] })
+    });
+    const data = await res.json();
+    const text = data.content?.[0]?.text || '';
+    const parsed = JSON.parse(text.replace(/```json|```/g, '').trim());
+    const picks = parsed.picks || [];
+
+    if (!picks.length) { showToast('AI could not pick colors — try again', 'error'); return; }
+
+    const allColors = getColors(co);
+    allColors.forEach(c => { if (c.status === 'featured') c.status = 'active'; });
+    picks.forEach(pick => {
+      const c = allColors.find(x => x.id === pick.id);
+      if (c) c.status = 'featured';
+    });
+    saveColors(co, allColors);
+    renderColorList(co);
+    updateColorOptions();
+
+    const names = picks.map(p => {
+      const c = allColors.find(x => x.id === p.id);
+      return `<div style="margin-bottom:8px"><strong>${c?.name || p.id}</strong> <span style="font-size:10.5px;color:var(--text3)">${c?.pattern || ''} ${c?.is_hpl ? '· HPL' : '· Melamine'}</span><br><span style="font-size:12px;color:var(--text2)">${p.reason}</span></div>`;
+    }).join('');
+
+    showToast(`✨ AI featured ${picks.length} colors for ${co.toUpperCase()}`, 'success');
+    const div = document.createElement('div');
+    div.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:4000;display:flex;align-items:center;justify-content:center';
+    div.innerHTML = `<div style="background:var(--bg2);border:1px solid var(--border2);border-radius:var(--radius-lg);width:400px;padding:20px">
+      <div style="font-size:14px;font-weight:500;margin-bottom:4px">✨ AI Featured Colors — ${co.toUpperCase()}</div>
+      <div style="font-size:11.5px;color:var(--text3);margin-bottom:14px">Based on PH 2026 trends + your post performance data</div>
+      <div>${names}</div>
+      <button class="btn btn-primary" style="width:100%;margin-top:16px" onclick="this.closest('div[style*=fixed]').remove()">Got it</button>
+    </div>`;
+    document.body.appendChild(div);
+
+  } catch (err) {
+    showToast('AI pick failed: ' + err.message, 'error');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '✨ AI Pick'; }
+  }
+}
+
+// ── FACEBOOK ANALYTICS AUTO-FETCH ────────────────────────────
+//  Fetches reach/likes/comments/shares for published posts
+//  and stores them back to Supabase for AI analysis
+
+async function fetchFacebookInsights() {
+  const published = APP.posts.filter(p => p.status === 'published' && p.fbPostId);
+  if (!published.length) { showToast('No published posts with Facebook IDs yet', 'info'); return; }
+
+  const pages = APP.fbPages || JSON.parse(localStorage.getItem('scm_fb_pages') || '{}');
+  let fetched = 0;
+  let failed = 0;
+
+  for (const post of published) {
+    const pageData = resolveFbPageData(post);
+    if (!pageData?.token) continue;
+
+    try {
+      const fields = 'likes.summary(true),comments.summary(true),shares,reactions.summary(true)';
+      const res = await fetch(
+        `https://graph.facebook.com/v19.0/${post.fbPostId}?fields=${fields}&access_token=${pageData.token}`
+      );
+      const d = await res.json();
+      if (d.error) { failed++; continue; }
+
+      const insights = {
+        likes: d.likes?.summary?.total_count || 0,
+        comments: d.comments?.summary?.total_count || 0,
+        shares: d.shares?.count || 0,
+        reactions: d.reactions?.summary?.total_count || 0,
+        fetchedAt: new Date().toISOString()
+      };
+
+      post.performance = { ...(post.performance || {}), ...insights };
+      fetched++;
+    } catch (_e) { failed++; }
+  }
+
+  if (fetched) {
+    saveState();
+    // Sync updated performance data to Supabase
+    for (const post of published.filter(p => p.performance?.fetchedAt)) {
+      upsertPost(post);
+    }
+    showToast(`✓ Fetched insights for ${fetched} posts${failed ? ' (' + failed + ' failed)' : ''}`, 'success');
+    updateDashboard();
+  } else {
+    showToast('Could not fetch insights — check Facebook tokens', 'error');
+  }
+}
+
+// Auto-fetch insights every time the Performance screen is opened
+const _origShowScreen = showScreen;
+function showScreen(screen) {
+  _origShowScreen(screen);
+  if (screen === 'performance') {
+    // Fetch fresh FB insights quietly in the background
+    setTimeout(() => fetchFacebookInsights(), 800);
+  }
+}
 </script>
 </body>
 </html>
