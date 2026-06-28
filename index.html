@@ -2726,6 +2726,45 @@ function resetGenerateBtn() {
   btn.disabled = false;
 }
 
+// ── POST PERSISTENCE ─────────────────────────────────────────
+//  Every post state change writes directly to Supabase posts table.
+//  This is independent of the bulk app-sync — it's the source of truth
+//  for analytics, dashboards, and post history.
+
+async function upsertPost(post) {
+  const proxyBase = (APP.apiKeys.imgproxy || localStorage.getItem('scm_imgproxy_key') || '').replace(/generate-image\/?$/, '');
+  if (!proxyBase) return; // silently skip — no proxy configured
+  try {
+    await fetch(proxyBase + 'upsert-post', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(post)
+    });
+  } catch (_e) { /* non-fatal — localStorage is the fallback */ }
+}
+
+// Bulk-sync all posts in localStorage to Supabase posts table
+// Called on startup and after push-all-to-cloud
+async function syncAllPostsToSupabase() {
+  const proxyBase = (APP.apiKeys.imgproxy || localStorage.getItem('scm_imgproxy_key') || '').replace(/generate-image\/?$/, '');
+  if (!proxyBase) return;
+  const posts = APP.posts || [];
+  if (!posts.length) return;
+  // Send in batches of 50
+  const batchSize = 50;
+  for (let i = 0; i < posts.length; i += batchSize) {
+    const batch = posts.slice(i, i + batchSize);
+    try {
+      await fetch(proxyBase + 'upsert-post', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(batch)
+      });
+    } catch (_e) {}
+  }
+  showToast('All posts synced to cloud ✓', 'success');
+}
+
 function saveDraft() {
   if (!APP.currentCaption) { showToast('Generate a post first', 'error'); return; }
   const hasVideo = APP.mediaType === 'video' && APP.currentVideo;
@@ -2753,6 +2792,7 @@ function saveDraft() {
   };
   APP.posts.push(post);
   saveState();
+  upsertPost(post); // persist to Supabase posts table
   updateDashboard();
   updateReviewBadge();
   if (hasVideo) {
@@ -2978,11 +3018,12 @@ function schedulePost(id) {
   post.scheduledFor = dt || new Date().toISOString();
   post.status = 'scheduled';
   saveState();
+  upsertPost(post); // persist to Supabase posts table
   updateReviewQueue();
   updateReviewBadge();
   updateDashboard();
   showToast('Post scheduled!', 'success');
-  markSaved(); // clear unsaved flag
+  markSaved();
   syncPostToSupabase(post);
   pushPostToSupabase(post);
 }
@@ -4172,8 +4213,12 @@ async function pushAllToCloud() {
   status.style.display = 'block'; status.textContent = 'Starting…';
 
   try {
-    // 1. Push all posts
-    status.textContent = 'Pushing posts…';
+    // 1. Push all posts directly to posts table (for analytics)
+    status.textContent = 'Syncing posts to cloud database…';
+    await syncAllPostsToSupabase();
+
+    // 2. Also push via app-sync for app state
+    status.textContent = 'Pushing post state…';
     for (const post of (APP.posts || [])) {
       await pushPostToSupabase(post);
     }
@@ -5456,6 +5501,8 @@ async function publishPostNow(id) {
     post.fbPostId = result.postId;
     post.publishedAt = new Date().toISOString();
     saveState();
+    upsertPost(post); // persist to Supabase posts table
+    syncPostPublishedToSupabase(post);
     updateReviewQueue();
     updateDashboard();
     renderCalendar();
@@ -6943,8 +6990,8 @@ async function runSchedulerTick() {
       post.fbPostId = result.postId;
       post.publishedAt = new Date().toISOString();
       saveState();
-      // Mark published in Supabase so the offline scheduler knows too
-      syncPostPublishedToSupabase(post);
+      upsertPost(post); // persist to Supabase posts table
+      syncPostPublishedToSupabase(post); // tell cron it's done
       updateReviewQueue();
       updateDashboard();
       renderCalendar();
