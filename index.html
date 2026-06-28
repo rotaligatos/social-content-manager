@@ -4742,29 +4742,28 @@ function staffRowHtml(index, person) {
   const role = person.role || 'staff';
   return `
     <div style="background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius);padding:12px;margin-bottom:10px" data-staff-row="${index}">
-      <div style="display:flex;gap:8px;margin-bottom:10px">
-        <input type="text" class="staff-name" placeholder="Staff name" value="${person.name || ''}" style="flex:2" onchange="saveStaffList()">
-        <input type="text" class="staff-chatid" placeholder="Telegram Chat ID" value="${person.chatId || ''}" style="flex:2" onchange="saveStaffList()">
-        <select class="staff-role" style="font-size:12px;padding:6px 8px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg2);color:var(--text)" onchange="saveStaffList()">
-          <option value="staff" ${role==='staff'?'selected':''}>Staff</option>
-          <option value="manager" ${role==='manager'?'selected':''}>Manager</option>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
+        <input type="text" class="staff-name" placeholder="Staff name" value="${person.name || ''}" style="font-size:12px;padding:6px 8px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg2);color:var(--text)" onchange="saveStaffList()">
+        <input type="text" class="staff-chatid" placeholder="Telegram Chat ID" value="${person.chatId || ''}" style="font-size:12px;padding:6px 8px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg2);color:var(--text)" onchange="saveStaffList()">
+      </div>
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+        <select class="staff-role" style="font-size:12px;padding:6px 8px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg2);color:var(--text);flex:1" onchange="saveStaffList()">
+          <option value="staff" ${role==='staff'?'selected':''}>Staff — handles comments</option>
+          <option value="manager" ${role==='manager'?'selected':''}>Manager — receives escalations</option>
         </select>
         <button class="btn btn-secondary btn-sm" onclick="sendStaffTestMessage(${index}, this)">Test</button>
         <button class="btn btn-ghost btn-sm" style="color:var(--red)" onclick="removeStaffField(${index})">Remove</button>
       </div>
-      <div style="font-size:11.5px;color:var(--text3);margin-bottom:8px">Responsible for:</div>
-      <div style="display:flex;gap:12px;margin-bottom:0">
-        <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text2)">
-          <input type="checkbox" class="staff-company-mssi" ${companies.includes('mssi') ? 'checked' : ''} onchange="saveStaffList()">
-          MSSI
+      <div style="font-size:11.5px;color:var(--text3);margin-bottom:6px">Responsible for:</div>
+      <div style="display:flex;gap:12px">
+        <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer">
+          <input type="checkbox" class="staff-company-mssi" ${companies.includes('mssi') ? 'checked' : ''} onchange="saveStaffList()"> MSSI
         </label>
-        <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text2)">
-          <input type="checkbox" class="staff-company-wcli" ${companies.includes('wcli') ? 'checked' : ''} onchange="saveStaffList()">
-          WCLI
+        <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer">
+          <input type="checkbox" class="staff-company-wcli" ${companies.includes('wcli') ? 'checked' : ''} onchange="saveStaffList()"> WCLI
         </label>
-        <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text2)">
-          <input type="checkbox" class="staff-company-cwli" ${companies.includes('cwli') ? 'checked' : ''} onchange="saveStaffList()">
-          CWLI
+        <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer">
+          <input type="checkbox" class="staff-company-cwli" ${companies.includes('cwli') ? 'checked' : ''} onchange="saveStaffList()"> CWLI
         </label>
       </div>
       <div class="staff-test-result" style="font-size:11px;margin-top:8px;display:none"></div>
