@@ -523,6 +523,7 @@ select:focus{border-color:var(--accent-border);}
               <div class="photo-options">
                 <button class="btn btn-secondary btn-sm" onclick="openPhotoPicker()">Choose from Library</button>
                 <button class="btn btn-secondary btn-sm" onclick="openImageGenModal()">✦ AI Generate Image</button>
+                <button class="btn btn-secondary btn-sm" id="ai-enhance-btn" onclick="openEnhanceModal()" style="display:none">✨ Enhance Photo</button>
               </div>
               <div class="toggle-row" style="margin-top:12px;padding:10px 0;border-top:1px solid var(--border);border-bottom:none">
                 <div><div class="toggle-label">Watermark with company logo</div><div class="toggle-sub">Stamps the logo at a random corner — applies to AI images and your own uploads</div></div>
@@ -1705,9 +1706,11 @@ function setCurrentPhoto(dataUrl) {
   document.getElementById('preview-image').innerHTML = '<img src="'+dataUrl+'" style="width:100%;height:200px;object-fit:cover" alt="Post photo">';
   const wmToggle = document.getElementById('watermark-toggle');
   if (wmToggle) wmToggle.checked = false;
-  // Once a photo is attached, hide the caption→image button (regenerating the caption brings it back).
   const imgGenBtn = document.getElementById('btn-gen-image-from-caption');
   if (imgGenBtn) imgGenBtn.style.display = 'none';
+  // Show enhance button when a real photo is attached
+  const enhanceBtn = document.getElementById('ai-enhance-btn');
+  if (enhanceBtn) enhanceBtn.style.display = dataUrl ? '' : 'none';
 }
 
 async function handlePhotoUpload(e) {
@@ -6349,17 +6352,40 @@ function getColorContextForPrompt(company, specificColorId) {
       const finishList = (c.finishes || []).slice(0, 3).join(', ');
       const patternDesc = c.pattern ? c.pattern.toLowerCase() : 'laminate';
       const colorDesc = c.colorFamily ? c.colorFamily.toLowerCase() : '';
-      const seriesNote = c.series ? ` from our ${c.series}` : '';
-      const hplNote = c.is_hpl ? ' (HPL — high-pressure laminate, premium grade)' : '';
+
+      // Determine product type and brand name
+      const isDeOne = (c.series || '').toLowerCase().includes('de one');
+      const isElemental = (c.series || '').toLowerCase().includes('elemental');
+      const isHpl = c.is_hpl || isDeOne || isElemental;
+      const brandName = isDeOne ? 'De One HPL' : isElemental ? 'Elemental HPL' : isHpl ? 'HPL' : 'Melamine Laminated Board';
+      const productNote = isHpl
+        ? ` This is from our **${brandName}** collection — a high-pressure laminate (HPL) known for superior durability, moisture resistance, and premium surface quality. Suitable for high-traffic areas, commercial spaces, and premium residential applications.`
+        : ` This is from our **Melamine Laminated Board** collection — versatile, cost-effective, and available in a wide range of finishes for residential and commercial furniture.`;
+
+      const seriesNote = c.series && !isDeOne && !isElemental ? ` from our ${c.series} series` : '';
       const cebuNote = c.isCebuExclusive ? ' — exclusive to Cebu and Visayas' : '';
-      return `\n\nFeatured product color: "${c.name}"${seriesNote}${hplNote}${cebuNote}. This is a ${colorDesc} ${patternDesc} finish${finishList ? `, available in ${finishList} finishes` : ''}. Write this color into the post naturally — name it, describe how it looks or feels in a real interior space, and why a homeowner or trade buyer would love it. Don't just mention the name — make the finish come alive through words.`;
+
+      return `\n\nFeatured product: "${c.name}"${seriesNote}${cebuNote}.${productNote} This is a ${colorDesc} ${patternDesc} finish${finishList ? `, available in ${finishList} finishes` : ''}. Write this color and product type into the post naturally — name it, describe how it looks or feels, mention it's ${isHpl ? 'HPL' : 'melamine'}, and why a ${isHpl ? 'commercial buyer, contractor, or premium homeowner' : 'homeowner or trade buyer'} would choose it. Make the product come alive through words.`;
     }
   }
 
   const featured = getFeaturedColors(company, 3);
   if (!featured.length) return '';
-  const names = featured.map(c => `"${c.name}" (${c.pattern || 'laminate'}${c.colorFamily ? ', ' + c.colorFamily : ''})`).join(', ');
-  return `\n\nCurrently featured colors from our collection: ${names}. If it fits naturally, reference one of these finishes in the post — name it and describe how it looks or feels.`;
+
+  // Group featured by product type
+  const hplFeatured = featured.filter(c => c.is_hpl || (c.series || '').toLowerCase().includes('de one') || (c.series || '').toLowerCase().includes('elemental'));
+  const melamFeatured = featured.filter(c => !hplFeatured.includes(c));
+
+  let context = '\n\nCurrently featured colors: ';
+  const parts = [];
+  if (melamFeatured.length) parts.push(`Melamine: ${melamFeatured.map(c => `"${c.name}" (${c.pattern || 'laminate'})`).join(', ')}`);
+  if (hplFeatured.length) parts.push(`HPL: ${hplFeatured.map(c => {
+    const brand = (c.series || '').toLowerCase().includes('de one') ? 'De One HPL' : (c.series || '').toLowerCase().includes('elemental') ? 'Elemental HPL' : 'HPL';
+    return `"${c.name}" (${brand})`;
+  }).join(', ')}`);
+  context += parts.join(' | ');
+  context += '. If it fits naturally, reference one of these — name it, describe the finish, and specify if it is HPL or Melamine.';
+  return context;
 }
 
 // Build image prompt color context
@@ -7805,6 +7831,121 @@ async function syncFromCloud() {
 // ── FEATURED COLOR IMPROVEMENTS ──────────────────────────────
 
 // Fix color dropdown: sort featured first, show ⭐ badge
+// ── AI PHOTO ENHANCEMENT ─────────────────────────────────────
+// Takes a real uploaded photo and enhances it via Ideogram img2img
+
+function openEnhanceModal() {
+  if (!APP.currentPhoto) { showToast('Upload a photo first', 'error'); return; }
+  const existing = document.getElementById('enhance-modal');
+  if (existing) existing.remove();
+
+  const div = document.createElement('div');
+  div.id = 'enhance-modal';
+  div.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:3000;display:flex;align-items:center;justify-content:center;padding:20px';
+  div.innerHTML = `
+    <div style="background:var(--bg2);border:1px solid var(--border2);border-radius:var(--radius-lg);width:460px;max-height:90vh;overflow-y:auto">
+      <div style="padding:16px 20px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center">
+        <div style="font-size:14px;font-weight:500">✨ AI Photo Enhancement</div>
+        <button class="btn btn-ghost btn-sm" onclick="document.getElementById('enhance-modal').remove()">✕</button>
+      </div>
+      <div style="padding:16px 20px">
+        <img src="${APP.currentPhoto}" style="width:100%;height:160px;object-fit:cover;border-radius:var(--radius);margin-bottom:14px" alt="Current photo">
+        <div style="font-size:12px;color:var(--text3);margin-bottom:14px">Choose how to enhance your photo. The AI will use your actual image as the base and apply the selected style.</div>
+
+        <div style="margin-bottom:14px">
+          <label class="form-label">Enhancement style</label>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:6px">
+            ${[
+              ['better-lighting', '💡 Better Lighting', 'Professional studio lighting, bright and crisp'],
+              ['room-staging', '🏠 Room Staging', 'Place material in a realistic interior scene'],
+              ['magazine-shot', '📸 Magazine Quality', 'Editorial finish, vibrant colors, sharp detail'],
+              ['product-hero', '⭐ Product Hero', 'Clean background, product as the star'],
+              ['lifestyle', '☀️ Lifestyle Scene', 'Real home setting, warm and inviting'],
+              ['commercial', '🏢 Commercial Use', 'Professional B2B look, clean and credible']
+            ].map(([val, label, desc]) => `
+              <label style="display:flex;flex-direction:column;gap:4px;padding:10px;border:1.5px solid var(--border);border-radius:var(--radius);cursor:pointer;transition:border-color .15s" onclick="this.querySelector('input').checked=true;document.querySelectorAll('#enhance-modal .enhance-opt').forEach(l=>l.style.borderColor='var(--border)');this.style.borderColor='var(--accent2)'" class="enhance-opt">
+                <div style="display:flex;align-items:center;gap:6px">
+                  <input type="radio" name="enhance-style" value="${val}" style="flex-shrink:0"> 
+                  <span style="font-size:12.5px;font-weight:500">${label}</span>
+                </div>
+                <span style="font-size:11px;color:var(--text3);padding-left:18px">${desc}</span>
+              </label>`).join('')}
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Additional notes <span style="color:var(--text3)">(optional)</span></label>
+          <input type="text" id="enhance-notes" placeholder="e.g. warm tones, Cebu home, modern kitchen" style="width:100%;font-size:12px">
+        </div>
+
+        <div id="enhance-status" style="font-size:12px;color:var(--text3);margin-bottom:10px;display:none"></div>
+
+        <div style="display:flex;gap:8px">
+          <button class="btn btn-primary" style="flex:1" onclick="enhancePhotoWithAI()">Enhance Photo</button>
+          <button class="btn btn-ghost" onclick="document.getElementById('enhance-modal').remove()">Cancel</button>
+        </div>
+      </div>
+    </div>`;
+  document.body.appendChild(div);
+}
+
+async function enhancePhotoWithAI() {
+  const styleInput = document.querySelector('#enhance-modal input[name="enhance-style"]:checked');
+  if (!styleInput) { showToast('Select an enhancement style', 'error'); return; }
+  const style = styleInput.value;
+  const notes = document.getElementById('enhance-notes')?.value?.trim() || '';
+  const statusEl = document.getElementById('enhance-status');
+
+  const proxyBase = (APP.apiKeys.imgproxy || localStorage.getItem('scm_imgproxy_key') || '').replace(/generate-image\/?$/, '');
+  if (!proxyBase) { showToast('Image Proxy URL not configured in Settings', 'error'); return; }
+
+  if (statusEl) { statusEl.style.display = 'block'; statusEl.textContent = 'Analyzing photo and applying enhancement…'; }
+
+  // Build enhancement prompt based on style
+  const co = APP.currentCompany || 'wcli';
+  const colorId = document.getElementById('post-color-id')?.value;
+  const colors = getColors(co);
+  const selectedColor = colorId ? colors.find(c => c.id === colorId) : null;
+  const colorNote = selectedColor ? ` The surface features ${selectedColor.name} — a ${selectedColor.colorFamily || ''} ${selectedColor.pattern || 'laminate'} finish.` : '';
+  const productType = selectedColor?.is_hpl ? 'HPL high-pressure laminate' : 'melamine laminated board';
+
+  const stylePrompts = {
+    'better-lighting': `Same composition as the photo but with professional studio lighting — bright, even illumination, no harsh shadows, colors accurate and vibrant. ${productType} surface texture clearly visible.`,
+    'room-staging': `The ${productType} material from the photo incorporated into a realistic modern Philippine home interior — clean, well-lit living space or kitchen. Warm and aspirational.`,
+    'magazine-shot': `Editorial magazine quality — the ${productType} as the hero, sharp detail, rich colors, professional depth of field. Could appear in an interior design magazine.`,
+    'product-hero': `Clean isolated product hero shot — the ${productType} against a simple neutral background. Perfect lighting, sharp focus on surface texture and finish. No distractions.`,
+    'lifestyle': `Warm lifestyle scene — the ${productType} in a real home setting with natural light. Feels lived-in and genuinely used, like a real Philippine household.`,
+    'commercial': `Professional B2B commercial look — ${productType} in a clean, well-organized setting. Credible, trustworthy, suitable for trade presentations and depot displays.`
+  };
+
+  const prompt = `${stylePrompts[style]}${colorNote}${notes ? ' Additional direction: ' + notes + '.' : ''} High resolution, realistic photography, no text or watermarks.`;
+
+  try {
+    // Use Ideogram with image_weight for img2img effect via our proxy
+    const res = await fetch(proxyBase + 'generate-image', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        prompt,
+        aspect_ratio: '1x1',
+        rendering_speed: 'DEFAULT',
+        reference_image: APP.currentPhoto, // pass original as reference
+        image_weight: 60, // 0-100, how much to follow the original
+      })
+    });
+    const data = await res.json();
+    if (data.error || !data.url) throw new Error(data.error || 'No image returned');
+
+    // Apply to current post
+    setCurrentPhoto(data.url);
+    document.getElementById('enhance-modal')?.remove();
+    showToast('✓ Photo enhanced — check the preview', 'success');
+  } catch (err) {
+    if (statusEl) statusEl.textContent = '❌ Enhancement failed: ' + err.message;
+    showToast('Enhancement failed: ' + err.message, 'error');
+  }
+}
+
 function updateColorOptions() {
   const sel = document.getElementById('post-color-id');
   if (!sel) return;
@@ -7819,14 +7960,30 @@ function updateColorOptions() {
   if (section) section.style.display = '';
 
   const colors = getColors(co).filter(c => c.status !== 'retired');
-  const featured = colors.filter(c => c.status === 'featured');
-  const active = colors.filter(c => c.status !== 'featured');
 
-  const toOption = c => `<option value="${c.id}">${c.status === 'featured' ? '⭐ ' : ''}${c.name}${c.is_hpl ? ' (HPL)' : ''}${c.pattern ? ' · ' + c.pattern : ''}</option>`;
+  // Split into groups
+  const featured = colors.filter(c => c.status === 'featured');
+  const melamine = colors.filter(c => c.status !== 'featured' && !c.is_hpl && !(c.series || '').toLowerCase().includes('de one') && !(c.series || '').toLowerCase().includes('elemental'));
+  const deOne = colors.filter(c => (c.series || '').toLowerCase().includes('de one'));
+  const elemental = colors.filter(c => (c.series || '').toLowerCase().includes('elemental'));
+  // Other HPL not in either brand
+  const otherHpl = colors.filter(c => c.is_hpl && !deOne.includes(c) && !elemental.includes(c) && !featured.includes(c));
+
+  const toOption = c => {
+    const brand = (c.series || '').toLowerCase().includes('de one') ? ' · De One HPL'
+      : (c.series || '').toLowerCase().includes('elemental') ? ' · Elemental HPL'
+      : c.is_hpl ? ' · HPL'
+      : ' · Melamine';
+    const star = c.status === 'featured' ? '⭐ ' : '';
+    return `<option value="${c.id}">${star}${c.name}${c.pattern ? ' · ' + c.pattern : ''}${brand}</option>`;
+  };
 
   sel.innerHTML = '<option value="">No specific color — use featured</option>' +
-    (featured.length ? '<optgroup label="⭐ Featured">' + featured.map(toOption).join('') + '</optgroup>' : '') +
-    (active.length ? '<optgroup label="All Colors">' + active.map(toOption).join('') + '</optgroup>' : '');
+    (featured.length ? `<optgroup label="⭐ Featured">${featured.map(toOption).join('')}</optgroup>` : '') +
+    (melamine.length ? `<optgroup label="Melamine Laminated Boards">${melamine.map(toOption).join('')}</optgroup>` : '') +
+    (deOne.length ? `<optgroup label="De One HPL — High Pressure Laminate">${deOne.map(toOption).join('')}</optgroup>` : '') +
+    (elemental.length ? `<optgroup label="Elemental HPL — High Pressure Laminate">${elemental.map(toOption).join('')}</optgroup>` : '') +
+    (otherHpl.length ? `<optgroup label="HPL">${otherHpl.map(toOption).join('')}</optgroup>` : '');
 
   updateColorFinishOptions();
 }
