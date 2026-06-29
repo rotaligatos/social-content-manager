@@ -1120,6 +1120,17 @@ select:focus{border-color:var(--accent-border);}
           <button class="btn btn-secondary btn-sm" onclick="addStaffField()">+ Add Staff Member</button>
           <button class="btn btn-secondary btn-sm" onclick="openRegisterModal()">✉ Invite User</button>
         </div>
+
+        <div class="card" style="margin-top:16px">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+            <div style="font-size:14px;font-weight:500">App Users</div>
+            <button class="btn btn-secondary btn-sm" onclick="loadAppUsers()">↻ Refresh</button>
+          </div>
+          <div style="font-size:12px;color:var(--text3);margin-bottom:14px">All users who have access to this app. As admin you can send a password reset email to any user.</div>
+          <div id="app-users-list">
+            <div style="font-size:12px;color:var(--text3)">Click Refresh to load users…</div>
+          </div>
+        </div>
       </div>
       <div id="stab-sla" style="display:none">
         <div class="card" style="margin-bottom:16px">
@@ -4770,6 +4781,7 @@ function loadTelegramSettings() {
     if (tokenEl && token) tokenEl.value = token;
     APP.staff = JSON.parse(localStorage.getItem('scm_staff') || '[]');
     renderStaffList();
+    loadAppUsers(); // Load app users list for admin
   } catch(e) { console.error(e); }
 }
 
@@ -8409,6 +8421,60 @@ function loadPostIntoCreate(postId) {
 }
 
 // ── IN-APP USER REGISTRATION ──────────────────────────────────
+async function loadAppUsers() {
+  const listEl = document.getElementById('app-users-list');
+  if (!listEl) return;
+  if (!_session) { listEl.innerHTML = '<div style="font-size:12px;color:var(--red)">Not signed in</div>'; return; }
+
+  listEl.innerHTML = '<div style="font-size:12px;color:var(--text3)">Loading…</div>';
+  try {
+    const proxyBase = (APP.apiKeys.imgproxy || localStorage.getItem('scm_imgproxy_key') || '').replace(/generate-image\/?$/, '');
+    const res = await fetch(proxyBase + 'manage-users', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${_session.access_token}` },
+      body: JSON.stringify({ action: 'list_users' })
+    });
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+
+    if (!data.users?.length) { listEl.innerHTML = '<div style="font-size:12px;color:var(--text3)">No users found</div>'; return; }
+
+    listEl.innerHTML = data.users.map(u => `
+      <div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--border)">
+        <div style="width:32px;height:32px;border-radius:50%;background:var(--accent-bg);display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:600;color:var(--accent);flex-shrink:0">${(u.name||'?')[0].toUpperCase()}</div>
+        <div style="flex:1;min-width:0">
+          <div style="font-size:13px;font-weight:500">${u.name}</div>
+          <div style="font-size:11.5px;color:var(--text3)">${u.email} · <span style="color:${u.role==='admin'?'var(--accent)':'var(--text3)'}">${u.role}</span>${!u.confirmed ? ' · <span style="color:var(--amber)">Invite pending</span>' : ''}</div>
+        </div>
+        <div style="font-size:11px;color:var(--text3);flex-shrink:0">${u.last_sign_in ? 'Last: ' + new Date(u.last_sign_in).toLocaleDateString('en-PH') : 'Never signed in'}</div>
+        <button class="btn btn-secondary btn-sm" onclick="resetUserPassword('${u.email}', this)" style="flex-shrink:0;font-size:11px">Reset Password</button>
+      </div>`).join('');
+  } catch (err) {
+    listEl.innerHTML = `<div style="font-size:12px;color:var(--red)">❌ ${err.message}</div>`;
+  }
+}
+
+async function resetUserPassword(email, btnEl) {
+  if (!_session) return;
+  if (!confirm(`Send password reset email to ${email}?`)) return;
+  if (btnEl) { btnEl.disabled = true; btnEl.textContent = 'Sending…'; }
+  try {
+    const proxyBase = (APP.apiKeys.imgproxy || localStorage.getItem('scm_imgproxy_key') || '').replace(/generate-image\/?$/, '');
+    const res = await fetch(proxyBase + 'manage-users', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${_session.access_token}` },
+      body: JSON.stringify({ action: 'reset_password', email })
+    });
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+    showToast(`Password reset email sent to ${email}`, 'success');
+    if (btnEl) { btnEl.textContent = '✓ Sent'; btnEl.style.color = 'var(--green)'; }
+  } catch (err) {
+    showToast('Failed: ' + err.message, 'error');
+    if (btnEl) { btnEl.disabled = false; btnEl.textContent = 'Reset Password'; }
+  }
+}
+
 function openRegisterModal() {
   const existing = document.getElementById('register-modal');
   if (existing) existing.remove();
