@@ -8450,7 +8450,6 @@ async function syncFromCloud() {
 // Takes a real uploaded photo and enhances it via Ideogram img2img
 
 function openEnhanceModal(extraPhotos) {
-  // extraPhotos = array of base64 strings when called with multiple photos
   const photos = extraPhotos || (APP._selectedPhotos?.length > 1 ? APP._selectedPhotos : null);
   const primaryPhoto = APP.currentPhoto || (photos && photos[0]);
   if (!primaryPhoto) { showToast('Upload a photo first', 'error'); return; }
@@ -8462,90 +8461,57 @@ function openEnhanceModal(extraPhotos) {
   div.id = 'enhance-modal';
   div.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:3000;display:flex;align-items:center;justify-content:center;padding:20px';
   div.innerHTML = `
-    <div style="background:var(--bg2);border:1px solid var(--border2);border-radius:var(--radius-lg);width:460px;max-height:90vh;overflow-y:auto">
+    <div style="background:var(--bg2);border:1px solid var(--border2);border-radius:var(--radius-lg);width:500px;max-height:90vh;overflow-y:auto">
       <div style="padding:16px 20px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center">
-        <div style="font-size:14px;font-weight:500">✨ AI Photo Enhancement</div>
+        <div style="font-size:14px;font-weight:500">✨ AI Photo Options</div>
         <button class="btn btn-ghost btn-sm" onclick="document.getElementById('enhance-modal').remove()">✕</button>
       </div>
       <div style="padding:16px 20px">
         ${multiPhoto
-          ? `<div style="display:flex;gap:6px;margin-bottom:14px;overflow-x:auto">${photos.slice(0,5).map(p => `<img src="${p}" style="width:80px;height:80px;object-fit:cover;border-radius:var(--radius);flex-shrink:0" alt="photo">`).join('')}${photos.length > 5 ? `<div style="width:80px;height:80px;border-radius:var(--radius);background:var(--bg3);display:flex;align-items:center;justify-content:center;font-size:13px;color:var(--text3);flex-shrink:0">+${photos.length-5}</div>` : ''}</div>
-           <div style="font-size:12px;color:var(--text3);margin-bottom:14px">✦ AI will use all ${photos.length} selected photos as reference for enhanced output</div>`
-          : `<img src="${primaryPhoto}" style="width:100%;height:160px;object-fit:cover;border-radius:var(--radius);margin-bottom:14px" alt="Current photo">`
+          ? `<div style="display:flex;gap:6px;margin-bottom:12px;overflow-x:auto">${photos.slice(0,5).map(p=>`<img src="${p}" style="width:72px;height:72px;object-fit:cover;border-radius:var(--radius);flex-shrink:0">`).join('')}${photos.length>5?`<div style="width:72px;height:72px;border-radius:var(--radius);background:var(--bg3);display:flex;align-items:center;justify-content:center;font-size:13px;color:var(--text3);flex-shrink:0">+${photos.length-5}</div>`:''}</div>`
+          : `<img src="${primaryPhoto}" style="width:100%;height:150px;object-fit:cover;border-radius:var(--radius);margin-bottom:12px">`
         }
-        <div style="font-size:12px;color:var(--text3);margin-bottom:14px">Choose how to enhance your photo. The AI will use your actual image as the base and apply the selected style.</div>
 
-        <div style="margin-bottom:14px">
-          <label class="form-label">Enhancement style</label>
-          <div style="display:flex;gap:8px;margin-bottom:10px">
-            <button onclick="document.getElementById('enhance-mode-photo').style.display='block';document.getElementById('enhance-mode-video').style.display='none';this.style.background='var(--accent2)';this.style.color='#fff';this.nextElementSibling.style.background='';this.nextElementSibling.style.color=''" style="flex:1;padding:8px;font-size:12px;border:1px solid var(--border);border-radius:var(--radius);cursor:pointer;background:var(--accent2);color:#fff">🖼 Enhance Photo</button>
-            <button onclick="document.getElementById('enhance-mode-photo').style.display='none';document.getElementById('enhance-mode-video').style.display='block';this.style.background='var(--accent2)';this.style.color='#fff';this.previousElementSibling.style.background='';this.previousElementSibling.style.color=''" style="flex:1;padding:8px;font-size:12px;border:1px solid var(--border);border-radius:var(--radius);cursor:pointer">🎬 Generate Video</button>
-          </div>
-
-          <div id="enhance-mode-photo">
-            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:6px">
-              ${[
-                ['better-lighting', '💡 Better Lighting', 'Professional studio lighting, bright and crisp'],
-                ['room-staging', '🏠 Room Staging', 'Place material in a realistic interior scene'],
-                ['magazine-shot', '📸 Magazine Quality', 'Editorial finish, vibrant colors, sharp detail'],
-                ['product-hero', '⭐ Product Hero', 'Clean background, product as the star'],
-                ['lifestyle', '☀️ Lifestyle Scene', 'Real home setting, warm and inviting'],
-                ['commercial', '🏢 Commercial Use', 'Professional B2B look, clean and credible']
-              ].map(([val, label, desc]) => `
-                <label style="display:flex;flex-direction:column;gap:4px;padding:10px;border:1.5px solid var(--border);border-radius:var(--radius);cursor:pointer;transition:border-color .15s" onclick="this.querySelector('input').checked=true;document.querySelectorAll('#enhance-modal .enhance-opt').forEach(l=>l.style.borderColor='var(--border)');this.style.borderColor='var(--accent2)'" class="enhance-opt">
-                  <div style="display:flex;align-items:center;gap:6px">
-                    <input type="radio" name="enhance-style" value="${val}" style="flex-shrink:0"> 
-                    <span style="font-size:12.5px;font-weight:500">${label}</span>
-                  </div>
-                  <span style="font-size:11px;color:var(--text3);padding-left:18px">${desc}</span>
-                </label>`).join('')}
-            </div>
-          </div>
-
-          <div id="enhance-mode-video" style="display:none">
-            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:6px">
-              ${[
-                ['room-reveal', '🏠 Room Reveal', 'Cinematic pan through a beautiful interior'],
-                ['material-closeup', '🔍 Material Closeup', 'Macro glide over the surface texture'],
-                ['lifestyle-ambient', '☀️ Lifestyle Ambient', 'Warm family home atmosphere'],
-                ['product-spin', '🔄 Product Showcase', '360° spin on clean background'],
-                ['before-after', '✨ Before & After', 'Transformation reveal effect'],
-              ].map(([val, label, desc]) => `
-                <label style="display:flex;flex-direction:column;gap:4px;padding:10px;border:1.5px solid var(--border);border-radius:var(--radius);cursor:pointer;transition:border-color .15s" onclick="this.querySelector('input').checked=true;document.querySelectorAll('#enhance-modal .video-opt').forEach(l=>l.style.borderColor='var(--border)');this.style.borderColor='var(--accent2)'" class="video-opt">
-                  <div style="display:flex;align-items:center;gap:6px">
-                    <input type="radio" name="video-style" value="${val}" style="flex-shrink:0"> 
-                    <span style="font-size:12.5px;font-weight:500">${label}</span>
-                  </div>
-                  <span style="font-size:11px;color:var(--text3);padding-left:18px">${desc}</span>
-                </label>`).join('')}
-            </div>
-          </div>
+        <div style="font-size:12px;color:var(--text3);background:var(--bg3);border-radius:var(--radius);padding:10px 12px;margin-bottom:14px;line-height:1.6">
+          💡 <strong style="color:var(--text2)">Tip:</strong> AI image generation works best as a creative tool — it creates new images inspired by your photos rather than editing them directly. For the most accurate results, <strong style="color:var(--text2)">Use Photo As-Is</strong> and let Claude write a caption that matches what's in your photo.
         </div>
 
-        <div class="form-group">
-          <label class="form-label">Additional notes <span style="color:var(--text3)">(optional)</span></label>
-          <input type="text" id="enhance-notes" placeholder="e.g. warm tones, Cebu home, modern kitchen" style="width:100%;font-size:12px">
-        </div>
+        <div style="display:flex;flex-direction:column;gap:8px">
+          <!-- Option 1: Use as-is -->
+          <div style="background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius);padding:12px 14px">
+            <div style="font-size:13px;font-weight:500;margin-bottom:4px">📷 Use Photo As-Is</div>
+            <div style="font-size:12px;color:var(--text3);margin-bottom:8px">Keep your actual photo — best for authentic, real content that performs well on Facebook.</div>
+            <button class="btn btn-primary btn-sm" onclick="document.getElementById('enhance-modal').remove();showToast('Photo kept — generate your caption now','success')">Use This Photo</button>
+          </div>
 
-        <div id="enhance-status" style="font-size:12px;color:var(--text3);margin-bottom:10px;display:none"></div>
+          <!-- Option 2: AI inspired image -->
+          <div style="background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius);padding:12px 14px">
+            <div style="font-size:13px;font-weight:500;margin-bottom:4px">✦ Generate AI Image from Style</div>
+            <div style="font-size:12px;color:var(--text3);margin-bottom:8px">AI creates a new professional image inspired by the style and subject of your photo. Good for a more polished look.</div>
+            <label class="form-label" style="font-size:11.5px">Style</label>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:8px">
+              ${[['better-lighting','💡 Better Lighting'],['room-staging','🏠 Room Staging'],['magazine-shot','📸 Magazine Quality'],['product-hero','⭐ Product Hero'],['lifestyle','☀️ Lifestyle Scene'],['commercial','🏢 Commercial Use']].map(([val,label])=>`
+                <label style="display:flex;align-items:center;gap:6px;padding:7px 10px;border:1.5px solid var(--border);border-radius:var(--radius);cursor:pointer;font-size:12px" onclick="this.querySelector('input').checked=true;document.querySelectorAll('#enhance-modal .enhance-opt').forEach(l=>l.style.borderColor='var(--border)');this.style.borderColor='var(--accent2)'" class="enhance-opt">
+                  <input type="radio" name="enhance-style" value="${val}" style="flex-shrink:0"> ${label}
+                </label>`).join('')}
+            </div>
+            <input type="text" id="enhance-notes" placeholder="Optional: specific notes (e.g. modern kitchen, warm tones)" style="width:100%;font-size:12px;margin-bottom:8px">
+            <div id="enhance-status" style="font-size:12px;color:var(--text3);display:none;margin-bottom:6px"></div>
+            <button class="btn btn-secondary btn-sm" onclick="enhancePhotoWithAI()">Generate AI Version</button>
+          </div>
 
-        <div style="display:flex;gap:8px">
-          <button class="btn btn-primary" style="flex:1" onclick="
-            const isVideo = document.getElementById('enhance-mode-video').style.display !== 'none';
-            if (isVideo) {
-              const vStyle = document.querySelector('#enhance-modal input[name=video-style]:checked');
-              if (!vStyle) { alert('Select a video style'); return; }
-              enhancePhotoToVideo(vStyle.value, document.getElementById('enhance-notes')?.value?.trim());
-            } else {
-              enhancePhotoWithAI();
-            }
-          ">Generate</button>
-          <button class="btn btn-ghost" onclick="document.getElementById('enhance-modal').remove()">Cancel</button>
+          <!-- Option 3: Generate from caption -->
+          <div style="background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius);padding:12px 14px">
+            <div style="font-size:13px;font-weight:500;margin-bottom:4px">🎨 Generate Image from Caption</div>
+            <div style="font-size:12px;color:var(--text3);margin-bottom:8px">If you've already written a caption, AI will generate a matching image for it instead.</div>
+            <button class="btn btn-secondary btn-sm" onclick="document.getElementById('enhance-modal').remove();generateImageFromCaption()">Generate from Caption</button>
+          </div>
         </div>
       </div>
     </div>`;
   document.body.appendChild(div);
 }
+  const existing = document.getElementById('enhance-modal');
 
 async function enhancePhotoWithAI() {
   const styleInput = document.querySelector('#enhance-modal input[name="enhance-style"]:checked');
@@ -9209,10 +9175,11 @@ async function fetchFacebookInsights() {
   const pages = APP.fbPages || JSON.parse(localStorage.getItem('scm_fb_pages') || '{}');
   let fetched = 0;
   let failed = 0;
+  let skipped = 0;
 
   for (const post of published) {
     const pageData = resolveFbPageData(post);
-    if (!pageData?.token) continue;
+    if (!pageData?.token) { skipped++; continue; } // no token — skip silently
 
     try {
       const fields = 'likes.summary(true),comments.summary(true),shares,reactions.summary(true)';
@@ -9241,7 +9208,7 @@ async function fetchFacebookInsights() {
     for (const post of published.filter(p => p.performance?.fetchedAt)) {
       upsertPost(post);
     }
-    showToast(`✓ Fetched insights for ${fetched} posts${failed ? ' (' + failed + ' failed)' : ''}`, 'success');
+    showToast(`✓ Fetched insights for ${fetched} post${fetched!==1?'s':''}${skipped ? ' · ' + skipped + ' skipped (no token)' : ''}${failed ? ' · ' + failed + ' failed' : ''}`, 'success');
     updateDashboard();
   } else {
     showToast('Could not fetch insights — check Facebook tokens', 'error');
