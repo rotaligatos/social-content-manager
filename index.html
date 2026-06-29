@@ -339,9 +339,10 @@ select:focus{border-color:var(--accent-border);}
   </div>
   <div class="company-pills">
     <div class="sidebar-label" style="padding:0 8px">Companies</div>
-    <div class="company-pill"><div class="company-dot" style="background:var(--mssi)"></div>MSSI</div>
-    <div class="company-pill"><div class="company-dot" style="background:var(--wcli)"></div>WCLI</div>
-    <div class="company-pill"><div class="company-dot" style="background:var(--cwli)"></div>CWLI</div>
+    <div class="company-pill" id="pill-all" onclick="filterByCompany('all')" style="background:var(--bg3)"><div class="company-dot" style="background:var(--text3)"></div>All Companies</div>
+    <div class="company-pill" id="pill-mssi" onclick="filterByCompany('mssi')"><div class="company-dot" style="background:var(--mssi)"></div>MSSI</div>
+    <div class="company-pill" id="pill-wcli" onclick="filterByCompany('wcli')"><div class="company-dot" style="background:var(--wcli)"></div>WCLI</div>
+    <div class="company-pill" id="pill-cwli" onclick="filterByCompany('cwli')"><div class="company-dot" style="background:var(--cwli)"></div>CWLI</div>
   </div>
   <div class="sidebar-bottom">
     <div style="padding:8px 12px;border-top:1px solid var(--border);margin-bottom:6px">
@@ -354,7 +355,7 @@ select:focus{border-color:var(--accent-border);}
         <button onclick="signOut()" style="font-size:10px;color:var(--text3);background:none;border:none;cursor:pointer;padding:4px" title="Sign out">⎋</button>
       </div>
     </div>
-    <button class="settings-btn">
+    <button class="settings-btn" onclick="openHelpModal()">
       <svg style="width:14px;height:14px" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="7"/><line x1="8" y1="5" x2="8" y2="8"/><circle cx="8" cy="11" r="0.5" fill="currentColor"/></svg>
       Help &amp; Documentation
     </button>
@@ -1376,10 +1377,71 @@ select:focus{border-color:var(--accent-border);}
 // Newest entries go at the top. Each entry should describe what changed in plain language.
 const CHANGELOG = [
   {
+    date: '2026-06-29',
+    title: 'Preview modal — full Facebook preview with regen inside',
+    items: [
+      'Review & Schedule now has a 👁 Preview button on every post — draft and scheduled. Opens a full Facebook-style modal showing exactly how the post will look: company page name with logo, caption with bold/italic rendered correctly, photo or video, and Like/Comment/Share buttons.',
+      'Markdown in captions (bold, italic) now renders as actual formatting in the preview instead of showing raw asterisks.',
+      'Editable caption textarea inside the preview — edit directly and changes save automatically to the post.',
+      '↺ Regen Caption button inside preview — generates a fresh caption from the same company/pillar/audience context without leaving the review queue.',
+      '↺ Regen Image button inside preview — generates a new image based on the current caption and attaches it in-place without reopening the modal.',
+      '✓ Schedule & Approve button inside preview — schedule directly without closing the modal first.',
+      'Video posts show a clean dark placeholder instead of the Generate Image button — no more confusion between video and image posts.',
+    ]
+  },
+  {
+    date: '2026-06-29',
+    title: 'User management — invite, access control, password reset',
+    items: [
+      'Admin-only invite system: Settings → Team & Notifications → Invite User. Enter name, email, role, and company assignments. They receive an email with a link to set their own password — no Supabase dashboard needed.',
+      'Role-based access: admin sees everything. Staff see all screens except Settings. Settings nav item is hidden for non-admin users.',
+      'Your account (mhelle17@yahoo.com) is permanently set as admin in Supabase.',
+      'App Users section in Settings → Team: lists all users with name, email, role, last sign-in, and invite status. Loads automatically when you open the tab.',
+      'Reset Password button next to each user — sends a password reset email redirecting back to the app. Confirm → done. No Supabase access needed.',
+      'Invited users who click the email link land on a Set Your Password screen — type, confirm, auto sign in immediately.',
+    ]
+  },
+  {
+    date: '2026-06-29',
+    title: 'Help & Documentation — AI assistant',
+    items: [
+      'Help & Documentation button in the sidebar now opens a full AI-powered assistant modal.',
+      '10 quick topic buttons covering all major features: Getting Started, Creating Posts, Scheduling, Auto-Generate, Comments & Webhooks, Colors & Brand, Analytics, Team & Users, Settings, Mobile & Sync.',
+      'Ask anything in plain text — the assistant knows the full app: every screen, every feature, every setting. Responds in the same language you write in.',
+      'Powered by Claude Haiku using your Anthropic API key.',
+    ]
+  },
+  {
+    date: '2026-06-29',
+    title: 'Company filter pills — filter queue by company',
+    items: [
+      'The company pills in the sidebar (MSSI, WCLI, CWLI) are now clickable. Click any company to filter the Review & Schedule queue and dashboard to show only that company\'s posts.',
+      'All Companies option resets the filter.',
+      'Active filter highlighted with a background.',
+    ]
+  },
+  {
+    date: '2026-06-29',
+    title: 'Mobile improvements',
+    items: [
+      'Floating ↻ sync button on mobile — appears bottom-right on screens under 768px. Large enough to tap with a thumb. Spins on tap, shows confirmation toast.',
+      'App can be installed as a PWA on Android: open in Chrome → three dots → Add to Home screen. Opens full screen like a real app with no browser bar.',
+      'Session restore made more robust for Android — handles JWT parse failures gracefully instead of showing a blank login screen.',
+    ]
+  },
+  {
+    date: '2026-06-29',
+    title: 'Facebook status dots fixed + dashboard improvements',
+    items: [
+      'Dashboard company cards now correctly show Facebook connected (green) or not connected (amber) based on whether a Page Access Token exists in your settings.',
+      'Saving your Facebook tokens in Settings now immediately updates the dashboard dots without requiring a refresh.',
+      'CWLI card stays amber — expected until the CWLI page token is set up.',
+    ]
+  },
+  {
     date: '2026-06-28',
     title: 'Facebook Webhooks — real-time comments & auto Telegram alerts',
     items: [
-      'Facebook Webhook set up via Meta Developer portal — MSSI and WCLI pages now push real-time comments and reactions to Supabase within seconds of each event.',
       'New post_comments table stores every comment with: author, message, arrival timestamp, company, inquiry flag, response tracking fields.',
       'AI inquiry detection runs automatically on every comment — flags buying signals (price, magkano, saan, interested, available, etc.) as Inquiry type.',
       'Dashboard Inquiry & Comment Check card rebuilt — now shows actual individual comments from Supabase, grouped as Inquiries first then regular comments, with SLA breach warnings.',
@@ -3003,8 +3065,11 @@ function saveDraft() {
 
 // REVIEW QUEUE
 function updateReviewQueue() {
-  const pending = APP.posts.filter(p => p.status === 'draft');
-  const scheduled = APP.posts.filter(p => p.status === 'scheduled');
+  const filter = typeof _companyFilter !== 'undefined' ? _companyFilter : 'all';
+  const allPending = APP.posts.filter(p => p.status === 'draft');
+  const allScheduled = APP.posts.filter(p => p.status === 'scheduled');
+  const pending = filter === 'all' ? allPending : allPending.filter(p => p.company === filter);
+  const scheduled = filter === 'all' ? allScheduled : allScheduled.filter(p => p.company === filter);
   const el = document.getElementById('review-content');
   const label = document.getElementById('review-count-label');
   label.textContent = pending.length + ' post' + (pending.length !== 1 ? 's' : '') + ' pending review' + (scheduled.length ? ' · ' + scheduled.length + ' scheduled' : '');
@@ -3281,6 +3346,155 @@ function updateReviewBadge() {
 }
 
 // DASHBOARD
+let _companyFilter = 'all';
+
+function filterByCompany(co) {
+  _companyFilter = co;
+  // Update pill styles
+  ['all','mssi','wcli','cwli'].forEach(c => {
+    const pill = document.getElementById('pill-' + c);
+    if (pill) pill.style.background = c === co ? 'var(--bg3)' : '';
+  });
+  updateDashboard();
+  updateReviewQueue();
+  renderCalendar();
+}
+
+function openHelpModal() {
+  const existing = document.getElementById('help-modal');
+  if (existing) { existing.remove(); return; }
+
+  const topics = [
+    { icon: '🚀', label: 'Getting Started' },
+    { icon: '✍️', label: 'Creating Posts' },
+    { icon: '📅', label: 'Scheduling & Publishing' },
+    { icon: '🤖', label: 'Auto-Generate Week' },
+    { icon: '💬', label: 'Comments & Webhooks' },
+    { icon: '🎨', label: 'Colors & Brand' },
+    { icon: '📊', label: 'Analytics & Performance' },
+    { icon: '👥', label: 'Team & Users' },
+    { icon: '⚙️', label: 'Settings & API Keys' },
+    { icon: '📱', label: 'Mobile & Sync' },
+  ];
+
+  const div = document.createElement('div');
+  div.id = 'help-modal';
+  div.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:5000;display:flex;align-items:center;justify-content:center;padding:16px';
+  div.onclick = e => { if (e.target === div) div.remove(); };
+  div.innerHTML = `
+    <div style="background:var(--bg2);border:1px solid var(--border2);border-radius:var(--radius-lg);width:560px;max-height:88vh;display:flex;flex-direction:column;overflow:hidden">
+      <div style="padding:16px 20px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;flex-shrink:0">
+        <div>
+          <div style="font-size:15px;font-weight:600">Help & Documentation</div>
+          <div style="font-size:12px;color:var(--text3)">Ask anything about the app or pick a topic</div>
+        </div>
+        <button class="btn btn-ghost btn-sm" onclick="document.getElementById('help-modal').remove()">✕</button>
+      </div>
+
+      <!-- Quick topic buttons -->
+      <div style="padding:14px 20px;border-bottom:1px solid var(--border);flex-shrink:0">
+        <div style="font-size:11.5px;color:var(--text3);margin-bottom:8px">Quick topics</div>
+        <div style="display:flex;flex-wrap:wrap;gap:6px">
+          ${topics.map(t => `<button onclick="askHelpTopic('${t.label}')" style="font-size:12px;padding:5px 10px;background:var(--bg3);border:1px solid var(--border);border-radius:20px;color:var(--text2);cursor:pointer;white-space:nowrap">${t.icon} ${t.label}</button>`).join('')}
+        </div>
+      </div>
+
+      <!-- Chat area -->
+      <div id="help-chat" style="flex:1;overflow-y:auto;padding:16px 20px;display:flex;flex-direction:column;gap:12px">
+        <div style="background:var(--bg3);border-radius:var(--radius);padding:12px 14px;font-size:13px;line-height:1.7;color:var(--text2)">
+          👋 Hi! I'm the SCM assistant. I know everything about this app — how to create posts, set up automations, manage your team, connect Facebook, and more.<br><br>
+          Ask me anything or tap a topic above to get started.
+        </div>
+      </div>
+
+      <!-- Input -->
+      <div style="padding:12px 16px;border-top:1px solid var(--border);flex-shrink:0;display:flex;gap:8px">
+        <input type="text" id="help-input" placeholder="Ask anything about the app…" style="flex:1;font-size:13px;padding:8px 12px" onkeydown="if(event.key==='Enter')sendHelpMessage()">
+        <button class="btn btn-primary btn-sm" onclick="sendHelpMessage()" id="help-send-btn">Ask</button>
+      </div>
+    </div>`;
+  document.body.appendChild(div);
+  setTimeout(() => document.getElementById('help-input')?.focus(), 100);
+}
+
+function askHelpTopic(topic) {
+  document.getElementById('help-input').value = 'How does ' + topic + ' work?';
+  sendHelpMessage();
+}
+
+async function sendHelpMessage() {
+  const input = document.getElementById('help-input');
+  const chat = document.getElementById('help-chat');
+  const btn = document.getElementById('help-send-btn');
+  const question = input?.value?.trim();
+  if (!question || !chat) return;
+
+  input.value = '';
+  if (btn) btn.disabled = true;
+
+  // User bubble
+  chat.innerHTML += `<div style="align-self:flex-end;background:var(--accent-bg);border:1px solid var(--accent-border,var(--border));border-radius:var(--radius);padding:10px 14px;font-size:13px;max-width:85%;color:var(--text)">${question}</div>`;
+
+  // Thinking bubble
+  const thinkId = 'help-thinking-' + Date.now();
+  chat.innerHTML += `<div id="${thinkId}" style="background:var(--bg3);border-radius:var(--radius);padding:10px 14px;font-size:13px;color:var(--text3)">Thinking…</div>`;
+  chat.scrollTop = chat.scrollHeight;
+
+  try {
+    const apiKey = (APP.apiKeys?.anthropic || localStorage.getItem('scm_anthropic_key') || '').trim();
+    if (!apiKey) throw new Error('Anthropic API key not configured in Settings');
+
+    const systemPrompt = `You are the built-in help assistant for Social Content Manager (SCM), a Facebook content automation app built for RTmo Digital Solutions and used across three Philippine companies: MSSI (Module Systems & Services — modular furniture), WCLI (World Class Laminate — laminated boards, Luzon), and CWLI (Cebu World Laminate — laminated boards, Cebu/Visayas/Mindanao).
+
+The app is a single-file HTML/JS/CSS progressive web app hosted at rotaligatos.github.io/social-content-manager/. It connects to Supabase (nssviuuagtlvxjvvvagt, Singapore region) for data persistence and uses Facebook Graph API for publishing.
+
+Key features:
+- Create Post: Select company, audience, pillar → AI generates caption (Claude Haiku) → AI generates image (Ideogram) or video (Veo) → schedule or publish
+- Review & Schedule: Review AI-generated posts, preview Facebook layout, edit caption/image, schedule with datetime picker
+- Calendar: Visual calendar of scheduled posts by company
+- Auto-Generate Week: Generates 7 days of posts automatically with color rotation and holiday awareness
+- Photo Library: Persistent photo storage, AI enhancement (6 styles), animate to video
+- Performance: Facebook insights (reach, reactions, comments, shares), AI strategy hints
+- Brand Profiles: Company voice, logos, colors (Melamine/De One HPL/Elemental HPL), retail partners
+- Settings: API keys, Facebook pages, Telegram bot, SLA targets, autopilot, team & users
+- Autonomous Mode: Autopilot runs every Sunday 10PM PH via Supabase pg_cron, generates the week's posts and sends Telegram summary
+- Facebook Webhook: Real-time comments flow to dashboard, AI detects inquiries, staff auto-notified via Telegram
+- SLA escalation: Every 30 min, managers alerted if comments unresponded (MSSI: 2h, WCLI/CWLI: 4h)
+- User management: Admin-only invite system, password reset, role-based access (admin sees all, staff sees everything except Settings)
+- Mobile: Add to home screen as PWA, floating ↻ sync button
+
+Answer helpfully and specifically. Be concise. If the user asks how to do something, give step-by-step instructions. Respond in the same language the user is writing in.`;
+
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+        'anthropic-dangerous-direct-browser-access': 'true'
+      },
+      body: JSON.stringify({
+        model: 'claude-haiku-4-5',
+        max_tokens: 600,
+        system: systemPrompt,
+        messages: [{ role: 'user', content: question }]
+      })
+    });
+    const data = await res.json();
+    const answer = data.content?.[0]?.text || 'Sorry, I could not get a response.';
+
+    // Replace thinking with answer
+    const thinkEl = document.getElementById(thinkId);
+    if (thinkEl) thinkEl.outerHTML = `<div style="background:var(--bg3);border-radius:var(--radius);padding:12px 14px;font-size:13px;line-height:1.7;color:var(--text2);white-space:pre-wrap">${answer}</div>`;
+  } catch (err) {
+    const thinkEl = document.getElementById(thinkId);
+    if (thinkEl) thinkEl.outerHTML = `<div style="background:var(--bg3);border-radius:var(--radius);padding:10px 14px;font-size:12.5px;color:var(--red)">❌ ${err.message}</div>`;
+  } finally {
+    if (btn) btn.disabled = false;
+    chat.scrollTop = chat.scrollHeight;
+  }
+}
+
 function updateDashboard() {
   const now = new Date();
   const weekStart = new Date(now); weekStart.setDate(now.getDate() - now.getDay());
@@ -8809,35 +9023,7 @@ async function fetchFacebookInsights() {
 }
 
 // Auto-fetch insights when Performance screen opens is handled inside showScreen above
-</script>
-<!-- Mobile floating sync button — only visible on small screens -->
-<button id="mobile-sync-btn" onclick="mobileSyncTap()" style="
-  display:none;
-  position:fixed;
-  bottom:20px;
-  right:16px;
-  z-index:1500;
-  width:48px;
-  height:48px;
-  border-radius:50%;
-  background:var(--bg2);
-  border:1.5px solid var(--border2);
-  color:var(--text2);
-  font-size:20px;
-  cursor:pointer;
-  box-shadow:0 4px 16px rgba(0,0,0,0.4);
-  display:flex;
-  align-items:center;
-  justify-content:center;
-" title="Sync from cloud">↻</button>
 
-<style>
-@media (max-width: 768px) {
-  #mobile-sync-btn { display:flex !important; }
-}
-</style>
-
-<script>
 async function mobileSyncTap() {
   const btn = document.getElementById('mobile-sync-btn');
   if (btn) { btn.style.opacity = '0.5'; btn.style.transform = 'rotate(360deg)'; btn.style.transition = 'transform 0.6s'; }
@@ -8848,5 +9034,8 @@ async function mobileSyncTap() {
   }, 700);
 }
 </script>
+<!-- Mobile floating sync button — only visible on small screens -->
+<button id="mobile-sync-btn" onclick="mobileSyncTap()" style="display:none;position:fixed;bottom:20px;right:16px;z-index:1500;width:48px;height:48px;border-radius:50%;background:var(--bg2);border:1.5px solid var(--border2);color:var(--text2);font-size:20px;cursor:pointer;box-shadow:0 4px 16px rgba(0,0,0,0.4);align-items:center;justify-content:center" title="Sync from cloud">↻</button>
+<style>@media(max-width:768px){#mobile-sync-btn{display:flex!important}}</style>
 </body>
 </html>
