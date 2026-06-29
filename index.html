@@ -2367,23 +2367,16 @@ function pickSelectedPhotos(mode) {
   if (!selected.length) { showToast('Select at least one photo', 'error'); return; }
   closePhotoPicker();
 
-  if (selected.length === 1) {
-    // Single photo — use as before
-    setCurrentPhoto(selected[0].data);
-    if (mode === 'enhance') setTimeout(() => openEnhanceModal(), 100);
-    showToast('Photo selected', 'success');
-    return;
-  }
-
-  // Multiple photos — use first as main, store rest for reference
+  // Always set first photo as current
   setCurrentPhoto(selected[0].data);
-  APP._selectedPhotos = selected.map(p => p.data);
+  APP._selectedPhotos = selected.length > 1 ? selected.map(p => p.data) : null;
 
   if (mode === 'enhance') {
-    // Open enhance modal with multi-photo context
-    setTimeout(() => openEnhanceModal(selected.map(p => p.data)), 100);
+    setTimeout(() => openEnhanceModal(), 150);
   } else {
-    showToast(selected.length + ' photos selected — first shown as preview. AI will use all for generation.', 'success');
+    showToast(selected.length > 1
+      ? selected.length + ' photos selected — first shown as preview'
+      : 'Photo selected', 'success');
   }
 }
 
@@ -8342,8 +8335,8 @@ function showUnsavedDialog(message, onLeave, onSave) {
       <div style="font-size:15px;font-weight:600;margin-bottom:8px">Unsaved Changes</div>
       <div style="font-size:13px;color:var(--text2);margin-bottom:20px;line-height:1.6">${message}</div>
       <div style="display:flex;gap:8px">
-        ${onSave ? `<button class="btn btn-primary" style="flex:1" onclick="document.getElementById('unsaved-dialog').remove();if(window._unsavedSaveCallback)window._unsavedSaveCallback()">Save</button>` : ''}
-        <button class="btn btn-secondary" style="flex:1" onclick="document.getElementById('unsaved-dialog').remove();if(window._unsavedLeaveCallback)window._unsavedLeaveCallback()">Leave anyway</button>
+        ${onSave ? `<button class="btn btn-primary" style="flex:1" onclick="document.getElementById('unsaved-dialog').remove();_unsavedSaveCallback&&_unsavedSaveCallback()">Save</button>` : ''}
+        <button class="btn btn-secondary" style="flex:1" onclick="document.getElementById('unsaved-dialog').remove();_unsavedLeaveCallback&&_unsavedLeaveCallback()">Leave anyway</button>
         <button class="btn btn-ghost" onclick="document.getElementById('unsaved-dialog').remove()">Stay</button>
       </div>
     </div>`;
@@ -8456,8 +8449,12 @@ async function syncFromCloud() {
 // ── AI PHOTO ENHANCEMENT ─────────────────────────────────────
 // Takes a real uploaded photo and enhances it via Ideogram img2img
 
-function openEnhanceModal() {
-  if (!APP.currentPhoto) { showToast('Upload a photo first', 'error'); return; }
+function openEnhanceModal(extraPhotos) {
+  // extraPhotos = array of base64 strings when called with multiple photos
+  const photos = extraPhotos || (APP._selectedPhotos?.length > 1 ? APP._selectedPhotos : null);
+  const primaryPhoto = APP.currentPhoto || (photos && photos[0]);
+  if (!primaryPhoto) { showToast('Upload a photo first', 'error'); return; }
+  const multiPhoto = photos && photos.length > 1;
   const existing = document.getElementById('enhance-modal');
   if (existing) existing.remove();
 
@@ -8471,7 +8468,11 @@ function openEnhanceModal() {
         <button class="btn btn-ghost btn-sm" onclick="document.getElementById('enhance-modal').remove()">✕</button>
       </div>
       <div style="padding:16px 20px">
-        <img src="${APP.currentPhoto}" style="width:100%;height:160px;object-fit:cover;border-radius:var(--radius);margin-bottom:14px" alt="Current photo">
+        ${multiPhoto
+          ? `<div style="display:flex;gap:6px;margin-bottom:14px;overflow-x:auto">${photos.slice(0,5).map(p => `<img src="${p}" style="width:80px;height:80px;object-fit:cover;border-radius:var(--radius);flex-shrink:0" alt="photo">`).join('')}${photos.length > 5 ? `<div style="width:80px;height:80px;border-radius:var(--radius);background:var(--bg3);display:flex;align-items:center;justify-content:center;font-size:13px;color:var(--text3);flex-shrink:0">+${photos.length-5}</div>` : ''}</div>
+           <div style="font-size:12px;color:var(--text3);margin-bottom:14px">✦ AI will use all ${photos.length} selected photos as reference for enhanced output</div>`
+          : `<img src="${primaryPhoto}" style="width:100%;height:160px;object-fit:cover;border-radius:var(--radius);margin-bottom:14px" alt="Current photo">`
+        }
         <div style="font-size:12px;color:var(--text3);margin-bottom:14px">Choose how to enhance your photo. The AI will use your actual image as the base and apply the selected style.</div>
 
         <div style="margin-bottom:14px">
@@ -8559,12 +8560,16 @@ async function enhancePhotoWithAI() {
   if (statusEl) { statusEl.style.display = 'block'; statusEl.textContent = 'Analyzing photo and applying enhancement…'; }
 
   // Build enhancement prompt based on style
+  const selectedPhotos = APP._selectedPhotos?.length > 1 ? APP._selectedPhotos : null;
+  const primaryPhoto = APP.currentPhoto || (selectedPhotos && selectedPhotos[0]);
+
   const co = APP.currentCompany || 'wcli';
   const colorId = document.getElementById('post-color-id')?.value;
   const colors = getColors(co);
   const selectedColor = colorId ? colors.find(c => c.id === colorId) : null;
   const colorNote = selectedColor ? ` The surface features ${selectedColor.name} — a ${selectedColor.colorFamily || ''} ${selectedColor.pattern || 'laminate'} finish.` : '';
   const productType = selectedColor?.is_hpl ? 'HPL high-pressure laminate' : 'melamine laminated board';
+  const multiNote = selectedPhotos ? ` Use all ${selectedPhotos.length} reference photos together — combine their perspectives, lighting, and content into one cohesive enhanced result.` : '';
 
   const stylePrompts = {
     'better-lighting': `Same composition as the photo but with professional studio lighting — bright, even illumination, no harsh shadows, colors accurate and vibrant. ${productType} surface texture clearly visible.`,
@@ -8575,10 +8580,9 @@ async function enhancePhotoWithAI() {
     'commercial': `Professional B2B commercial look — ${productType} in a clean, well-organized setting. Credible, trustworthy, suitable for trade presentations and depot displays.`
   };
 
-  const prompt = `${stylePrompts[style]}${colorNote}${notes ? ' Additional direction: ' + notes + '.' : ''} High resolution, realistic photography, no text or watermarks.`;
+  const prompt = `${stylePrompts[style]}${colorNote}${multiNote}${notes ? ' Additional direction: ' + notes + '.' : ''} High resolution, realistic photography, no text or watermarks.`;
 
   try {
-    // Use Ideogram with image_weight for img2img effect via our proxy
     const res = await fetch(proxyBase + 'generate-image', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -8586,15 +8590,16 @@ async function enhancePhotoWithAI() {
         prompt,
         aspect_ratio: '1x1',
         rendering_speed: 'DEFAULT',
-        reference_image: APP.currentPhoto, // pass original as reference
-        image_weight: 60, // 0-100, how much to follow the original
+        reference_image: primaryPhoto,
+        reference_images: selectedPhotos || undefined, // extra refs if multiple
+        image_weight: 60,
       })
     });
     const data = await res.json();
     if (data.error || !data.url) throw new Error(data.error || 'No image returned');
 
-    // Apply to current post
     setCurrentPhoto(data.url);
+    APP._selectedPhotos = null; // clear multi-select after use
     document.getElementById('enhance-modal')?.remove();
     showToast('✓ Photo enhanced — check the preview', 'success');
   } catch (err) {
