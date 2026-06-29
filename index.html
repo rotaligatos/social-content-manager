@@ -1829,6 +1829,8 @@ function switchMediaTab(type) {
   // Clear the other media type so a post never accidentally carries both
   if (type === 'video') {
     APP.currentPhoto = null;
+    APP.currentPhotos = null;
+    APP._selectedPhotos = null;
   } else {
     APP.currentVideo = null;
     document.getElementById('video-preview-area').innerHTML = '';
@@ -2367,17 +2369,61 @@ function pickSelectedPhotos(mode) {
   if (!selected.length) { showToast('Select at least one photo', 'error'); return; }
   closePhotoPicker();
 
-  // Always set first photo as current
-  setCurrentPhoto(selected[0].data);
-  APP._selectedPhotos = selected.length > 1 ? selected.map(p => p.data) : null;
-
-  if (mode === 'enhance') {
-    setTimeout(() => openEnhanceModal(), 150);
+  if (selected.length === 1) {
+    // Single photo — normal flow
+    APP._selectedPhotos = null;
+    APP.currentPhotos = null;
+    setCurrentPhoto(selected[0].data);
+    if (mode === 'enhance') setTimeout(() => openEnhanceModal(), 150);
+    else showToast('Photo selected', 'success');
   } else {
-    showToast(selected.length > 1
-      ? selected.length + ' photos selected — first shown as preview'
-      : 'Photo selected', 'success');
+    // Multiple photos — carousel/album mode
+    APP.currentPhotos = selected.map(p => p.data);
+    APP._selectedPhotos = APP.currentPhotos;
+    setCurrentPhoto(selected[0].data); // first as preview
+    updateCarouselPreview();
+    if (mode === 'enhance') {
+      setTimeout(() => openEnhanceModal(), 150);
+    } else {
+      showToast(selected.length + ' photos selected — will publish as Facebook album', 'success');
+    }
   }
+}
+
+function updateCarouselPreview() {
+  const photos = APP.currentPhotos;
+  const previewEl = document.getElementById('preview-image');
+  if (!previewEl || !photos?.length) return;
+  if (photos.length === 1) {
+    previewEl.innerHTML = `<img src="${photos[0]}" style="width:100%;height:200px;object-fit:cover" alt="Post photo">`;
+    return;
+  }
+  // Show carousel strip
+  previewEl.innerHTML = `
+    <div style="position:relative">
+      <div style="display:flex;gap:3px;height:180px;overflow:hidden;border-radius:var(--radius)">
+        <img src="${photos[0]}" style="flex:2;object-fit:cover;min-width:0" alt="Photo 1">
+        <div style="flex:1;display:flex;flex-direction:column;gap:3px;min-width:0">
+          ${photos.slice(1,3).map((p,i) => `<img src="${p}" style="flex:1;object-fit:cover;width:100%" alt="Photo ${i+2}">`).join('')}
+          ${photos.length > 3 ? `<div style="flex:1;background:rgba(0,0,0,0.6);display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:700;color:#fff">+${photos.length-3}</div>` : ''}
+        </div>
+      </div>
+      <div style="position:absolute;top:8px;left:8px;background:rgba(0,0,0,0.6);color:#fff;font-size:11px;padding:3px 8px;border-radius:20px">📸 ${photos.length} photos · Album</div>
+      <button onclick="clearCarousel()" style="position:absolute;top:8px;right:8px;background:rgba(0,0,0,0.6);color:#fff;border:none;border-radius:50%;width:24px;height:24px;cursor:pointer;font-size:13px">✕</button>
+    </div>`;
+  // Show enhance button
+  const enhanceBtn = document.getElementById('ai-enhance-btn');
+  if (enhanceBtn) enhanceBtn.style.display = '';
+}
+
+function clearCarousel() {
+  APP.currentPhotos = null;
+  APP._selectedPhotos = null;
+  APP.currentPhoto = null;
+  const previewEl = document.getElementById('preview-image');
+  if (previewEl) previewEl.innerHTML = '<span style="opacity:0.4">No photo selected</span>';
+  const enhanceBtn = document.getElementById('ai-enhance-btn');
+  if (enhanceBtn) enhanceBtn.style.display = 'none';
 }
 
 function closePhotoPicker() {
@@ -3230,8 +3276,9 @@ function saveDraft() {
     audience: APP.currentAudience,
     pillar: APP.currentPillar,
     caption: APP.currentCaption,
-    photo: hasVideo ? null : APP.currentPhoto,
-    mediaType: hasVideo ? 'video' : 'photo',
+    photo: hasVideo ? null : (APP.currentPhotos?.length > 1 ? APP.currentPhotos[0] : APP.currentPhoto),
+    photos: (!hasVideo && APP.currentPhotos?.length > 1) ? APP.currentPhotos : null,
+    mediaType: hasVideo ? 'video' : (APP.currentPhotos?.length > 1 ? 'album' : 'photo'),
     videoMeta: hasVideo ? { name: APP.currentVideo.name, size: APP.currentVideo.size } : null,
     videoUrl: videoAnyUrl,
     _videoFileRef: hasVideo ? APP.currentVideo.file : null,
@@ -3301,7 +3348,16 @@ function updateReviewQueue() {
                   <span style="font-size:22px">🎬</span>
                   <span style="font-size:9px;color:var(--amber)">Re-attach</span>
                 </div>`;
-          })() : p.photo ? `<div style="flex-shrink:0;display:flex;flex-direction:column;gap:6px;align-items:center">
+          })() : p.mediaType === 'album' && p.photos?.length ? `
+            <div style="flex-shrink:0;width:120px">
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:2px;border-radius:var(--radius);overflow:hidden;height:90px">
+                ${p.photos.slice(0,4).map((ph,i) => i === 3 && p.photos.length > 4
+                  ? `<div style="position:relative"><img src="${ph}" style="width:100%;height:100%;object-fit:cover"><div style="position:absolute;inset:0;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;color:#fff;font-size:14px;font-weight:700">+${p.photos.length-3}</div></div>`
+                  : `<img src="${ph}" style="width:100%;height:100%;object-fit:cover">`
+                ).join('')}
+              </div>
+              <div style="font-size:9px;color:var(--text3);text-align:center;margin-top:3px">📸 ${p.photos.length} photos</div>
+            </div>` : p.photo ? `<div style="flex-shrink:0;display:flex;flex-direction:column;gap:6px;align-items:center">
             <img src="${p.photo}" style="width:90px;height:90px;object-fit:cover;border-radius:var(--radius)" alt="Post photo">
             <button class="btn btn-ghost btn-sm" style="font-size:9.5px;padding:3px 8px;white-space:nowrap;${p.watermark ? 'color:var(--green)' : 'color:var(--text3)'}" onclick="toggleWatermark('${p.id}')" title="Adds the ${p.company.toUpperCase()} logo at a random corner">🏷 ${p.watermark ? 'Watermark: On' : 'Watermark: Off'}</button>
           </div>` : `<div style="width:90px;height:90px;border-radius:var(--radius);background:var(--bg4);display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:11px;color:var(--text3);text-align:center;padding:4px">No photo</div>`}
@@ -5926,6 +5982,41 @@ async function publishToFacebook(post) {
   }
 
   try {
+    // ── ALBUM (multiple photos) ──────────────────────────────
+    if (post.mediaType === 'album' && post.photos?.length > 1) {
+      const photoIds = [];
+      for (const photoData of post.photos) {
+        const isHttpUrl = /^https?:\/\//i.test(photoData);
+        let uploadRes;
+        if (isHttpUrl) {
+          const params = new URLSearchParams();
+          params.append('url', photoData);
+          params.append('published', 'false');
+          params.append('access_token', pageData.token);
+          uploadRes = await fetch(`https://graph.facebook.com/v19.0/${pageData.id}/photos`, { method: 'POST', body: params });
+        } else {
+          const blob = dataUrlToBlob(photoData);
+          const formData = new FormData();
+          formData.append('source', blob, 'photo.jpg');
+          formData.append('published', 'false');
+          formData.append('access_token', pageData.token);
+          uploadRes = await fetch(`https://graph.facebook.com/v19.0/${pageData.id}/photos`, { method: 'POST', body: formData });
+        }
+        const uploadData = await uploadRes.json();
+        if (uploadData.error) return { success: false, error: 'Photo upload failed: ' + uploadData.error.message };
+        photoIds.push(uploadData.id);
+      }
+      // Publish all photos together as an album post
+      const feedParams = new URLSearchParams();
+      feedParams.append('message', post.caption);
+      feedParams.append('access_token', pageData.token);
+      photoIds.forEach(id => feedParams.append('attached_media[]', JSON.stringify({ media_fbid: id })));
+      const feedRes = await fetch(`https://graph.facebook.com/v19.0/${pageData.id}/feed`, { method: 'POST', body: feedParams });
+      const feedData = await feedRes.json();
+      if (feedData.error) return { success: false, error: feedData.error.message };
+      return { success: true, postId: feedData.id };
+    }
+
     if (post.photo) {
       // Two kinds of photo can reach here:
       //  - A Supabase public URL (AI-generated images now live in Storage) → Facebook can fetch it
@@ -8595,6 +8686,7 @@ function toggleScheduledPreview(postId) {
   const photoSrc = post.photo || post.photoUrl || post.photo_url || null;
   const videoSrc = post.videoUrl || post.video_url || post.video || null;
   const isVideo = post.mediaType === 'video';
+  const isAlbum = post.mediaType === 'album' && post.photos?.length > 1;
 
   const mediaHtml = isVideo && videoSrc
     ? `<video src="${videoSrc}" controls style="width:100%;max-height:340px;object-fit:cover;background:#000;display:block"></video>`
@@ -8604,6 +8696,13 @@ function toggleScheduledPreview(postId) {
         <span style="font-size:12.5px;color:#aaa">Video file not available for preview</span>
         <span style="font-size:11px;color:#666">The video will publish correctly if it was already uploaded to Supabase</span>
         <button onclick="document.getElementById('post-preview-modal')?.remove();loadPostIntoCreate('${postId}')" style="background:#1877f2;color:#fff;border:none;border-radius:6px;padding:7px 16px;font-size:12.5px;cursor:pointer;margin-top:4px">📎 Re-attach Video File</button>
+       </div>`
+    : isAlbum
+    ? `<div style="display:grid;grid-template-columns:${post.photos.length === 2 ? '1fr 1fr' : post.photos.length === 3 ? '2fr 1fr' : '1fr 1fr'};gap:2px;max-height:340px">
+        ${post.photos.slice(0,4).map((ph,i) => {
+          const isLast = i === 3 && post.photos.length > 4;
+          return `<div style="position:relative;${i===0&&post.photos.length===3?'grid-row:span 2':''}"><img src="${ph}" style="width:100%;height:${post.photos.length===2?'200':'120'}px;object-fit:cover;display:block">${isLast?`<div style="position:absolute;inset:0;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;color:#fff;font-size:22px;font-weight:700">+${post.photos.length-3}</div>`:''}</div>`;
+        }).join('')}
        </div>`
     : photoSrc
     ? `<img src="${photoSrc}" style="width:100%;max-height:340px;object-fit:cover;display:block" alt="Post photo">`
