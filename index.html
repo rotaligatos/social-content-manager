@@ -8232,21 +8232,21 @@ async function pullFromSupabase() {
     const data = await syncRequest({ operation: 'pull' });
     if (!data || data.error) return;
     APP.posts_before_pull = APP.posts ? [...APP.posts] : [];
-    if (data.posts?.length) {
+    if (data.posts?.length || data.posts !== undefined) {
       const localPostMap = Object.fromEntries((APP.posts || []).map(p => [String(p.id), p]));
       const statusRank = { draft: 0, scheduled: 1, publishing: 2, published: 3, missed: 1 };
-      APP.posts = data.posts.map(p => {
+
+      // Build the authoritative post list from Supabase
+      APP.posts = (data.posts || []).map(p => {
         const local = localPostMap[String(p.id)];
-        // Local status wins if it's more advanced than what Supabase has
-        // (e.g. user scheduled locally but upsert hadn't synced yet)
         const remoteRank = statusRank[p.status] ?? 0;
         const localRank = statusRank[local?.status] ?? 0;
         const resolvedStatus = localRank > remoteRank ? local.status : p.status;
         return {
           id: p.id, company: p.company, audience: p.audience, pillar: p.pillar,
-          caption: local?.caption || p.caption, // prefer local edits
+          caption: local?.caption || p.caption,
           photo: p.photo_url || local?.photo,
-          photos: local?.photos || null, // preserve album photos (not in Supabase yet)
+          photos: local?.photos || null,
           videoUrl: p.video_url, mediaType: p.media_type || local?.mediaType || 'photo',
           videoMeta: p.video_meta,
           status: resolvedStatus,
@@ -8261,10 +8261,21 @@ async function pullFromSupabase() {
           colorId: local?.colorId || null,
         };
       });
-      // Keep local-only posts (not yet in Supabase)
-      const remoteIds = new Set(data.posts.map(p => String(p.id)));
-      const localOnly = (APP.posts_before_pull || []).filter(p => !remoteIds.has(String(p.id)));
+
+      // Only keep local-only posts created AFTER the most recent Supabase post
+      // (these are genuinely new, not yet synced — not old deleted posts)
+      const remoteIds = new Set((data.posts || []).map(p => String(p.id)));
+      const latestRemoteTime = data.posts?.length
+        ? Math.max(...data.posts.map(p => new Date(p.created_at).getTime()))
+        : 0;
+      const localOnly = (APP.posts_before_pull || []).filter(p =>
+        !remoteIds.has(String(p.id)) &&
+        new Date(p.createdAt || 0).getTime() > latestRemoteTime - 60000 // within 1 min of latest
+      );
       if (localOnly.length) APP.posts = [...APP.posts, ...localOnly];
+    } else if (data.posts?.length === 0) {
+      // Supabase returned empty — clear all local posts (they were deleted elsewhere)
+      APP.posts = [];
     }
     if (data.brandProfiles) {
       if (!APP.brandProfiles) APP.brandProfiles = {};
