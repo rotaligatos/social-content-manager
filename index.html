@@ -522,7 +522,7 @@ select:focus{border-color:var(--accent-border);}
               </div>
               <input type="file" id="photo-file-input" accept="image/*" style="display:none" onchange="handlePhotoUpload(event)">
               <div class="photo-options">
-                <button class="btn btn-secondary btn-sm" onclick="openPhotoPicker()">Choose from Library</button>
+                <button class="btn btn-secondary btn-sm" onclick="openPhotoPicker()">📁 Choose from Drive</button>
                 <button class="btn btn-secondary btn-sm" onclick="openImageGenModal()">✦ AI Generate Image</button>
                 <button class="btn btn-secondary btn-sm" id="ai-enhance-btn" onclick="openEnhanceModal()" style="display:none">✨ Enhance Photo</button>
               </div>
@@ -2344,88 +2344,226 @@ function applyBestTimes() {
   updateReviewQueue();
 }
 
+// ── GOOGLE DRIVE PHOTO PICKER ─────────────────────────────────
+const SCM_DRIVE_FOLDER_ID = '1wpIPlHWOt18LPWjJ4jNgAj_Q1jIZyEes'; // SCM Photos folder
+
 function openPhotoPicker() {
-  const relevant = APP.currentCompany ? APP.photos.filter(p => p.company === APP.currentCompany) : APP.photos;
-  let html = '<div id="photo-picker-overlay" style="position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:2000;display:flex;align-items:center;justify-content:center" onclick="if(event.target.id===\'photo-picker-overlay\')closePhotoPicker()">';
-  html += '<div style="background:var(--bg2);border:1px solid var(--border2);border-radius:var(--radius-lg);width:580px;max-height:75vh;display:flex;flex-direction:column;overflow:hidden">';
-  html += '<div style="padding:14px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">';
-  html += '<div><div style="font-size:14px;font-weight:500">Choose from Library'+(APP.currentCompany?' — '+APP.currentCompany.toUpperCase():'')+'</div>';
-  html += '<div style="font-size:11.5px;color:var(--text3);margin-top:2px">Tap to select · select multiple photos to create a collage or AI-enhanced set</div></div>';
-  html += '<button class="btn btn-ghost btn-sm" onclick="closePhotoPicker()">Close</button></div>';
-  html += '<div style="padding:14px 18px;overflow-y:auto;flex:1">';
-  if (!relevant.length) {
-    html += '<div class="empty-state" style="padding:30px 0"><div class="empty-icon">🖼</div><div class="empty-title">No photos for this company yet</div><div class="empty-sub">Upload photos in the Photo Library first</div></div>';
-  } else {
-    html += '<div class="photo-grid">';
-    relevant.forEach(p => {
-      html += `<div class="photo-card" id="picker-card-${p.id}" onclick="togglePickerPhoto('${p.id}')" style="position:relative;cursor:pointer">
-        <img src="${p.data}" style="width:100%;height:110px;object-fit:cover" alt="${p.name}">
-        <div id="picker-check-${p.id}" style="position:absolute;top:6px;right:6px;width:22px;height:22px;border-radius:50%;background:var(--accent);color:#fff;display:none;align-items:center;justify-content:center;font-size:13px;font-weight:700">✓</div>
-        <div class="photo-meta"><div class="photo-name">${p.name}</div></div>
-      </div>`;
-    });
-    html += '</div>';
-  }
-  html += '</div>';
-  html += '<div style="padding:12px 18px;border-top:1px solid var(--border);display:flex;justify-content:space-between;align-items:center">';
-  html += '<div id="picker-count" style="font-size:12.5px;color:var(--text3)">No photos selected</div>';
-  html += '<div style="display:flex;gap:8px">';
-  html += '<button class="btn btn-secondary btn-sm" onclick="pickSelectedPhotos(\'enhance\')">✨ Enhance Selected</button>';
-  html += '<button class="btn btn-primary btn-sm" onclick="pickSelectedPhotos(\'use\')">Use Selected</button>';
-  html += '</div></div>';
-  html += '</div></div>';
+  const existing = document.getElementById('photo-picker-container');
+  if (existing) { existing.remove(); return; }
+
+  const co = APP.currentCompany || '';
   const div = document.createElement('div');
   div.id = 'photo-picker-container';
-  div.innerHTML = html;
-  window._pickerSelected = [];
+  div.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:2000;display:flex;align-items:center;justify-content:center;padding:16px';
+  div.onclick = e => { if (e.target === div) closePhotoPicker(); };
+
+  div.innerHTML = `
+    <div style="background:var(--bg2);border:1px solid var(--border2);border-radius:var(--radius-lg);width:620px;max-height:88vh;display:flex;flex-direction:column;overflow:hidden">
+      <div style="padding:14px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-shrink:0">
+        <div>
+          <div style="font-size:14px;font-weight:500">📁 Choose from Google Drive</div>
+          <div style="font-size:11.5px;color:var(--text3);margin-top:2px">SCM Photos folder · select multiple for album post</div>
+        </div>
+        <button class="btn btn-ghost btn-sm" onclick="closePhotoPicker()">✕</button>
+      </div>
+
+      <!-- Folder tabs -->
+      <div style="display:flex;gap:0;border-bottom:1px solid var(--border);flex-shrink:0" id="drive-tabs">
+      </div>
+
+      <!-- Photo grid -->
+      <div id="drive-photo-grid" style="flex:1;overflow-y:auto;padding:14px 16px">
+        <div style="text-align:center;padding:30px;color:var(--text3)">
+          <div style="font-size:28px;margin-bottom:8px">📂</div>
+          <div style="font-size:13px">Loading photos from Google Drive…</div>
+        </div>
+      </div>
+
+      <!-- Footer -->
+      <div style="padding:12px 16px;border-top:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;flex-shrink:0">
+        <div id="drive-picker-count" style="font-size:12.5px;color:var(--text3)">No photos selected</div>
+        <div style="display:flex;gap:8px">
+          <button class="btn btn-secondary btn-sm" onclick="pickDrivePhotos('enhance')">✨ Enhance Selected</button>
+          <button class="btn btn-primary btn-sm" onclick="pickDrivePhotos('use')">Use Selected</button>
+        </div>
+      </div>
+    </div>`;
+
+  window._driveSelected = [];
+  window._driveFiles = [];
   document.body.appendChild(div);
-}
 
-function togglePickerPhoto(id) {
-  if (!window._pickerSelected) window._pickerSelected = [];
-  const idx = window._pickerSelected.indexOf(id);
-  const checkEl = document.getElementById('picker-check-' + id);
-  const cardEl = document.getElementById('picker-card-' + id);
-  if (idx === -1) {
-    window._pickerSelected.push(id);
-    if (checkEl) checkEl.style.display = 'flex';
-    if (cardEl) cardEl.style.outline = '2.5px solid var(--accent)';
-  } else {
-    window._pickerSelected.splice(idx, 1);
-    if (checkEl) checkEl.style.display = 'none';
-    if (cardEl) cardEl.style.outline = '';
+  // Build tabs via JS (avoids nested template literal issues)
+  const tabBar = document.getElementById('drive-tabs');
+  if (tabBar) {
+    ['All','MSSI','WCLI','CWLI'].forEach(t => {
+      const active = t === 'All' || t === co.toUpperCase();
+      const btn = document.createElement('button');
+      btn.id = 'drive-tab-' + t.toLowerCase();
+      btn.textContent = t;
+      btn.onclick = () => loadDriveFolder(t);
+      btn.style.cssText = 'flex:1;padding:9px 4px;font-size:12px;background:' + (active ? 'var(--bg3)' : 'none') + ';border:none;border-bottom:' + (active ? '2px solid var(--accent2)' : '2px solid transparent') + ';color:' + (active ? 'var(--text)' : 'var(--text3)') + ';cursor:pointer';
+      tabBar.appendChild(btn);
+    });
   }
-  const countEl = document.getElementById('picker-count');
-  if (countEl) countEl.textContent = window._pickerSelected.length
-    ? window._pickerSelected.length + ' photo' + (window._pickerSelected.length > 1 ? 's' : '') + ' selected'
-    : 'No photos selected';
+
+  // Auto-load the current company tab or All
+  loadDriveFolder(co ? co.toUpperCase() : 'All');
 }
 
-function pickSelectedPhotos(mode) {
-  const selected = (window._pickerSelected || []).map(id => APP.photos.find(p => String(p.id) === String(id))).filter(Boolean);
+async function loadDriveFolder(tab) {
+  // Update tab styles
+  ['all','mssi','wcli','cwli'].forEach(t => {
+    const el = document.getElementById('drive-tab-' + t);
+    if (!el) return;
+    const active = t === tab.toLowerCase();
+    el.style.background = active ? 'var(--bg3)' : 'none';
+    el.style.borderBottom = active ? '2px solid var(--accent2)' : '2px solid transparent';
+    el.style.color = active ? 'var(--text)' : 'var(--text3)';
+  });
+
+  const grid = document.getElementById('drive-photo-grid');
+  if (!grid) return;
+  grid.innerHTML = `<div style="text-align:center;padding:30px;color:var(--text3)"><div style="font-size:28px;margin-bottom:8px">⏳</div><div style="font-size:13px">Loading from Google Drive…</div></div>`;
+
+  window._driveSelected = [];
+  window._driveFiles = [];
+  updateDrivePickerCount();
+
+  try {
+    const apiKey = (APP.apiKeys?.anthropic || localStorage.getItem('scm_anthropic_key') || '').trim();
+    if (!apiKey) throw new Error('Anthropic API key not set — go to Settings');
+
+    // Use Claude with Google Drive MCP to list files in SCM Photos folder
+    const folderQuery = tab === 'All'
+      ? `List all image files (jpg, jpeg, png, gif, webp) directly inside the Google Drive folder with ID "${SCM_DRIVE_FOLDER_ID}". Include files in sub-folders named MSSI, WCLI, CWLI too.`
+      : `List all image files (jpg, jpeg, png, gif, webp) in the Google Drive folder with ID "${SCM_DRIVE_FOLDER_ID}" that are inside the sub-folder named "${tab}".`;
+
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+        'anthropic-dangerous-direct-browser-access': 'true'
+      },
+      body: JSON.stringify({
+        model: 'claude-haiku-4-5',
+        max_tokens: 2000,
+        mcp_servers: [{
+          type: 'url',
+          url: 'https://drivemcp.googleapis.com/mcp/v1',
+          name: 'google-drive'
+        }],
+        system: `You are a file listing assistant. When asked to list files from Google Drive, use the Google Drive MCP tools to fetch them. 
+Return ONLY a JSON array of objects with this exact format — no other text:
+[{"id":"FILE_ID","name":"filename.jpg","thumbnailUrl":"URL_OR_NULL","mimeType":"image/jpeg","company":"mssi|wcli|cwli|unknown"}]
+Detect company from the parent folder name (MSSI, WCLI, CWLI). If file is directly in root, company = "unknown".
+If no image files found, return: []`,
+        messages: [{ role: 'user', content: folderQuery }]
+      })
+    });
+
+    const data = await res.json();
+    const text = data.content?.filter(b => b.type === 'text').map(b => b.text).join('') || '[]';
+
+    let files = [];
+    try {
+      const clean = text.replace(/```json|```/g,'').trim();
+      const parsed = JSON.parse(clean);
+      files = Array.isArray(parsed) ? parsed : [];
+    } catch (_e) {
+      files = [];
+    }
+
+    window._driveFiles = files;
+
+    if (!files.length) {
+      grid.innerHTML = `
+        <div style="text-align:center;padding:40px 20px;color:var(--text3)">
+          <div style="font-size:36px;margin-bottom:12px">📭</div>
+          <div style="font-size:13px;font-weight:500;color:var(--text2);margin-bottom:6px">No photos found in ${tab === 'All' ? 'SCM Photos' : tab} folder</div>
+          <div style="font-size:12px;line-height:1.7">Upload photos to your Google Drive SCM Photos folder:<br>
+            <a href="https://drive.google.com/drive/folders/${SCM_DRIVE_FOLDER_ID}" target="_blank" style="color:var(--accent2)">Open SCM Photos folder ↗</a><br>
+            <span style="font-size:11px">Create sub-folders: MSSI, WCLI, CWLI for better organization</span>
+          </div>
+        </div>`;
+      return;
+    }
+
+    // Render photo grid
+    grid.innerHTML = `<div class="photo-grid" style="grid-template-columns:repeat(auto-fill,minmax(130px,1fr))">
+      ${files.map(f => {
+        const thumb = f.thumbnailUrl || `https://drive.google.com/thumbnail?id=${f.id}&sz=w200`;
+        return `<div class="photo-card" id="drive-card-${f.id}" onclick="toggleDrivePhoto('${f.id}')" style="cursor:pointer;position:relative">
+          <img src="${thumb}" style="width:100%;height:110px;object-fit:cover;background:var(--bg3)" alt="${f.name}" onerror="this.style.background='var(--bg3)';this.style.opacity='0.3'">
+          <div id="drive-check-${f.id}" style="position:absolute;top:6px;right:6px;width:22px;height:22px;border-radius:50%;background:var(--accent2);color:#fff;display:none;align-items:center;justify-content:center;font-size:13px;font-weight:700">✓</div>
+          ${f.company && f.company !== 'unknown' ? `<div style="position:absolute;top:6px;left:6px"><span class="post-company-badge badge-${f.company}" style="font-size:9px;padding:1px 5px">${f.company.toUpperCase()}</span></div>` : ''}
+          <div class="photo-meta"><div class="photo-name" style="font-size:10px">${f.name.length > 18 ? f.name.slice(0,16)+'…' : f.name}</div></div>
+        </div>`;
+      }).join('')}
+    </div>
+    <div style="margin-top:12px;text-align:center">
+      <a href="https://drive.google.com/drive/folders/${SCM_DRIVE_FOLDER_ID}" target="_blank" style="font-size:11.5px;color:var(--text3)">📁 Open SCM Photos in Drive ↗</a>
+    </div>`;
+
+  } catch (err) {
+    grid.innerHTML = `<div style="padding:24px;text-align:center">
+      <div style="color:var(--red);font-size:13px;margin-bottom:8px">❌ ${err.message}</div>
+      <div style="font-size:12px;color:var(--text3)">Make sure Google Drive is connected in Settings</div>
+    </div>`;
+  }
+}
+
+function toggleDrivePhoto(id) {
+  if (!window._driveSelected) window._driveSelected = [];
+  const idx = window._driveSelected.indexOf(id);
+  const check = document.getElementById('drive-check-' + id);
+  const card = document.getElementById('drive-card-' + id);
+  if (idx === -1) {
+    window._driveSelected.push(id);
+    if (check) check.style.display = 'flex';
+    if (card) card.style.outline = '2.5px solid var(--accent2)';
+  } else {
+    window._driveSelected.splice(idx, 1);
+    if (check) check.style.display = 'none';
+    if (card) card.style.outline = '';
+  }
+  updateDrivePickerCount();
+}
+
+function updateDrivePickerCount() {
+  const el = document.getElementById('drive-picker-count');
+  const n = (window._driveSelected || []).length;
+  if (el) el.textContent = n ? `${n} photo${n>1?'s':''} selected${n>1?' — will publish as album':''}` : 'No photos selected';
+}
+
+function pickDrivePhotos(mode) {
+  const selected = (window._driveSelected || [])
+    .map(id => window._driveFiles?.find(f => f.id === id))
+    .filter(Boolean);
   if (!selected.length) { showToast('Select at least one photo', 'error'); return; }
   closePhotoPicker();
 
-  if (selected.length === 1) {
-    // Single photo — normal flow
-    APP._selectedPhotos = null;
+  // Convert Drive file IDs to direct image URLs
+  const urls = selected.map(f => `https://drive.google.com/uc?export=view&id=${f.id}`);
+
+  if (urls.length === 1) {
     APP.currentPhotos = null;
-    setCurrentPhoto(selected[0].data);
+    APP._selectedPhotos = null;
+    setCurrentPhoto(urls[0]);
     if (mode === 'enhance') setTimeout(() => openEnhanceModal(), 150);
-    else showToast('Photo selected', 'success');
+    else showToast('Photo selected from Google Drive', 'success');
   } else {
-    // Multiple photos — carousel/album mode
-    APP.currentPhotos = selected.map(p => p.data);
-    APP._selectedPhotos = APP.currentPhotos;
-    setCurrentPhoto(selected[0].data); // first as preview
+    APP.currentPhotos = urls;
+    APP._selectedPhotos = urls;
+    setCurrentPhoto(urls[0]);
     updateCarouselPreview();
-    if (mode === 'enhance') {
-      setTimeout(() => openEnhanceModal(), 150);
-    } else {
-      showToast(selected.length + ' photos selected — will publish as Facebook album', 'success');
-    }
+    if (mode === 'enhance') setTimeout(() => openEnhanceModal(), 150);
+    else showToast(`${urls.length} photos selected — will publish as album`, 'success');
   }
 }
+
 
 // ── ALBUM GRID BUILDER ───────────────────────────────────────
 // Builds Facebook-style album grid HTML for any photo count.
@@ -9238,7 +9376,7 @@ async function registerNewUser() {
     if (data.error) throw new Error(data.error);
 
     // Also add to local staff list
-    const newStaff = { name, chatId: null, role, companies, id: 'staff_' + Date.now() };
+    const newStaff = { name, chatId: null, role, companies, id: 'staff_' + name.toLowerCase().replace(/[^a-z0-9]/g,'_') };
     APP.staff = APP.staff || [];
     APP.staff.push(newStaff);
     await pushStaffToSupabase();
