@@ -2363,7 +2363,7 @@ function togglePickerPhoto(id) {
 }
 
 function pickSelectedPhotos(mode) {
-  const selected = (window._pickerSelected || []).map(id => APP.photos.find(p => p.id === id)).filter(Boolean);
+  const selected = (window._pickerSelected || []).map(id => APP.photos.find(p => String(p.id) === String(id))).filter(Boolean);
   if (!selected.length) { showToast('Select at least one photo', 'error'); return; }
   closePhotoPicker();
 
