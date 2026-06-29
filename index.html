@@ -1684,6 +1684,33 @@ function savePhotos() {
   }
 }
 
+async function uploadPhotoToStorage(photo) {
+  if (!_session || !photo.data || photo.storageUrl) return; // already uploaded
+  try {
+    const proxyBase = (APP.apiKeys?.imgproxy || localStorage.getItem('scm_imgproxy_key') || '').replace(/generate-image\/?$/, '');
+    if (!proxyBase) return;
+    const res = await fetch(photo.data);
+    const blob = await res.blob();
+    const ext = blob.type.includes('png') ? 'png' : 'jpg';
+    const filename = `photos/${_session.user?.id || 'user'}/${photo.id}.${ext}`;
+    const uploadRes = await fetch(`${SUPABASE_URL}/storage/v1/object/scm-assets/${filename}`, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${_session.access_token}`, 'Content-Type': blob.type, 'x-upsert': 'true' },
+      body: blob
+    });
+    if (uploadRes.ok) {
+      const publicUrl = `${SUPABASE_URL}/storage/v1/object/public/scm-assets/${filename}`;
+      photo.storageUrl = publicUrl;
+      // Keep base64 locally for offline use, store URL in Supabase settings
+      await pushSettingToSupabase('photo_' + photo.id, JSON.stringify({
+        id: photo.id, name: photo.name, company: photo.company,
+        storageUrl: publicUrl, addedAt: photo.addedAt
+      }));
+      savePhotos();
+    }
+  } catch (_e) { /* silent — photo still works locally */ }
+}
+
 function saveState() {
   // Strip in-memory-only fields (like the raw video File object) before persisting to localStorage —
   // they can't survive serialization and aren't needed for the saved record itself.
@@ -2055,6 +2082,10 @@ async function handleLibraryUpload(e) {
 
   savePhotos();
   renderPhotoLibrary();
+  // Upload to Supabase Storage for cross-device sync (async, non-blocking)
+  for (const p of APP.photos.filter(ph => !ph.storageUrl)) {
+    uploadPhotoToStorage(p).catch(() => {});
+  }
   if (failed === 0) {
     showToast(ok + ' photo' + (ok !== 1 ? 's' : '') + ' uploaded to library', 'success');
   } else {
@@ -8280,6 +8311,10 @@ async function pullFromSupabase() {
     if (data.brandProfiles) {
       if (!APP.brandProfiles) APP.brandProfiles = {};
       Object.assign(APP.brandProfiles, data.brandProfiles);
+      // Save to localStorage so it persists
+      localStorage.setItem('scm_brand_profiles', JSON.stringify(APP.brandProfiles));
+      // Re-render logos if brand screen is open
+      renderDashboardLogos();
     }
     if (data.staff?.length) APP.staff = data.staff;
     // Pull colors from Supabase into localStorage — fixes series/is_hpl not matching
@@ -8301,35 +8336,50 @@ async function pullFromSupabase() {
     }
     if (data.settings) {
       const s = data.settings;
-      // Restore API keys from cloud if not already set locally
-      if (s.anthropic_key && !localStorage.getItem('scm_anthropic_key')) localStorage.setItem('scm_anthropic_key', s.anthropic_key);
-      if (s.ideogram_key && !localStorage.getItem('scm_ideogram_key')) localStorage.setItem('scm_ideogram_key', s.ideogram_key);
-      if (s.imgproxy_url && !localStorage.getItem('scm_imgproxy_key')) localStorage.setItem('scm_imgproxy_key', s.imgproxy_url);
-      if (s.veo_key && !localStorage.getItem('scm_veo_key')) localStorage.setItem('scm_veo_key', s.veo_key);
-      if (s.telegram_token && !localStorage.getItem('scm_telegram_token')) localStorage.setItem('scm_telegram_token', s.telegram_token);
-      if (s.facebook_key && !localStorage.getItem('scm_facebook_key')) localStorage.setItem('scm_facebook_key', s.facebook_key);
+      // Always restore settings from cloud — cloud is source of truth
+      if (s.anthropic_key) { localStorage.setItem('scm_anthropic_key', s.anthropic_key); APP.apiKeys = APP.apiKeys||{}; APP.apiKeys.anthropic = s.anthropic_key; }
+      if (s.ideogram_key) { localStorage.setItem('scm_ideogram_key', s.ideogram_key); APP.apiKeys = APP.apiKeys||{}; APP.apiKeys.ideogram = s.ideogram_key; }
+      if (s.imgproxy_url) { localStorage.setItem('scm_imgproxy_key', s.imgproxy_url); APP.apiKeys = APP.apiKeys||{}; APP.apiKeys.imgproxy = s.imgproxy_url; }
+      if (s.veo_key) { localStorage.setItem('scm_veo_key', s.veo_key); APP.apiKeys = APP.apiKeys||{}; APP.apiKeys.veo = s.veo_key; }
+      if (s.telegram_token) localStorage.setItem('scm_telegram_token', s.telegram_token);
+      if (s.facebook_key) localStorage.setItem('scm_facebook_key', s.facebook_key);
       if (s.fb_pages) localStorage.setItem('scm_fb_pages', JSON.stringify(s.fb_pages));
       if (s.schedule_times) localStorage.setItem('scm_schedule_times', JSON.stringify(s.schedule_times));
       if (s.autopilot) APP.autopilot = s.autopilot;
-      // Restore app logo across devices
+      // Restore app logo
       if (s.creator_brand_logo) {
         if (!APP.creatorBrand) APP.creatorBrand = {};
-        const logoValue = s.creator_brand_logo;
-        // Could be a URL or base64
-        APP.creatorBrand.logo = logoValue;
+        APP.creatorBrand.logo = s.creator_brand_logo;
         const existing = JSON.parse(localStorage.getItem('scm_creator_brand') || '{}');
-        existing.logo = logoValue;
+        existing.logo = s.creator_brand_logo;
         localStorage.setItem('scm_creator_brand', JSON.stringify(existing));
         renderCreatorLogoBadge();
       }
-      // Update APP.apiKeys in memory
-      APP.apiKeys = APP.apiKeys || {};
-      if (s.anthropic_key) APP.apiKeys.anthropic = s.anthropic_key;
-      if (s.ideogram_key) APP.apiKeys.ideogram = s.ideogram_key;
-      if (s.imgproxy_url) APP.apiKeys.imgproxy = s.imgproxy_url;
-      if (s.veo_key) APP.apiKeys.veo = s.veo_key;
     }
     saveState();
+    // Restore photos from Supabase storage URLs
+    if (data.settings) {
+      const photoKeys = Object.keys(data.settings).filter(k => k.startsWith('photo_'));
+      if (photoKeys.length) {
+        const existingIds = new Set(APP.photos.map(p => String(p.id)));
+        let added = 0;
+        for (const key of photoKeys) {
+          try {
+            const meta = JSON.parse(data.settings[key]);
+            if (!existingIds.has(String(meta.id)) && meta.storageUrl) {
+              APP.photos.push({
+                id: meta.id, name: meta.name, company: meta.company,
+                data: meta.storageUrl, // use URL as data source
+                storageUrl: meta.storageUrl, addedAt: meta.addedAt
+              });
+              existingIds.add(String(meta.id));
+              added++;
+            }
+          } catch (_e) {}
+        }
+        if (added > 0) { savePhotos(); renderPhotoLibrary?.(); }
+      }
+    }
     updateDashboard(); updateReviewBadge(); renderCalendar();
     showToast('Data synced ✓', 'success');
     const sb = document.getElementById('sidebar-sync-btn');
