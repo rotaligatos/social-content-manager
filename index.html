@@ -8291,9 +8291,8 @@ async function previewRegenCaption(postId) {
   if (btn) { btn.disabled = true; btn.textContent = 'Generating…'; }
   if (statusEl) { statusEl.style.display = 'block'; statusEl.textContent = 'Writing new caption…'; }
   try {
-    const apiKey = (APP.apiKeys?.claude || localStorage.getItem('scm_claude_key') || '').trim();
+    const apiKey = (APP.apiKeys?.anthropic || localStorage.getItem('scm_anthropic_key') || '').trim();
     if (!apiKey) throw new Error('Claude API key not configured — go to Settings → API Keys');
-    // Validate key is ASCII only
     if (!/^[\x00-\x7F]+$/.test(apiKey)) throw new Error('API key contains invalid characters — re-enter it in Settings');
     const prompt = buildCaptionPrompt(post.company, post.audience, post.pillar, '', post.colorId || '', post.includeRetail || false);
     const newCaption = await callClaude(apiKey, prompt, 450);
