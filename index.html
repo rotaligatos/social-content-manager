@@ -350,7 +350,7 @@ select:focus{border-color:var(--accent-border);}
         <div style="width:26px;height:26px;border-radius:50%;background:var(--accent-bg);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600;color:var(--accent);flex-shrink:0">👤</div>
         <div style="flex:1;min-width:0">
           <div style="font-size:12px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" id="user-badge">Loading…</div>
-          <button onclick="pullFromSupabase()" style="font-size:10px;color:var(--text3);background:none;border:none;cursor:pointer;padding:0" title="Sync latest data from cloud">↻ Sync</button>
+          <button onclick="pullFromSupabase()" style="font-size:11px;color:var(--text3);background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius);cursor:pointer;padding:3px 8px;display:flex;align-items:center;gap:4px" title="Sync latest data from cloud" id="sidebar-sync-btn">↻ Sync</button>
         </div>
         <button onclick="signOut()" style="font-size:10px;color:var(--text3);background:none;border:none;cursor:pointer;padding:4px" title="Sign out">⎋</button>
       </div>
@@ -2390,51 +2390,66 @@ function pickSelectedPhotos(mode) {
   }
 }
 
+// ── ALBUM GRID BUILDER ───────────────────────────────────────
+// Builds Facebook-style album grid HTML for any photo count.
+// height: total grid height in px.  gap: px gap between cells.
+function buildAlbumGrid(photos, height, gap) {
+  const n = photos.length;
+  const g = gap + 'px';
+  const imgs = photos.map((p, i) => `<img src="${p}" style="width:100%;height:100%;object-fit:cover;display:block" alt="Photo ${i+1}">`);
+
+  if (n === 1) {
+    return `<div style="height:${height}px">${imgs[0]}</div>`;
+  }
+  if (n === 2) {
+    return `<div style="display:flex;gap:${g};height:${height}px">
+      <div style="flex:1;overflow:hidden">${imgs[0]}</div>
+      <div style="flex:1;overflow:hidden">${imgs[1]}</div>
+    </div>`;
+  }
+  if (n === 3) {
+    return `<div style="display:flex;gap:${g};height:${height}px">
+      <div style="flex:2;overflow:hidden">${imgs[0]}</div>
+      <div style="flex:1;display:flex;flex-direction:column;gap:${g}">
+        <div style="flex:1;overflow:hidden">${imgs[1]}</div>
+        <div style="flex:1;overflow:hidden">${imgs[2]}</div>
+      </div>
+    </div>`;
+  }
+  if (n === 4) {
+    return `<div style="display:grid;grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr;gap:${g};height:${height}px">
+      ${imgs.map(img => `<div style="overflow:hidden">${img}</div>`).join('')}
+    </div>`;
+  }
+  // 5+ — left tall + right 2×2 grid, last cell shows +N overlay
+  const remaining = n - 5;
+  const cell4 = remaining > 0
+    ? `<div style="overflow:hidden;position:relative">${imgs[4]}<div style="position:absolute;inset:0;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;color:#fff;font-size:${Math.round(height/8)}px;font-weight:600">+${remaining}</div></div>`
+    : `<div style="overflow:hidden">${imgs[4]}</div>`;
+  return `<div style="display:flex;gap:${g};height:${height}px">
+    <div style="flex:1;overflow:hidden">${imgs[0]}</div>
+    <div style="flex:1;display:grid;grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr;gap:${g}">
+      <div style="overflow:hidden">${imgs[1]}</div>
+      <div style="overflow:hidden">${imgs[2]}</div>
+      <div style="overflow:hidden">${imgs[3]}</div>
+      ${cell4}
+    </div>
+  </div>`;
+}
+
 function updateCarouselPreview() {
   const photos = APP.currentPhotos;
   const previewEl = document.getElementById('preview-image');
   if (!previewEl || !photos?.length) return;
   if (photos.length === 1) {
-    previewEl.innerHTML = `<img src="${photos[0]}" style="width:100%;height:200px;object-fit:cover" alt="Post photo">`;
+    previewEl.innerHTML = `<img src="${photos[0]}" style="width:100%;height:200px;object-fit:cover;display:block" alt="Post photo">`;
+    const eb = document.getElementById('ai-enhance-btn');
+    if (eb) eb.style.display = '';
     return;
   }
-  const n = photos.length;
-  let grid = '';
-  if (n === 2) {
-    grid = `<div style="display:flex;gap:2px;height:200px">
-      <img src="${photos[0]}" style="flex:1;object-fit:cover;min-width:0">
-      <img src="${photos[1]}" style="flex:1;object-fit:cover;min-width:0">
-    </div>`;
-  } else if (n === 3) {
-    grid = `<div style="display:flex;gap:2px;height:200px">
-      <img src="${photos[0]}" style="flex:2;object-fit:cover;min-width:0">
-      <div style="flex:1;display:flex;flex-direction:column;gap:2px;min-width:0">
-        <img src="${photos[1]}" style="flex:1;object-fit:cover;width:100%">
-        <img src="${photos[2]}" style="flex:1;object-fit:cover;width:100%">
-      </div>
-    </div>`;
-  } else if (n === 4) {
-    grid = `<div style="display:grid;grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr;gap:2px;height:200px">
-      ${photos.map(ph => `<img src="${ph}" style="object-fit:cover;width:100%;height:100%">`).join('')}
-    </div>`;
-  } else {
-    grid = `<div style="display:grid;grid-template-columns:1fr 1fr;gap:2px;height:200px">
-      <div style="display:flex;flex-direction:column;gap:2px">
-        <img src="${photos[0]}" style="flex:1;object-fit:cover;width:100%">
-        <img src="${photos[1]}" style="flex:1;object-fit:cover;width:100%">
-      </div>
-      <div style="display:flex;flex-direction:column;gap:2px">
-        <img src="${photos[2]}" style="flex:1;object-fit:cover;width:100%">
-        <div style="flex:1;position:relative">
-          <img src="${photos[3]}" style="width:100%;height:100%;object-fit:cover">
-          <div style="position:absolute;inset:0;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;color:#fff;font-size:20px;font-weight:700">+${n-4}</div>
-        </div>
-      </div>
-    </div>`;
-  }
   previewEl.innerHTML = `<div style="position:relative;border-radius:var(--radius);overflow:hidden">
-    ${grid}
-    <div style="position:absolute;top:8px;left:8px;background:rgba(0,0,0,0.6);color:#fff;font-size:11px;padding:3px 8px;border-radius:20px">📸 ${n} photos · Album</div>
+    ${buildAlbumGrid(photos, 200, 3)}
+    <div style="position:absolute;top:8px;left:8px;background:rgba(0,0,0,0.6);color:#fff;font-size:11px;padding:3px 8px;border-radius:20px">📸 ${photos.length} photos · Album</div>
     <button onclick="clearCarousel()" style="position:absolute;top:8px;right:8px;background:rgba(0,0,0,0.6);color:#fff;border:none;border-radius:50%;width:24px;height:24px;cursor:pointer;font-size:13px;line-height:1">✕</button>
   </div>`;
   const enhanceBtn = document.getElementById('ai-enhance-btn');
@@ -3373,14 +3388,7 @@ function updateReviewQueue() {
                   <span style="font-size:22px">🎬</span>
                   <span style="font-size:9px;color:var(--amber)">Re-attach</span>
                 </div>`;
-          })() : p.mediaType === 'album' && p.photos?.length ? (() => {
-            const n = p.photos.length;
-            let inner = '';
-            if (n === 2) inner = `<div style="display:flex;gap:2px;height:90px">${p.photos.map(ph=>`<img src="${ph}" style="flex:1;object-fit:cover;min-width:0">`).join('')}</div>`;
-            else if (n === 3) inner = `<div style="display:flex;gap:2px;height:90px"><img src="${p.photos[0]}" style="flex:2;object-fit:cover;min-width:0"><div style="flex:1;display:flex;flex-direction:column;gap:2px">${p.photos.slice(1).map(ph=>`<img src="${ph}" style="flex:1;object-fit:cover;width:100%">`).join('')}</div></div>`;
-            else inner = `<div style="display:grid;grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr;gap:2px;height:90px">${p.photos.slice(0,4).map((ph,i)=>`<div style="position:relative"><img src="${ph}" style="width:100%;height:100%;object-fit:cover">${i===3&&n>4?`<div style="position:absolute;inset:0;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;color:#fff;font-size:12px;font-weight:700">+${n-3}</div>`:''}</div>`).join('')}</div>`;
-            return `<div style="flex-shrink:0;width:120px;border-radius:var(--radius);overflow:hidden">${inner}<div style="font-size:9px;color:var(--text3);text-align:center;margin-top:3px">📸 ${n} photos</div></div>`;
-          })() : p.photo ? `<div style="flex-shrink:0;display:flex;flex-direction:column;gap:6px;align-items:center">
+          })() : p.mediaType === 'album' && p.photos?.length ? `<div style="flex-shrink:0;width:120px;border-radius:var(--radius);overflow:hidden">${buildAlbumGrid(p.photos, 90, 2)}<div style="font-size:9px;color:var(--text3);text-align:center;margin-top:3px">📸 ${p.photos.length} photos</div></div>` : p.photo ? `<div style="flex-shrink:0;display:flex;flex-direction:column;gap:6px;align-items:center">
             <img src="${p.photo}" style="width:90px;height:90px;object-fit:cover;border-radius:var(--radius)" alt="Post photo">
             <button class="btn btn-ghost btn-sm" style="font-size:9.5px;padding:3px 8px;white-space:nowrap;${p.watermark ? 'color:var(--green)' : 'color:var(--text3)'}" onclick="toggleWatermark('${p.id}')" title="Adds the ${p.company.toUpperCase()} logo at a random corner">🏷 ${p.watermark ? 'Watermark: On' : 'Watermark: Off'}</button>
           </div>` : `<div style="width:90px;height:90px;border-radius:var(--radius);background:var(--bg4);display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:11px;color:var(--text3);text-align:center;padding:4px">No photo</div>`}
@@ -8172,6 +8180,11 @@ async function syncRequest(body) {
 
 async function pullFromSupabase() {
   if (!_session || !_syncEnabled) return;
+  // Animate sync buttons
+  const sideBtn = document.getElementById('sidebar-sync-btn');
+  const mobBtn = document.getElementById('mobile-sync-btn');
+  if (sideBtn) { sideBtn.style.opacity = '0.5'; sideBtn.textContent = '↻ Syncing…'; }
+  if (mobBtn) { mobBtn.style.opacity = '0.5'; }
   try {
     const data = await syncRequest({ operation: 'pull' });
     if (!data || data.error) return;
@@ -8261,7 +8274,16 @@ async function pullFromSupabase() {
     saveState();
     updateDashboard(); updateReviewBadge(); renderCalendar();
     showToast('Data synced ✓', 'success');
-  } catch (_e) {}
+    const sb = document.getElementById('sidebar-sync-btn');
+    if (sb) { sb.style.opacity = '1'; sb.textContent = '↻ Sync'; }
+    const mb = document.getElementById('mobile-sync-btn');
+    if (mb) { mb.style.opacity = '1'; }
+  } catch (_e) {
+    const sb = document.getElementById('sidebar-sync-btn');
+    if (sb) { sb.style.opacity = '1'; sb.textContent = '↻ Sync'; }
+    const mb2 = document.getElementById('mobile-sync-btn');
+    if (mb2) { mb2.style.opacity = '1'; }
+  }
 }
 
 async function pushPostToSupabase(post) {
@@ -8738,41 +8760,7 @@ function toggleScheduledPreview(postId) {
         <button onclick="document.getElementById('post-preview-modal')?.remove();loadPostIntoCreate('${postId}')" style="background:#1877f2;color:#fff;border:none;border-radius:6px;padding:7px 16px;font-size:12.5px;cursor:pointer;margin-top:4px">📎 Re-attach Video File</button>
        </div>`
     : isAlbum
-    ? (() => {
-        const n = post.photos.length;
-        if (n === 2) return `
-          <div style="display:flex;gap:2px;height:240px">
-            <img src="${post.photos[0]}" style="flex:1;object-fit:cover;min-width:0">
-            <img src="${post.photos[1]}" style="flex:1;object-fit:cover;min-width:0">
-          </div>`;
-        if (n === 3) return `
-          <div style="display:flex;gap:2px;height:240px">
-            <img src="${post.photos[0]}" style="flex:2;object-fit:cover;min-width:0">
-            <div style="flex:1;display:flex;flex-direction:column;gap:2px;min-width:0">
-              <img src="${post.photos[1]}" style="flex:1;object-fit:cover;width:100%">
-              <img src="${post.photos[2]}" style="flex:1;object-fit:cover;width:100%">
-            </div>
-          </div>`;
-        if (n === 4) return `
-          <div style="display:grid;grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr;gap:2px;height:280px">
-            ${post.photos.map(ph => `<img src="${ph}" style="object-fit:cover;width:100%;height:100%">`).join('')}
-          </div>`;
-        // 5+
-        return `
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:2px;height:280px">
-            <div style="display:flex;flex-direction:column;gap:2px">
-              <img src="${post.photos[0]}" style="flex:1;object-fit:cover;width:100%">
-              <img src="${post.photos[1]}" style="flex:1;object-fit:cover;width:100%">
-            </div>
-            <div style="display:flex;flex-direction:column;gap:2px">
-              <img src="${post.photos[2]}" style="flex:1;object-fit:cover;width:100%">
-              <div style="flex:1;position:relative">
-                <img src="${post.photos[3]}" style="width:100%;height:100%;object-fit:cover">
-                ${n > 4 ? `<div style="position:absolute;inset:0;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;color:#fff;font-size:22px;font-weight:700">+${n-4}</div>` : ''}
-              </div>
-            </div>
-          </div>`;
-      })()
+    ? buildAlbumGrid(post.photos, 280, 3)
     : photoSrc
     ? `<img src="${photoSrc}" style="width:100%;max-height:340px;object-fit:cover;display:block" alt="Post photo">`
     : `<div style="width:100%;background:#f0f2f5;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;padding:28px 0">
