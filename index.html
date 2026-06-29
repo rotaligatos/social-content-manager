@@ -1272,6 +1272,12 @@ select:focus{border-color:var(--accent-border);}
           <button class="btn btn-primary" style="width:100%" id="push-cloud-btn" onclick="pushAllToCloud()">Push All to Cloud Now</button>
           <div id="push-cloud-status" style="font-size:11.5px;color:var(--text3);margin-top:8px;display:none"></div>
         </div>
+
+        <div class="card" style="margin-bottom:16px;border:1px solid var(--border2)">
+          <div style="font-size:14px;font-weight:500;margin-bottom:4px">🔄 Clear Local Data & Re-sync</div>
+          <div style="font-size:12px;color:var(--text3);margin-bottom:14px">Clears all locally cached data on this device and pulls fresh data from Supabase. Use this if this device is showing old or stale data. You will not lose any data — everything stays in Supabase.</div>
+          <button class="btn btn-secondary" style="width:100%" onclick="clearAndResync()">Clear Cache & Re-sync from Cloud</button>
+        </div>
         <div class="card" style="margin-bottom:16px">
           <div style="font-size:14px;font-weight:500;margin-bottom:4px">App Logo (top-right)</div>
           <div style="font-size:12px;color:var(--text3);margin-bottom:14px">Shown in the top-right corner of the app on every screen. Upload a new image anytime to replace it — no separate visibility setting, it's just always there once you've uploaded one.</div>
@@ -5126,6 +5132,26 @@ function switchSettingsTab(btn, tab) {
     const apToggle = document.getElementById('autopublish-toggle-settings');
     if (apToggle) apToggle.classList.toggle('on', isAutoPublishEnabled());
   }
+}
+
+async function clearAndResync() {
+  if (!confirm('This will clear all local data on this device and pull fresh data from Supabase. Nothing will be lost from the cloud. Continue?')) return;
+  // Clear all SCM localStorage keys
+  const keys = Object.keys(localStorage).filter(k => k.startsWith('scm_'));
+  keys.forEach(k => localStorage.removeItem(k));
+  // Reset APP state (keep session)
+  APP.posts = [];
+  APP.photos = [];
+  APP.brandProfiles = {};
+  APP.apiKeys = {};
+  APP.staff = [];
+  APP.autopilot = {};
+  APP.creatorBrand = {};
+  showToast('Local data cleared — pulling from cloud…', 'info');
+  // Re-pull everything from Supabase
+  await pullFromSupabase();
+  // Reload page to re-initialize all UI
+  setTimeout(() => location.reload(), 1500);
 }
 
 async function pushAllToCloud() {
