@@ -3059,6 +3059,7 @@ function updateReviewQueue() {
           ${pageSelectorHtml}
           <button class="btn btn-ghost btn-sm" onclick="toggleScheduledPreview('${p.id}')" style="font-size:11px">👁 Preview</button>
           <button class="btn btn-secondary btn-sm" onclick="copyCaption('${p.id}')">Copy</button>
+          ${p.mediaType === 'video' && !p._videoFileRef && !p.videoUrl ? `<button class="btn btn-secondary btn-sm" style="color:var(--amber)" onclick="loadPostIntoCreate('${p.id}')">📎 Re-attach Video</button>` : ''}
           <button class="btn btn-secondary btn-sm" onclick="deletePost('${p.id}')" style="color:var(--red)">Cancel</button>
           <button class="btn btn-primary btn-sm" onclick="publishPostNow('${p.id}')">Publish Now</button>
         </div>
@@ -8254,16 +8255,14 @@ async function generateImageForPreview(postId) {
   const statusEl = document.getElementById('preview-gen-status-' + postId);
   if (btn) btn.style.display = 'none';
   if (statusEl) { statusEl.style.display = 'block'; statusEl.textContent = 'Generating image — this takes about 20 seconds…'; }
-
   try {
-    const captionEl = document.getElementById('caption-edit-' + postId);
-    const caption = captionEl ? captionEl.value : post.caption;
-    const visualPrompt = await buildVisualPromptFromCaption(caption, post.pillar, post.company, post.audience);
+    const notes = post.caption ? post.caption.slice(0, 200) : '';
+    const visualPrompt = buildImagePrompt(post.company, post.audience, post.pillar, notes);
     const url = await generateImageViaProxy(visualPrompt, getWatermarkOpts(post.company));
     post.photo = url;
+    post.mediaType = 'photo';
     saveState();
     upsertPost(post);
-    // Refresh preview
     document.getElementById('post-preview-modal')?.remove();
     toggleScheduledPreview(postId);
     showToast('Image generated and attached!', 'success');
@@ -8292,12 +8291,12 @@ async function previewRegenCaption(postId) {
   if (btn) { btn.disabled = true; btn.textContent = 'Generating…'; }
   if (statusEl) { statusEl.style.display = 'block'; statusEl.textContent = 'Writing new caption…'; }
   try {
-    const bp = APP.brandProfiles?.[post.company] || {};
-    const colorCtx = getColorContextForPrompt(post.company, post.colorId || '');
-    const strategyCtx = typeof getAiStrategyContext === 'function' ? getAiStrategyContext() : '';
-    const retailCtx = post.company !== 'mssi' ? getRetailContextForPrompt(post.company) : '';
-    const prompt = buildCaptionPrompt(post.company, post.audience, post.pillar, bp, colorCtx, strategyCtx, retailCtx, '', '');
-    const newCaption = await callClaude(prompt);
+    const apiKey = (APP.apiKeys?.claude || localStorage.getItem('scm_claude_key') || '').trim();
+    if (!apiKey) throw new Error('Claude API key not configured — go to Settings → API Keys');
+    // Validate key is ASCII only
+    if (!/^[\x00-\x7F]+$/.test(apiKey)) throw new Error('API key contains invalid characters — re-enter it in Settings');
+    const prompt = buildCaptionPrompt(post.company, post.audience, post.pillar, '', post.colorId || '', post.includeRetail || false);
+    const newCaption = await callClaude(apiKey, prompt, 450);
     post.caption = newCaption;
     saveState();
     upsertPost(post);
@@ -8310,7 +8309,7 @@ async function previewRegenCaption(postId) {
     if (statusEl) { statusEl.textContent = '✓ Caption regenerated'; setTimeout(() => { if(statusEl) statusEl.style.display='none'; }, 2500); }
     showToast('Caption regenerated', 'success');
   } catch (err) {
-    if (statusEl) statusEl.textContent = '❌ ' + err.message;
+    if (statusEl) { statusEl.style.display='block'; statusEl.textContent = '❌ ' + err.message; }
   } finally {
     if (btn) { btn.disabled = false; btn.textContent = '↺ Regen Caption'; }
   }
@@ -8324,10 +8323,11 @@ async function previewRegenImage(postId) {
   if (btn) { btn.disabled = true; btn.textContent = 'Generating…'; }
   if (statusEl) { statusEl.style.display = 'block'; statusEl.textContent = 'Generating image — takes ~20 seconds…'; }
   try {
-    const caption = post.caption || '';
-    const visualPrompt = await buildVisualPromptFromCaption(caption, post.pillar, post.company, post.audience);
+    const notes = post.caption ? post.caption.slice(0, 200) : '';
+    const visualPrompt = buildImagePrompt(post.company, post.audience, post.pillar, notes);
     const url = await generateImageViaProxy(visualPrompt, getWatermarkOpts(post.company));
     post.photo = url;
+    post.mediaType = 'photo';
     saveState();
     upsertPost(post);
     const mediaContainer = document.getElementById('preview-media-' + postId);
