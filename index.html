@@ -4894,14 +4894,50 @@ function renderCreatorLogoPreview() {
 function saveCreatorBrand() {
   try {
     localStorage.setItem('scm_creator_brand', JSON.stringify(APP.creatorBrand));
-    // Also push to Supabase so it syncs across devices
-    if (_session) pushSettingToSupabase('creator_brand_logo', APP.creatorBrand.logo || null);
   } catch (e) {
-    showToast('Storage is full — try a smaller logo file, or free up space first.', 'error');
-    console.error('saveCreatorBrand failed:', e);
+    showToast('Storage is full — try a smaller logo file', 'error');
     return;
   }
   renderCreatorLogoBadge();
+  // Push logo to Supabase app_settings for cross-device sync
+  if (_session && APP.creatorBrand?.logo) {
+    // Store base64 directly — most logos are small enough
+    pushSettingToSupabase('creator_brand_logo', APP.creatorBrand.logo).catch(() => {});
+  }
+}
+
+async function uploadLogoToStorage(base64DataUrl) {
+  try {
+    const proxyBase = (APP.apiKeys.imgproxy || localStorage.getItem('scm_imgproxy_key') || '').replace(/generate-image\/?$/, '');
+    if (!proxyBase) return;
+    // Convert base64 to blob
+    const res = await fetch(base64DataUrl);
+    const blob = await res.blob();
+    const ext = blob.type.includes('png') ? 'png' : 'jpg';
+    const filename = `logos/app-logo-${_session.user?.id || 'admin'}.${ext}`;
+    // Upload to Supabase Storage via REST
+    const uploadRes = await fetch(`${SUPABASE_URL}/storage/v1/object/scm-assets/${filename}`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${_session.access_token}`,
+        'Content-Type': blob.type,
+        'x-upsert': 'true'
+      },
+      body: blob
+    });
+    if (!uploadRes.ok) {
+      // Fall back to storing as setting if storage fails
+      await pushSettingToSupabase('creator_brand_logo', base64DataUrl);
+      return;
+    }
+    // Store public URL in settings
+    const publicUrl = `${SUPABASE_URL}/storage/v1/object/public/scm-assets/${filename}`;
+    await pushSettingToSupabase('creator_brand_logo', publicUrl);
+    // Update local to use URL instead of base64
+    APP.creatorBrand.logoUrl = publicUrl;
+  } catch (_e) {
+    // Silent fail — logo still works locally from localStorage
+  }
 }
 
 function loadCreatorBrand() {
@@ -8179,7 +8215,14 @@ async function syncRequest(body) {
 }
 
 async function pullFromSupabase() {
-  if (!_session || !_syncEnabled) return;
+  if (!_session) {
+    showToast('Not signed in — please log in first', 'error');
+    return;
+  }
+  if (!_syncEnabled) {
+    showToast('Sync not available', 'error');
+    return;
+  }
   // Animate sync buttons
   const sideBtn = document.getElementById('sidebar-sync-btn');
   const mobBtn = document.getElementById('mobile-sync-btn');
@@ -8259,9 +8302,13 @@ async function pullFromSupabase() {
       if (s.autopilot) APP.autopilot = s.autopilot;
       // Restore app logo across devices
       if (s.creator_brand_logo) {
-        APP.creatorBrand = APP.creatorBrand || {};
-        APP.creatorBrand.logo = s.creator_brand_logo;
-        localStorage.setItem('scm_creator_brand', JSON.stringify(APP.creatorBrand));
+        if (!APP.creatorBrand) APP.creatorBrand = {};
+        const logoValue = s.creator_brand_logo;
+        // Could be a URL or base64
+        APP.creatorBrand.logo = logoValue;
+        const existing = JSON.parse(localStorage.getItem('scm_creator_brand') || '{}');
+        existing.logo = logoValue;
+        localStorage.setItem('scm_creator_brand', JSON.stringify(existing));
         renderCreatorLogoBadge();
       }
       // Update APP.apiKeys in memory
@@ -9376,11 +9423,41 @@ async function fetchFacebookInsights() {
 async function mobileSyncTap() {
   const btn = document.getElementById('mobile-sync-btn');
   if (btn) { btn.style.opacity = '0.5'; btn.style.transform = 'rotate(360deg)'; btn.style.transition = 'transform 0.6s'; }
-  await pullFromSupabase();
-  showToast('Synced from cloud', 'success');
-  setTimeout(() => {
-    if (btn) { btn.style.opacity = '1'; btn.style.transform = ''; btn.style.transition = ''; }
-  }, 700);
+  try {
+    // Try to restore session from localStorage if not in memory
+    if (!_session) {
+      const saved = localStorage.getItem('scm_session');
+      if (saved) {
+        try { _session = JSON.parse(saved); } catch (_e) {}
+      }
+    }
+    // Try token refresh if session is expired
+    if (_session) {
+      try {
+        const payload = JSON.parse(atob(_session.access_token.split('.')[1]));
+        if (payload.exp * 1000 < Date.now() && _session.refresh_token) {
+          const refreshed = await supabaseAuthRequest('/auth/v1/token?grant_type=refresh_token', {
+            method: 'POST', body: JSON.stringify({ refresh_token: _session.refresh_token })
+          });
+          if (refreshed.access_token) {
+            _session = refreshed;
+            localStorage.setItem('scm_session', JSON.stringify(refreshed));
+          }
+        }
+      } catch (_e) {}
+    }
+    if (!_session) {
+      showToast('Not signed in — please log in first', 'error');
+      return;
+    }
+    await pullFromSupabase();
+  } catch (err) {
+    showToast('Sync failed: ' + err.message, 'error');
+  } finally {
+    setTimeout(() => {
+      if (btn) { btn.style.opacity = '1'; btn.style.transform = ''; btn.style.transition = ''; }
+    }, 700);
+  }
 }
 </script>
 <!-- Mobile floating sync button — only visible on small screens -->
