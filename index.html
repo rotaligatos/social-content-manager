@@ -2398,20 +2398,45 @@ function updateCarouselPreview() {
     previewEl.innerHTML = `<img src="${photos[0]}" style="width:100%;height:200px;object-fit:cover" alt="Post photo">`;
     return;
   }
-  // Show carousel strip
-  previewEl.innerHTML = `
-    <div style="position:relative">
-      <div style="display:flex;gap:3px;height:180px;overflow:hidden;border-radius:var(--radius)">
-        <img src="${photos[0]}" style="flex:2;object-fit:cover;min-width:0" alt="Photo 1">
-        <div style="flex:1;display:flex;flex-direction:column;gap:3px;min-width:0">
-          ${photos.slice(1,3).map((p,i) => `<img src="${p}" style="flex:1;object-fit:cover;width:100%" alt="Photo ${i+2}">`).join('')}
-          ${photos.length > 3 ? `<div style="flex:1;background:rgba(0,0,0,0.6);display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:700;color:#fff">+${photos.length-3}</div>` : ''}
+  const n = photos.length;
+  let grid = '';
+  if (n === 2) {
+    grid = `<div style="display:flex;gap:2px;height:200px">
+      <img src="${photos[0]}" style="flex:1;object-fit:cover;min-width:0">
+      <img src="${photos[1]}" style="flex:1;object-fit:cover;min-width:0">
+    </div>`;
+  } else if (n === 3) {
+    grid = `<div style="display:flex;gap:2px;height:200px">
+      <img src="${photos[0]}" style="flex:2;object-fit:cover;min-width:0">
+      <div style="flex:1;display:flex;flex-direction:column;gap:2px;min-width:0">
+        <img src="${photos[1]}" style="flex:1;object-fit:cover;width:100%">
+        <img src="${photos[2]}" style="flex:1;object-fit:cover;width:100%">
+      </div>
+    </div>`;
+  } else if (n === 4) {
+    grid = `<div style="display:grid;grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr;gap:2px;height:200px">
+      ${photos.map(ph => `<img src="${ph}" style="object-fit:cover;width:100%;height:100%">`).join('')}
+    </div>`;
+  } else {
+    grid = `<div style="display:grid;grid-template-columns:1fr 1fr;gap:2px;height:200px">
+      <div style="display:flex;flex-direction:column;gap:2px">
+        <img src="${photos[0]}" style="flex:1;object-fit:cover;width:100%">
+        <img src="${photos[1]}" style="flex:1;object-fit:cover;width:100%">
+      </div>
+      <div style="display:flex;flex-direction:column;gap:2px">
+        <img src="${photos[2]}" style="flex:1;object-fit:cover;width:100%">
+        <div style="flex:1;position:relative">
+          <img src="${photos[3]}" style="width:100%;height:100%;object-fit:cover">
+          <div style="position:absolute;inset:0;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;color:#fff;font-size:20px;font-weight:700">+${n-4}</div>
         </div>
       </div>
-      <div style="position:absolute;top:8px;left:8px;background:rgba(0,0,0,0.6);color:#fff;font-size:11px;padding:3px 8px;border-radius:20px">📸 ${photos.length} photos · Album</div>
-      <button onclick="clearCarousel()" style="position:absolute;top:8px;right:8px;background:rgba(0,0,0,0.6);color:#fff;border:none;border-radius:50%;width:24px;height:24px;cursor:pointer;font-size:13px">✕</button>
     </div>`;
-  // Show enhance button
+  }
+  previewEl.innerHTML = `<div style="position:relative;border-radius:var(--radius);overflow:hidden">
+    ${grid}
+    <div style="position:absolute;top:8px;left:8px;background:rgba(0,0,0,0.6);color:#fff;font-size:11px;padding:3px 8px;border-radius:20px">📸 ${n} photos · Album</div>
+    <button onclick="clearCarousel()" style="position:absolute;top:8px;right:8px;background:rgba(0,0,0,0.6);color:#fff;border:none;border-radius:50%;width:24px;height:24px;cursor:pointer;font-size:13px;line-height:1">✕</button>
+  </div>`;
   const enhanceBtn = document.getElementById('ai-enhance-btn');
   if (enhanceBtn) enhanceBtn.style.display = '';
 }
@@ -8150,23 +8175,40 @@ async function pullFromSupabase() {
   try {
     const data = await syncRequest({ operation: 'pull' });
     if (!data || data.error) return;
+    APP.posts_before_pull = APP.posts ? [...APP.posts] : [];
     if (data.posts?.length) {
       const localPostMap = Object.fromEntries((APP.posts || []).map(p => [String(p.id), p]));
+      const statusRank = { draft: 0, scheduled: 1, publishing: 2, published: 3, missed: 1 };
       APP.posts = data.posts.map(p => {
         const local = localPostMap[String(p.id)];
+        // Local status wins if it's more advanced than what Supabase has
+        // (e.g. user scheduled locally but upsert hadn't synced yet)
+        const remoteRank = statusRank[p.status] ?? 0;
+        const localRank = statusRank[local?.status] ?? 0;
+        const resolvedStatus = localRank > remoteRank ? local.status : p.status;
         return {
           id: p.id, company: p.company, audience: p.audience, pillar: p.pillar,
-          caption: p.caption, photo: p.photo_url, videoUrl: p.video_url,
-          mediaType: p.media_type || 'photo', videoMeta: p.video_meta,
-          status: p.status,
-          // Prefer local scheduledFor if Supabase has none
-          scheduledFor: p.scheduled_for || (local?.scheduledFor) || null,
+          caption: local?.caption || p.caption, // prefer local edits
+          photo: p.photo_url || local?.photo,
+          photos: local?.photos || null, // preserve album photos (not in Supabase yet)
+          videoUrl: p.video_url, mediaType: p.media_type || local?.mediaType || 'photo',
+          videoMeta: p.video_meta,
+          status: resolvedStatus,
+          scheduledFor: local?.scheduledFor || p.scheduled_for || null,
           publishedAt: p.published_at,
-          fbPostId: p.fb_post_id, watermark: p.watermark, performance: p.performance,
+          fbPostId: p.fb_post_id || local?.fbPostId,
+          watermark: p.watermark, performance: p.performance,
           inquiryChecked: p.inquiry_checked, assignedChatId: p.assigned_chat_id,
-          responseToken: p.response_token, responseTimestamp: p.response_timestamp, createdAt: p.created_at
+          responseToken: p.response_token || local?.responseToken,
+          responseTimestamp: p.response_timestamp, createdAt: p.created_at,
+          suggestedDate: local?.suggestedDate || null,
+          colorId: local?.colorId || null,
         };
       });
+      // Keep local-only posts (not yet in Supabase)
+      const remoteIds = new Set(data.posts.map(p => String(p.id)));
+      const localOnly = (APP.posts_before_pull || []).filter(p => !remoteIds.has(String(p.id)));
+      if (localOnly.length) APP.posts = [...APP.posts, ...localOnly];
     }
     if (data.brandProfiles) {
       if (!APP.brandProfiles) APP.brandProfiles = {};
