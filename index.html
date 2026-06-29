@@ -8744,5 +8744,43 @@ async function fetchFacebookInsights() {
 
 // Auto-fetch insights when Performance screen opens is handled inside showScreen above
 </script>
+<!-- Mobile floating sync button — only visible on small screens -->
+<button id="mobile-sync-btn" onclick="mobileSyncTap()" style="
+  display:none;
+  position:fixed;
+  bottom:20px;
+  right:16px;
+  z-index:1500;
+  width:48px;
+  height:48px;
+  border-radius:50%;
+  background:var(--bg2);
+  border:1.5px solid var(--border2);
+  color:var(--text2);
+  font-size:20px;
+  cursor:pointer;
+  box-shadow:0 4px 16px rgba(0,0,0,0.4);
+  display:flex;
+  align-items:center;
+  justify-content:center;
+" title="Sync from cloud">↻</button>
+
+<style>
+@media (max-width: 768px) {
+  #mobile-sync-btn { display:flex !important; }
+}
+</style>
+
+<script>
+async function mobileSyncTap() {
+  const btn = document.getElementById('mobile-sync-btn');
+  if (btn) { btn.style.opacity = '0.5'; btn.style.transform = 'rotate(360deg)'; btn.style.transition = 'transform 0.6s'; }
+  await pullFromSupabase();
+  showToast('Synced from cloud', 'success');
+  setTimeout(() => {
+    if (btn) { btn.style.opacity = '1'; btn.style.transform = ''; btn.style.transition = ''; }
+  }, 700);
+}
+</script>
 </body>
 </html>
