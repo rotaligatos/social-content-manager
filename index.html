@@ -615,6 +615,7 @@ select:focus{border-color:var(--accent-border);}
         <span id="scheduler-label">Scheduler starting…</span>
       </div>
       <div class="toggle" id="autopublish-toggle" onclick="setAutoPublishEnabled(!isAutoPublishEnabled())" title="Toggle auto-publishing on/off" style="transform:scale(0.85)"><div class="toggle-thumb"></div></div>
+      <button class="btn btn-secondary" onclick="recommendBestTimes()" title="AI recommends best posting times for all pending posts">🕐 Best Times</button>
       <button class="btn btn-primary" onclick="approveAll()">Approve All</button>
     </div>
   </div>
@@ -2152,34 +2153,238 @@ function libFilter(f, el) {
 }
 
 // PHOTO PICKER MODAL (for Create Post "Choose from Library")
+async function recommendBestTimes() {
+  const drafts = APP.posts.filter(p => p.status === 'draft');
+  if (!drafts.length) { showToast('No pending posts to schedule', 'info'); return; }
+
+  const apiKey = (APP.apiKeys?.anthropic || localStorage.getItem('scm_anthropic_key') || '').trim();
+  if (!apiKey) { showToast('Anthropic API key required — go to Settings', 'error'); return; }
+
+  // Build performance context from our own data
+  const perfContext = APP.posts.filter(p => p.status === 'published' && p.performance).map(p => ({
+    company: p.company,
+    pillar: p.pillar,
+    audience: p.audience,
+    day: p.publishedAt ? new Date(p.publishedAt).toLocaleDateString('en-PH', {weekday:'long'}) : null,
+    hour: p.publishedAt ? new Date(p.publishedAt).getHours() : null,
+    reach: p.performance?.reach || 0,
+    reactions: p.performance?.reactions || 0,
+  })).filter(p => p.day);
+
+  const hasPerfData = perfContext.length >= 5;
+
+  const prompt = `You are a Facebook content strategist for Philippine B2B and B2C companies.
+
+${hasPerfData ? `Our posting performance data (${perfContext.length} posts):
+${JSON.stringify(perfContext.slice(-20), null, 2)}
+
+Based on this data AND general Philippine Facebook best practices, recommend the best posting schedule.` : `We don't have enough performance data yet. Based on Philippine Facebook best practices for furniture and building materials companies, recommend the best posting schedule.`}
+
+I have ${drafts.length} pending posts across these companies:
+${[...new Set(drafts.map(p => p.company))].map(co => {
+    const coPosts = drafts.filter(p => p.company === co);
+    return `${co.toUpperCase()}: ${coPosts.length} posts (pillars: ${[...new Set(coPosts.map(p => p.pillar))].join(', ')})`;
+  }).join('\n')}
+
+Today is ${new Date().toLocaleDateString('en-PH', {weekday:'long', month:'long', day:'numeric', year:'numeric'})}.
+
+Recommend specific dates and times for each post starting from tomorrow, spread across the week. For each recommendation explain briefly why that time is good.
+
+Format your response as JSON only:
+{
+  "recommendations": [
+    { "company": "mssi|wcli|cwli", "pillar": "...", "datetime": "YYYY-MM-DDTHH:MM", "reason": "brief reason" }
+  ],
+  "summary": "1-2 sentence overall strategy"
+}`;
+
+  // Show loading modal
+  const modal = document.createElement('div');
+  modal.id = 'best-times-modal';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:4000;display:flex;align-items:center;justify-content:center;padding:20px';
+  modal.innerHTML = `
+    <div style="background:var(--bg2);border:1px solid var(--border2);border-radius:var(--radius-lg);width:540px;max-height:85vh;overflow-y:auto">
+      <div style="padding:14px 18px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center">
+        <div style="font-size:14px;font-weight:500">🕐 Best Times to Post</div>
+        <button class="btn btn-ghost btn-sm" onclick="document.getElementById('best-times-modal').remove()">✕</button>
+      </div>
+      <div id="best-times-content" style="padding:18px">
+        <div style="text-align:center;padding:20px;color:var(--text3)">Analyzing your data and Philippine posting patterns…</div>
+      </div>
+    </div>`;
+  document.body.appendChild(modal);
+
+  try {
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+        'anthropic-dangerous-direct-browser-access': 'true'
+      },
+      body: JSON.stringify({
+        model: 'claude-haiku-4-5',
+        max_tokens: 800,
+        messages: [{ role: 'user', content: prompt }]
+      })
+    });
+    const data = await res.json();
+    const text = data.content?.[0]?.text || '';
+    const json = JSON.parse(text.replace(/```json|```/g, '').trim());
+
+    const contentEl = document.getElementById('best-times-content');
+    if (!contentEl) return;
+
+    // Match recommendations to actual draft posts and pre-fill dates
+    const recs = json.recommendations || [];
+    let matched = 0;
+
+    contentEl.innerHTML = `
+      <div style="font-size:13px;color:var(--text2);margin-bottom:14px;padding:10px 12px;background:var(--bg3);border-radius:var(--radius)">${json.summary || ''}</div>
+      <div style="font-size:11.5px;color:var(--text3);margin-bottom:10px">${hasPerfData ? '✦ Based on your performance data + Philippine best practices' : '✦ Based on Philippine Facebook best practices (add more posts for personalized data)'}</div>
+      <div id="time-recs-list"></div>
+      <div style="display:flex;gap:8px;margin-top:14px">
+        <button class="btn btn-primary" style="flex:1" onclick="applyBestTimes()">Apply All Recommendations</button>
+        <button class="btn btn-ghost" onclick="document.getElementById('best-times-modal').remove()">Cancel</button>
+      </div>`;
+
+    const listEl = document.getElementById('time-recs-list');
+    // Store recs for apply
+    window._bestTimeRecs = [];
+
+    recs.forEach((rec, i) => {
+      // Find a matching draft post
+      const match = drafts.find(p => p.company === rec.company &&
+        (!rec.pillar || p.pillar?.toLowerCase().includes(rec.pillar?.toLowerCase()?.split(' ')[0] || '')) &&
+        !window._bestTimeRecs.find(r => r.postId === String(p.id)));
+
+      if (match) {
+        window._bestTimeRecs.push({ postId: String(match.id), datetime: rec.datetime });
+        matched++;
+      }
+
+      const dt = new Date(rec.datetime);
+      listEl.innerHTML += `
+        <div style="display:flex;align-items:center;gap:10px;padding:10px;background:var(--bg3);border-radius:var(--radius);margin-bottom:6px">
+          <span class="post-company-badge badge-${rec.company}" style="flex-shrink:0">${rec.company.toUpperCase()}</span>
+          <div style="flex:1;min-width:0">
+            <div style="font-size:12.5px;font-weight:500">${dt.toLocaleDateString('en-PH',{weekday:'short',month:'short',day:'numeric'})} at ${dt.toLocaleTimeString('en-PH',{hour:'numeric',minute:'2-digit'})}</div>
+            <div style="font-size:11px;color:var(--text3)">${rec.reason}</div>
+          </div>
+          ${match ? '<span style="font-size:10px;color:var(--green)">✓ matched</span>' : '<span style="font-size:10px;color:var(--text3)">—</span>'}
+        </div>`;
+    });
+
+    if (matched === 0) {
+      listEl.innerHTML += '<div style="font-size:12px;color:var(--text3);margin-top:8px">No exact matches found — use the dates as a guide when scheduling manually.</div>';
+    }
+  } catch (err) {
+    const contentEl = document.getElementById('best-times-content');
+    if (contentEl) contentEl.innerHTML = `<div style="color:var(--red);font-size:13px">❌ ${err.message}</div>`;
+  }
+}
+
+function applyBestTimes() {
+  const recs = window._bestTimeRecs || [];
+  if (!recs.length) return;
+  let applied = 0;
+  recs.forEach(r => {
+    const post = APP.posts.find(p => String(p.id) === r.postId);
+    if (!post) return;
+    post.scheduledFor = r.datetime;
+    post.suggestedDate = r.datetime;
+    // Update datetime input in review queue
+    const input = document.getElementById('sched-' + post.id);
+    if (input) input.value = r.datetime.slice(0, 16);
+    applied++;
+  });
+  saveState();
+  document.getElementById('best-times-modal')?.remove();
+  showToast(`✓ Applied ${applied} recommended times`, 'success');
+  updateReviewQueue();
+}
+
 function openPhotoPicker() {
   const relevant = APP.currentCompany ? APP.photos.filter(p => p.company === APP.currentCompany) : APP.photos;
   let html = '<div id="photo-picker-overlay" style="position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:2000;display:flex;align-items:center;justify-content:center" onclick="if(event.target.id===\'photo-picker-overlay\')closePhotoPicker()">';
-  html += '<div style="background:var(--bg2);border:1px solid var(--border2);border-radius:var(--radius-lg);width:560px;max-height:70vh;display:flex;flex-direction:column;overflow:hidden">';
-  html += '<div style="padding:16px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between"><div style="font-size:14px;font-weight:500">Choose from Library'+(APP.currentCompany?' — '+APP.currentCompany.toUpperCase():'')+'</div><button class="btn btn-ghost btn-sm" onclick="closePhotoPicker()">Close</button></div>';
-  html += '<div style="padding:16px 18px;overflow-y:auto;flex:1">';
+  html += '<div style="background:var(--bg2);border:1px solid var(--border2);border-radius:var(--radius-lg);width:580px;max-height:75vh;display:flex;flex-direction:column;overflow:hidden">';
+  html += '<div style="padding:14px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">';
+  html += '<div><div style="font-size:14px;font-weight:500">Choose from Library'+(APP.currentCompany?' — '+APP.currentCompany.toUpperCase():'')+'</div>';
+  html += '<div style="font-size:11.5px;color:var(--text3);margin-top:2px">Tap to select · select multiple photos to create a collage or AI-enhanced set</div></div>';
+  html += '<button class="btn btn-ghost btn-sm" onclick="closePhotoPicker()">Close</button></div>';
+  html += '<div style="padding:14px 18px;overflow-y:auto;flex:1">';
   if (!relevant.length) {
     html += '<div class="empty-state" style="padding:30px 0"><div class="empty-icon">🖼</div><div class="empty-title">No photos for this company yet</div><div class="empty-sub">Upload photos in the Photo Library first</div></div>';
   } else {
     html += '<div class="photo-grid">';
     relevant.forEach(p => {
-      html += '<div class="photo-card" onclick="pickPhoto('+JSON.stringify(p.id)+')"><img src="'+p.data+'" style="width:100%;height:110px;object-fit:cover" alt="'+p.name+'"><div class="photo-meta"><div class="photo-name">'+p.name+'</div></div></div>';
+      html += `<div class="photo-card" id="picker-card-${p.id}" onclick="togglePickerPhoto('${p.id}')" style="position:relative;cursor:pointer">
+        <img src="${p.data}" style="width:100%;height:110px;object-fit:cover" alt="${p.name}">
+        <div id="picker-check-${p.id}" style="position:absolute;top:6px;right:6px;width:22px;height:22px;border-radius:50%;background:var(--accent);color:#fff;display:none;align-items:center;justify-content:center;font-size:13px;font-weight:700">✓</div>
+        <div class="photo-meta"><div class="photo-name">${p.name}</div></div>
+      </div>`;
     });
     html += '</div>';
   }
-  html += '</div></div></div>';
+  html += '</div>';
+  html += '<div style="padding:12px 18px;border-top:1px solid var(--border);display:flex;justify-content:space-between;align-items:center">';
+  html += '<div id="picker-count" style="font-size:12.5px;color:var(--text3)">No photos selected</div>';
+  html += '<div style="display:flex;gap:8px">';
+  html += '<button class="btn btn-secondary btn-sm" onclick="pickSelectedPhotos(\'enhance\')">✨ Enhance Selected</button>';
+  html += '<button class="btn btn-primary btn-sm" onclick="pickSelectedPhotos(\'use\')">Use Selected</button>';
+  html += '</div></div>';
+  html += '</div></div>';
   const div = document.createElement('div');
   div.id = 'photo-picker-container';
   div.innerHTML = html;
+  window._pickerSelected = [];
   document.body.appendChild(div);
 }
 
-function pickPhoto(id) {
-  const photo = APP.photos.find(p => p.id === id);
-  if (!photo) return;
-  setCurrentPhoto(photo.data);
+function togglePickerPhoto(id) {
+  if (!window._pickerSelected) window._pickerSelected = [];
+  const idx = window._pickerSelected.indexOf(id);
+  const checkEl = document.getElementById('picker-check-' + id);
+  const cardEl = document.getElementById('picker-card-' + id);
+  if (idx === -1) {
+    window._pickerSelected.push(id);
+    if (checkEl) checkEl.style.display = 'flex';
+    if (cardEl) cardEl.style.outline = '2.5px solid var(--accent)';
+  } else {
+    window._pickerSelected.splice(idx, 1);
+    if (checkEl) checkEl.style.display = 'none';
+    if (cardEl) cardEl.style.outline = '';
+  }
+  const countEl = document.getElementById('picker-count');
+  if (countEl) countEl.textContent = window._pickerSelected.length
+    ? window._pickerSelected.length + ' photo' + (window._pickerSelected.length > 1 ? 's' : '') + ' selected'
+    : 'No photos selected';
+}
+
+function pickSelectedPhotos(mode) {
+  const selected = (window._pickerSelected || []).map(id => APP.photos.find(p => p.id === id)).filter(Boolean);
+  if (!selected.length) { showToast('Select at least one photo', 'error'); return; }
   closePhotoPicker();
-  showToast('Photo selected', 'success');
+
+  if (selected.length === 1) {
+    // Single photo — use as before
+    setCurrentPhoto(selected[0].data);
+    if (mode === 'enhance') setTimeout(() => openEnhanceModal(), 100);
+    showToast('Photo selected', 'success');
+    return;
+  }
+
+  // Multiple photos — use first as main, store rest for reference
+  setCurrentPhoto(selected[0].data);
+  APP._selectedPhotos = selected.map(p => p.data);
+
+  if (mode === 'enhance') {
+    // Open enhance modal with multi-photo context
+    setTimeout(() => openEnhanceModal(selected.map(p => p.data)), 100);
+  } else {
+    showToast(selected.length + ' photos selected — first shown as preview. AI will use all for generation.', 'success');
+  }
 }
 
 function closePhotoPicker() {
@@ -3350,14 +3555,16 @@ let _companyFilter = 'all';
 
 function filterByCompany(co) {
   _companyFilter = co;
-  // Update pill styles
   ['all','mssi','wcli','cwli'].forEach(c => {
     const pill = document.getElementById('pill-' + c);
     if (pill) pill.style.background = c === co ? 'var(--bg3)' : '';
   });
+  // Apply filter to current screen
   updateDashboard();
   updateReviewQueue();
   renderCalendar();
+  // Navigate to review queue so user sees the result
+  if (co !== 'all') showScreen('review');
 }
 
 function openHelpModal() {
@@ -4603,6 +4810,8 @@ function renderCreatorLogoPreview() {
 function saveCreatorBrand() {
   try {
     localStorage.setItem('scm_creator_brand', JSON.stringify(APP.creatorBrand));
+    // Also push to Supabase so it syncs across devices
+    if (_session) pushSettingToSupabase('creator_brand_logo', APP.creatorBrand.logo || null);
   } catch (e) {
     showToast('Storage is full — try a smaller logo file, or free up space first.', 'error');
     console.error('saveCreatorBrand failed:', e);
@@ -7907,6 +8116,13 @@ async function pullFromSupabase() {
       if (s.fb_pages) localStorage.setItem('scm_fb_pages', JSON.stringify(s.fb_pages));
       if (s.schedule_times) localStorage.setItem('scm_schedule_times', JSON.stringify(s.schedule_times));
       if (s.autopilot) APP.autopilot = s.autopilot;
+      // Restore app logo across devices
+      if (s.creator_brand_logo) {
+        APP.creatorBrand = APP.creatorBrand || {};
+        APP.creatorBrand.logo = s.creator_brand_logo;
+        localStorage.setItem('scm_creator_brand', JSON.stringify(APP.creatorBrand));
+        renderCreatorLogoBadge();
+      }
       // Update APP.apiKeys in memory
       APP.apiKeys = APP.apiKeys || {};
       if (s.anthropic_key) APP.apiKeys.anthropic = s.anthropic_key;
