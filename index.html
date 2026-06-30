@@ -3732,6 +3732,7 @@ async function syncPostToSupabase(post) {
         photo_url: post.photo || null,
         video_url: post.videoUrl || null,
         media_type: post.mediaType || 'photo',
+        photos_publish_urls: post.photosPublishUrls || null,
         fb_page_id: pageData.id,
         fb_token: pageData.token,
         scheduled_for: post.scheduledFor,
