@@ -1934,6 +1934,7 @@ function openVideoGenModal() {
   html += '<div style="font-size:11.5px;color:var(--text3);margin-bottom:14px">Tip: describe the subject, what it\'s doing, the camera movement, and the mood. This generates an AI-imagined scene, not your literal product — for showing a specific real project or exact item, use a real photo or uploaded video instead.</div>';
   html += '<div style="display:flex;gap:10px;margin-bottom:14px">';
   html += '<div style="flex:1"><label class="form-label">Aspect Ratio</label><select id="vidgen-aspect"><option value="9:16" selected>Portrait (9:16) — best for Facebook feed/Reels</option><option value="16:9">Landscape (16:9)</option></select></div>';
+  html += '<div style="flex:1"><label class="form-label">Duration</label><select id="vidgen-duration"><option value="4">4 seconds — fastest, cheapest</option><option value="6">6 seconds</option><option value="8" selected>8 seconds — most detail</option></select></div>';
   html += '</div>';
   html += '<button class="generate-btn" id="vidgen-btn" onclick="runVideoGen()" style="margin-bottom:8px"><svg style="width:16px;height:16px" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 1v3M8 12v3M1 8h3M12 8h3"/><circle cx="8" cy="8" r="3"/></svg> Generate Video</button>';
   html += '<div style="font-size:11px;color:var(--text3);margin-bottom:14px">Takes about 1-3 minutes. You can\'t navigate away while this runs.</div>';
@@ -1971,6 +1972,7 @@ async function runVideoGen() {
   const prompt = document.getElementById('vidgen-prompt').value.trim();
   if (!prompt) { showToast('Describe the video first', 'error'); return; }
   const aspectRatio = document.getElementById('vidgen-aspect').value;
+  const durationSeconds = parseInt(document.getElementById('vidgen-duration')?.value || '8');
 
   const btn = document.getElementById('vidgen-btn');
   const progressEl = document.getElementById('vidgen-progress');
@@ -1989,7 +1991,7 @@ async function runVideoGen() {
       headers: { 'x-goog-api-key': apiKey, 'Content-Type': 'application/json' },
       body: JSON.stringify({
         instances: [{ prompt: prompt }],
-        parameters: { aspectRatio: aspectRatio }
+        parameters: { aspectRatio: aspectRatio, durationSeconds: durationSeconds }
       })
     });
     const startData = await startRes.json();
@@ -2042,6 +2044,148 @@ async function runVideoGen() {
   btn.disabled = false;
 }
 
+// ── VIDEO TRIMMER (client-side, no API tokens used) ────────────
+function openVideoTrimmer() {
+  const v = APP.currentVideo;
+  if (!v || !v.dataUrl) { showToast('No video to trim', 'error'); return; }
+
+  const existing = document.getElementById('trim-modal');
+  if (existing) existing.remove();
+
+  const div = document.createElement('div');
+  div.id = 'trim-modal';
+  div.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:4000;display:flex;align-items:center;justify-content:center;padding:20px';
+  div.innerHTML = `
+    <div style="background:var(--bg2);border:1px solid var(--border2);border-radius:var(--radius-lg);width:480px;max-height:90vh;overflow-y:auto">
+      <div style="padding:14px 18px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center">
+        <div style="font-size:14px;font-weight:500">✂️ Trim Video</div>
+        <button class="btn btn-ghost btn-sm" onclick="document.getElementById('trim-modal').remove()">✕</button>
+      </div>
+      <div style="padding:16px 18px">
+        <video id="trim-video" src="${v.dataUrl}" controls style="width:100%;border-radius:var(--radius);background:#000;margin-bottom:12px"></video>
+        <div style="font-size:11.5px;color:var(--text3);margin-bottom:14px">Play the video to find your start and end points, then click the buttons below at the right moment — or type the exact seconds.</div>
+
+        <div style="display:flex;gap:10px;margin-bottom:10px">
+          <div style="flex:1">
+            <label class="form-label" style="font-size:11.5px">Start (seconds)</label>
+            <div style="display:flex;gap:6px">
+              <input type="number" id="trim-start" value="0" min="0" step="0.1" style="flex:1;font-size:13px">
+              <button class="btn btn-secondary btn-sm" onclick="document.getElementById('trim-start').value = document.getElementById('trim-video').currentTime.toFixed(1)" title="Use current playback position">⏱</button>
+            </div>
+          </div>
+          <div style="flex:1">
+            <label class="form-label" style="font-size:11.5px">End (seconds)</label>
+            <div style="display:flex;gap:6px">
+              <input type="number" id="trim-end" value="8" min="0.5" step="0.1" style="flex:1;font-size:13px">
+              <button class="btn btn-secondary btn-sm" onclick="document.getElementById('trim-end').value = document.getElementById('trim-video').currentTime.toFixed(1)" title="Use current playback position">⏱</button>
+            </div>
+          </div>
+        </div>
+
+        <div id="trim-status" style="font-size:12px;color:var(--text3);margin-bottom:10px;display:none"></div>
+
+        <div style="display:flex;gap:8px">
+          <button class="btn btn-primary" style="flex:1" id="trim-apply-btn" onclick="applyVideoTrim()">✓ Apply Trim</button>
+          <button class="btn btn-ghost" onclick="document.getElementById('trim-modal').remove()">Cancel</button>
+        </div>
+        <div style="font-size:10.5px;color:var(--text3);margin-top:10px;text-align:center">Trimming happens entirely in your browser — no AI tokens used.</div>
+      </div>
+    </div>`;
+  document.body.appendChild(div);
+
+  // Auto-fill end with actual video duration once metadata loads
+  const videoEl = document.getElementById('trim-video');
+  videoEl.addEventListener('loadedmetadata', () => {
+    const endInput = document.getElementById('trim-end');
+    if (endInput && videoEl.duration && isFinite(videoEl.duration)) {
+      endInput.value = videoEl.duration.toFixed(1);
+      endInput.max = videoEl.duration.toFixed(1);
+    }
+  });
+}
+
+async function applyVideoTrim() {
+  const start = parseFloat(document.getElementById('trim-start')?.value || '0');
+  const end = parseFloat(document.getElementById('trim-end')?.value || '8');
+  const videoEl = document.getElementById('trim-video');
+  const statusEl = document.getElementById('trim-status');
+  const btn = document.getElementById('trim-apply-btn');
+
+  if (end <= start) { showToast('End time must be after start time', 'error'); return; }
+  if (!videoEl) return;
+
+  btn.disabled = true;
+  btn.innerHTML = '<div class="spinner" style="width:16px;height:16px;border-width:2px"></div> Trimming…';
+  if (statusEl) { statusEl.style.display = 'block'; statusEl.textContent = 'Recording trimmed segment in your browser…'; }
+
+  try {
+    // Use MediaRecorder to capture the trimmed segment via canvas (re-encodes client-side, no API call)
+    const stream = videoEl.captureStream ? videoEl.captureStream() : videoEl.mozCaptureStream();
+    if (!stream) throw new Error('Your browser does not support video trimming. Try Chrome or Edge.');
+
+    const chunks = [];
+    const mimeType = MediaRecorder.isTypeSupported('video/webm;codecs=vp9') ? 'video/webm;codecs=vp9' : 'video/webm';
+    const recorder = new MediaRecorder(stream, { mimeType });
+    recorder.ondataavailable = e => { if (e.data.size > 0) chunks.push(e.data); };
+
+    const recordingDone = new Promise((resolve, reject) => {
+      recorder.onstop = resolve;
+      recorder.onerror = reject;
+    });
+
+    videoEl.currentTime = start;
+    await new Promise(r => { videoEl.onseeked = r; });
+
+    recorder.start();
+    videoEl.play();
+
+    // Stop recording once we hit the end time
+    const checkInterval = setInterval(() => {
+      if (videoEl.currentTime >= end || videoEl.ended) {
+        clearInterval(checkInterval);
+        videoEl.pause();
+        recorder.stop();
+      }
+    }, 50);
+
+    await recordingDone;
+
+    const blob = new Blob(chunks, { type: 'video/webm' });
+    const trimmedFile = new File([blob], 'trimmed-' + Date.now() + '.webm', { type: 'video/webm' });
+    const objectUrl = URL.createObjectURL(trimmedFile);
+
+    // Replace current video with trimmed version
+    APP.currentVideo = { file: trimmedFile, dataUrl: objectUrl, name: trimmedFile.name, size: trimmedFile.size, durationSeconds: Math.round(end - start) };
+
+    document.getElementById('video-preview-area').innerHTML = `
+      <video src="${objectUrl}" controls style="width:100%;max-height:200px;border-radius:var(--radius);background:#000"></video>
+      <div style="font-size:11.5px;color:var(--text3);margin-top:6px">${trimmedFile.name} · ${(trimmedFile.size/1024/1024).toFixed(1)}MB · Trimmed to ${(end-start).toFixed(1)}s</div>
+      <div style="margin-top:6px"><button class="btn btn-secondary btn-sm" onclick="openVideoTrimmer()">✂️ Trim Again</button></div>
+      <div id="vidupload-status" style="font-size:11.5px;color:var(--text2);margin-top:4px">⏫ Uploading trimmed video…</div>
+    `;
+    refreshPreviewMedia();
+    document.getElementById('trim-modal')?.remove();
+    showToast(`✓ Trimmed to ${(end-start).toFixed(1)}s — no tokens used`, 'success');
+
+    // Upload trimmed version to storage so it survives reloads
+    try {
+      const videoUrl = await uploadVideoToStorage(trimmedFile);
+      APP.currentVideo.supabaseUrl = videoUrl;
+      const uStatus = document.getElementById('vidupload-status');
+      if (uStatus) { uStatus.textContent = '✓ Saved'; uStatus.style.color = 'var(--green)'; }
+    } catch (_e) {
+      const uStatus = document.getElementById('vidupload-status');
+      if (uStatus) uStatus.textContent = '⚠️ Will save when you schedule the post';
+    }
+
+  } catch (err) {
+    if (statusEl) { statusEl.textContent = '❌ ' + err.message; statusEl.style.color = 'var(--red)'; }
+    showToast('Trim failed: ' + err.message, 'error');
+    btn.disabled = false;
+    btn.innerHTML = '✓ Apply Trim';
+  }
+}
+
 async function useGeneratedVideo() {
   const v = window._pendingGeneratedVideo;
   if (!v) return;
@@ -2049,6 +2193,7 @@ async function useGeneratedVideo() {
   document.getElementById('video-preview-area').innerHTML = `
     <video src="${v.dataUrl}" controls style="width:100%;max-height:200px;border-radius:var(--radius);background:#000"></video>
     <div style="font-size:11.5px;color:var(--text3);margin-top:6px">${v.name} · ${(v.size/1024/1024).toFixed(1)}MB · AI-generated</div>
+    <div style="margin-top:6px"><button class="btn btn-secondary btn-sm" onclick="openVideoTrimmer()">✂️ Trim Video</button></div>
     <div id="vidupload-status" style="font-size:11.5px;color:var(--text2);margin-top:4px">⏫ Uploading to storage…</div>
   `;
   refreshPreviewMedia();
@@ -9001,6 +9146,30 @@ function openEnhanceModal(extraPhotos) {
             <div style="font-size:12px;color:var(--text3);margin-bottom:8px">If you've already written a caption, AI will generate a matching image for it instead.</div>
             <button class="btn btn-secondary btn-sm" onclick="document.getElementById('enhance-modal').remove();generateImageFromCaption()">Generate from Caption</button>
           </div>
+
+          <!-- Option 4: Animate to video -->
+          <div style="background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius);padding:12px 14px">
+            <div style="font-size:13px;font-weight:500;margin-bottom:4px">🎬 Animate to Video</div>
+            <div style="font-size:12px;color:var(--text3);margin-bottom:8px">Turn this photo into a short AI-animated video clip — camera movement and subtle motion added.</div>
+            <label class="form-label" style="font-size:11.5px">Animation Style</label>
+            <select id="animate-style" style="width:100%;font-size:12px;margin-bottom:8px">
+              <option value="room-reveal">Room Reveal — slow camera pan</option>
+              <option value="material-closeup">Material Closeup — texture focus</option>
+              <option value="lifestyle-ambient">Lifestyle Ambient — gentle motion</option>
+              <option value="product-showcase">Product Showcase — rotating view</option>
+              <option value="before-after">Before & After — transformation</option>
+            </select>
+            <div style="display:flex;gap:8px;margin-bottom:8px">
+              <select id="animate-duration" style="flex:1;font-size:12px">
+                <option value="4">4 seconds — fastest</option>
+                <option value="6">6 seconds</option>
+                <option value="8" selected>8 seconds — most motion</option>
+              </select>
+            </div>
+            <input type="text" id="animate-notes" placeholder="Optional notes" style="width:100%;font-size:12px;margin-bottom:8px">
+            <div id="enhance-status" style="font-size:12px;color:var(--text3);display:none;margin-bottom:6px"></div>
+            <button class="btn btn-secondary btn-sm" onclick="enhancePhotoToVideo(document.getElementById('animate-style').value, document.getElementById('animate-notes').value, parseInt(document.getElementById('animate-duration').value))">Generate Video</button>
+          </div>
         </div>
       </div>
     </div>`;
@@ -9462,9 +9631,11 @@ async function registerNewUser() {
 }
 
 // ── ENHANCE PHOTO → VIDEO ─────────────────────────────────────
-async function enhancePhotoToVideo(style, notes) {
+async function enhancePhotoToVideo(style, notes, durationSeconds) {
   const proxyBase = (APP.apiKeys.imgproxy || localStorage.getItem('scm_imgproxy_key') || '').replace(/generate-image\/?$/, '');
   if (!proxyBase) { showToast('Image Proxy URL not configured', 'error'); return; }
+
+  durationSeconds = [4,6,8].includes(durationSeconds) ? durationSeconds : 8;
 
   const co = APP.currentCompany || 'wcli';
   const colorId = document.getElementById('post-color-id')?.value;
@@ -9476,12 +9647,12 @@ async function enhancePhotoToVideo(style, notes) {
     'room-reveal': `Smooth cinematic reveal of a modern Philippine interior space${colorNote}. Camera slowly pans across the room, revealing beautiful laminate surfaces. Warm natural light. Professional real estate video style.`,
     'material-closeup': `Macro closeup video of laminate board surface${colorNote}. Camera slowly glides across the texture, showing depth and finish quality. Studio lighting, ultra HD detail.`,
     'lifestyle-ambient': `Ambient lifestyle video of a Filipino family home with beautiful laminate cabinetry${colorNote}. Warm morning light, subtle movement, feels like a real home. Cinematic and aspirational.`,
-    'product-spin': `360 product showcase video of laminate board sample${colorNote}. Clean white background, professional studio lighting, smooth rotation revealing all angles and texture.`,
+    'product-showcase': `360 product showcase video of laminate board sample${colorNote}. Clean white background, professional studio lighting, smooth rotation revealing all angles and texture.`,
     'before-after': `Split screen transformation video showing plain space transforming into a beautiful interior with laminate finishes${colorNote}. Satisfying reveal effect, modern Philippine home aesthetic.`,
   };
 
   const statusEl = document.getElementById('enhance-status');
-  if (statusEl) { statusEl.style.display = 'block'; statusEl.textContent = 'Generating video from your photo…'; }
+  if (statusEl) { statusEl.style.display = 'block'; statusEl.textContent = `Generating ${durationSeconds}s video from your photo…`; }
 
   try {
     const veoKey = APP.apiKeys.veo || localStorage.getItem('scm_veo_key');
@@ -9495,17 +9666,27 @@ async function enhancePhotoToVideo(style, notes) {
         prompt,
         reference_image: APP.currentPhoto,
         aspect_ratio: '9:16',
-        duration_seconds: 8,
+        duration_seconds: durationSeconds,
         veo_key: veoKey
       })
     });
     const data = await res.json();
     if (data.error || !data.url) throw new Error(data.error || 'No video returned');
 
-    APP.currentVideo = data.url;
+    APP.currentVideo = { url: data.url, dataUrl: data.url, durationSeconds };
     APP.mediaType = 'video';
+    document.getElementById('media-type-video')?.click?.();
+    const previewArea = document.getElementById('video-preview-area');
+    if (previewArea) {
+      previewArea.innerHTML = `
+        <video src="${data.url}" controls style="width:100%;max-height:200px;border-radius:var(--radius);background:#000"></video>
+        <div style="font-size:11.5px;color:var(--text3);margin-top:6px">AI-generated · ${durationSeconds}s</div>
+        <div style="margin-top:6px"><button class="btn btn-secondary btn-sm" onclick="openVideoTrimmer()">✂️ Trim Video</button></div>
+      `;
+    }
+    refreshPreviewMedia();
     document.getElementById('enhance-modal')?.remove();
-    showToast('✓ Video generated — switch to Video tab to preview', 'success');
+    showToast(`✓ ${durationSeconds}s video generated — you can trim it without using more tokens`, 'success');
   } catch (err) {
     if (statusEl) statusEl.textContent = '❌ ' + err.message;
   }
