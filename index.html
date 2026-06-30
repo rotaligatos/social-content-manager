@@ -2430,14 +2430,30 @@ async function loadDriveFolder(tab) {
   window._driveFiles = [];
   updateDrivePickerCount();
 
+  // Known folder IDs
+  const FOLDER_IDS = {
+    MSSI: '1_q_ZvJNdwKnK1WN3JrcwMQEe1iw_aJ6O',
+    WCLI: '1iKTpKygDtSeED8b5RQ8IrRke0oND2OnP',
+    CWLI: '1q7HiKfL9SLX34kCG9INP2V9-qeSpDPuQ'
+  };
+
   try {
     const apiKey = (APP.apiKeys?.anthropic || localStorage.getItem('scm_anthropic_key') || '').trim();
     if (!apiKey) throw new Error('Anthropic API key not set — go to Settings');
 
-    // Use Claude with Google Drive MCP to list files in SCM Photos folder
-    const folderQuery = tab === 'All'
-      ? `List all image files (jpg, jpeg, png, gif, webp) directly inside the Google Drive folder with ID "${SCM_DRIVE_FOLDER_ID}". Include files in sub-folders named MSSI, WCLI, CWLI too.`
-      : `List all image files (jpg, jpeg, png, gif, webp) in the Google Drive folder with ID "${SCM_DRIVE_FOLDER_ID}" that are inside the sub-folder named "${tab}".`;
+    // Build query for specific folder(s)
+    const foldersToSearch = tab === 'All'
+      ? Object.entries(FOLDER_IDS)
+      : [[tab, FOLDER_IDS[tab]]];
+
+    const folderList = foldersToSearch.map(([name, id]) =>
+      `Sub-folder "${name}" with ID "${id}"`).join(', ');
+
+    const prompt = `List all image files (JPG, JPEG, PNG, GIF, WEBP) inside these Google Drive folders: ${folderList}. 
+For each file return its ID, name, thumbnailLink (if available), mimeType, and which folder it's in.
+Return ONLY valid JSON array, no other text:
+[{"id":"FILE_ID","name":"filename.jpg","thumbnailUrl":"THUMBNAIL_URL_OR_NULL","mimeType":"image/jpeg","company":"mssi|wcli|cwli"}]
+If no images found return: []`;
 
     const res = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
@@ -2455,64 +2471,73 @@ async function loadDriveFolder(tab) {
           url: 'https://drivemcp.googleapis.com/mcp/v1',
           name: 'google-drive'
         }],
-        system: `You are a file listing assistant. When asked to list files from Google Drive, use the Google Drive MCP tools to fetch them. 
-Return ONLY a JSON array of objects with this exact format — no other text:
-[{"id":"FILE_ID","name":"filename.jpg","thumbnailUrl":"URL_OR_NULL","mimeType":"image/jpeg","company":"mssi|wcli|cwli|unknown"}]
-Detect company from the parent folder name (MSSI, WCLI, CWLI). If file is directly in root, company = "unknown".
-If no image files found, return: []`,
-        messages: [{ role: 'user', content: folderQuery }]
+        system: `You are a Google Drive file listing assistant. Use the Google Drive MCP tools to list files from the specified folders. Return ONLY a JSON array — no markdown, no explanation, no backticks. Just the raw JSON array.`,
+        messages: [{ role: 'user', content: prompt }]
       })
     });
 
     const data = await res.json();
+    if (data.error) throw new Error(data.error.message || 'API error');
+
     const text = data.content?.filter(b => b.type === 'text').map(b => b.text).join('') || '[]';
 
     let files = [];
     try {
       const clean = text.replace(/```json|```/g,'').trim();
-      const parsed = JSON.parse(clean);
-      files = Array.isArray(parsed) ? parsed : [];
-    } catch (_e) {
-      files = [];
-    }
+      // Find JSON array in response
+      const match = clean.match(/\[[\s\S]*\]/);
+      files = match ? JSON.parse(match[0]) : [];
+    } catch (_e) { files = []; }
 
     window._driveFiles = files;
-
-    if (!files.length) {
-      grid.innerHTML = `
-        <div style="text-align:center;padding:40px 20px;color:var(--text3)">
-          <div style="font-size:36px;margin-bottom:12px">📭</div>
-          <div style="font-size:13px;font-weight:500;color:var(--text2);margin-bottom:6px">No photos found in ${tab === 'All' ? 'SCM Photos' : tab} folder</div>
-          <div style="font-size:12px;line-height:1.7">Upload photos to your Google Drive SCM Photos folder:<br>
-            <a href="https://drive.google.com/drive/folders/${SCM_DRIVE_FOLDER_ID}" target="_blank" style="color:var(--accent2)">Open SCM Photos folder ↗</a><br>
-            <span style="font-size:11px">Create sub-folders: MSSI, WCLI, CWLI for better organization</span>
-          </div>
-        </div>`;
-      return;
-    }
-
-    // Render photo grid
-    grid.innerHTML = `<div class="photo-grid" style="grid-template-columns:repeat(auto-fill,minmax(130px,1fr))">
-      ${files.map(f => {
-        const thumb = f.thumbnailUrl || `https://drive.google.com/thumbnail?id=${f.id}&sz=w200`;
-        return `<div class="photo-card" id="drive-card-${f.id}" onclick="toggleDrivePhoto('${f.id}')" style="cursor:pointer;position:relative">
-          <img src="${thumb}" style="width:100%;height:110px;object-fit:cover;background:var(--bg3)" alt="${f.name}" onerror="this.style.background='var(--bg3)';this.style.opacity='0.3'">
-          <div id="drive-check-${f.id}" style="position:absolute;top:6px;right:6px;width:22px;height:22px;border-radius:50%;background:var(--accent2);color:#fff;display:none;align-items:center;justify-content:center;font-size:13px;font-weight:700">✓</div>
-          ${f.company && f.company !== 'unknown' ? `<div style="position:absolute;top:6px;left:6px"><span class="post-company-badge badge-${f.company}" style="font-size:9px;padding:1px 5px">${f.company.toUpperCase()}</span></div>` : ''}
-          <div class="photo-meta"><div class="photo-name" style="font-size:10px">${f.name.length > 18 ? f.name.slice(0,16)+'…' : f.name}</div></div>
-        </div>`;
-      }).join('')}
-    </div>
-    <div style="margin-top:12px;text-align:center">
-      <a href="https://drive.google.com/drive/folders/${SCM_DRIVE_FOLDER_ID}" target="_blank" style="font-size:11.5px;color:var(--text3)">📁 Open SCM Photos in Drive ↗</a>
-    </div>`;
+    renderDriveGrid(files, tab);
 
   } catch (err) {
     grid.innerHTML = `<div style="padding:24px;text-align:center">
-      <div style="color:var(--red);font-size:13px;margin-bottom:8px">❌ ${err.message}</div>
-      <div style="font-size:12px;color:var(--text3)">Make sure Google Drive is connected in Settings</div>
+      <div style="color:var(--red);font-size:13px;margin-bottom:10px">❌ ${err.message}</div>
+      <div style="font-size:12px;color:var(--text3);margin-bottom:12px">Make sure your Anthropic API key is set in Settings</div>
+      <a href="https://drive.google.com/drive/folders/${SCM_DRIVE_FOLDER_ID}" target="_blank" class="btn btn-secondary btn-sm">Open Drive Folder ↗</a>
     </div>`;
   }
+}
+
+function renderDriveGrid(files, tab) {
+  const grid = document.getElementById('drive-photo-grid');
+  if (!grid) return;
+
+  if (!files.length) {
+    grid.innerHTML = `
+      <div style="text-align:center;padding:40px 20px;color:var(--text3)">
+        <div style="font-size:36px;margin-bottom:12px">📭</div>
+        <div style="font-size:13px;font-weight:500;color:var(--text2);margin-bottom:8px">No photos in ${tab === 'All' ? 'SCM Photos' : tab} folder</div>
+        <div style="font-size:12px;line-height:1.8">
+          Drop photos into your Google Drive SCM Photos folder:<br>
+          <a href="https://drive.google.com/drive/folders/${SCM_DRIVE_FOLDER_ID}" target="_blank" style="color:var(--accent2)">📁 Open SCM Photos folder ↗</a>
+        </div>
+      </div>`;
+    return;
+  }
+
+  grid.innerHTML = `
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:8px;padding-bottom:8px">
+      ${files.map(f => {
+        const thumb = f.thumbnailUrl
+          ? f.thumbnailUrl.replace('=s220','=s400')
+          : `https://drive.google.com/thumbnail?id=${f.id}&sz=w300`;
+        return `<div id="drive-card-${f.id}" onclick="toggleDrivePhoto('${f.id}')"
+          style="border-radius:var(--radius);overflow:hidden;cursor:pointer;position:relative;background:var(--bg3);aspect-ratio:1">
+          <img src="${thumb}" style="width:100%;height:100%;object-fit:cover" alt="${f.name}">
+          <div id="drive-check-${f.id}" style="position:absolute;top:6px;right:6px;width:22px;height:22px;border-radius:50%;background:var(--accent2);color:#fff;display:none;align-items:center;justify-content:center;font-size:13px;font-weight:700">✓</div>
+          ${f.company && f.company !== 'unknown' ? `<div style="position:absolute;top:6px;left:6px"><span class="post-company-badge badge-${f.company}" style="font-size:9px;padding:1px 5px">${f.company.toUpperCase()}</span></div>` : ''}
+          <div style="position:absolute;bottom:0;left:0;right:0;background:linear-gradient(transparent,rgba(0,0,0,0.7));padding:4px 6px">
+            <div style="font-size:9px;color:#fff;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${f.name}</div>
+          </div>
+        </div>`;
+      }).join('')}
+    </div>
+    <div style="text-align:center;margin-top:8px">
+      <a href="https://drive.google.com/drive/folders/${SCM_DRIVE_FOLDER_ID}" target="_blank" style="font-size:11px;color:var(--text3)">📁 Open SCM Photos in Drive ↗</a>
+    </div>`;
 }
 
 function toggleDrivePhoto(id) {
