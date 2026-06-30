@@ -2049,6 +2049,322 @@ async function runVideoGen() {
   btn.disabled = false;
 }
 
+// ── TEXT OVERLAY EDITOR (real fonts, burned into image client-side) ────
+let _textOverlayState = { texts: [], selectedId: null, img: null, canvas: null, ctx: null, scale: 1 };
+
+function openTextOverlayEditor() {
+  document.getElementById('enhance-modal')?.remove();
+  const primaryPhoto = APP.currentPhoto || (APP._selectedPhotos && APP._selectedPhotos[0]);
+  if (!primaryPhoto) { showToast('No photo to add text to', 'error'); return; }
+
+  const existing = document.getElementById('text-overlay-modal');
+  if (existing) existing.remove();
+
+  const div = document.createElement('div');
+  div.id = 'text-overlay-modal';
+  div.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.75);z-index:4000;display:flex;align-items:center;justify-content:center;padding:16px';
+  div.innerHTML = `
+    <div style="background:var(--bg2);border:1px solid var(--border2);border-radius:var(--radius-lg);width:900px;max-width:96vw;max-height:94vh;display:flex;flex-direction:column;overflow:hidden">
+      <div style="padding:14px 18px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;flex-shrink:0">
+        <div style="font-size:14px;font-weight:500">🔤 Add Text Overlay</div>
+        <button class="btn btn-ghost btn-sm" onclick="closeTextOverlayEditor()">✕</button>
+      </div>
+      <div style="display:flex;flex:1;overflow:hidden">
+        <!-- Canvas area -->
+        <div style="flex:1;display:flex;align-items:center;justify-content:center;background:#1a1a1a;overflow:auto;padding:16px">
+          <canvas id="overlay-canvas" style="max-width:100%;max-height:70vh;cursor:default;box-shadow:0 4px 20px rgba(0,0,0,0.4)"></canvas>
+        </div>
+        <!-- Controls panel -->
+        <div style="width:280px;border-left:1px solid var(--border);padding:16px;overflow-y:auto;flex-shrink:0;display:flex;flex-direction:column;gap:12px">
+          <button class="btn btn-primary btn-sm" style="width:100%" onclick="addOverlayText()">+ Add Text Box</button>
+
+          <div id="overlay-text-controls" style="display:none;flex-direction:column;gap:10px">
+            <div>
+              <label class="form-label" style="font-size:11px">Text</label>
+              <textarea id="ov-text-content" rows="2" style="font-size:13px" oninput="updateSelectedOverlayText()"></textarea>
+            </div>
+            <div>
+              <label class="form-label" style="font-size:11px">Font</label>
+              <select id="ov-font" style="font-size:12px" onchange="updateSelectedOverlayText()">
+                <option value="Arial, sans-serif">Arial</option>
+                <option value="'Georgia', serif">Georgia</option>
+                <option value="'Helvetica Neue', sans-serif">Helvetica</option>
+                <option value="'Trebuchet MS', sans-serif">Trebuchet</option>
+                <option value="'Impact', sans-serif">Impact (bold headline)</option>
+                <option value="'Courier New', monospace">Courier</option>
+              </select>
+            </div>
+            <div style="display:flex;gap:8px">
+              <div style="flex:1">
+                <label class="form-label" style="font-size:11px">Size</label>
+                <input type="range" id="ov-size" min="16" max="120" value="48" oninput="updateSelectedOverlayText()" style="width:100%">
+              </div>
+              <div style="flex:1">
+                <label class="form-label" style="font-size:11px">Weight</label>
+                <select id="ov-weight" style="font-size:12px" onchange="updateSelectedOverlayText()">
+                  <option value="400">Regular</option>
+                  <option value="700" selected>Bold</option>
+                  <option value="900">Black</option>
+                </select>
+              </div>
+            </div>
+            <div style="display:flex;gap:8px">
+              <div style="flex:1">
+                <label class="form-label" style="font-size:11px">Text Color</label>
+                <input type="color" id="ov-color" value="#ffffff" oninput="updateSelectedOverlayText()" style="width:100%;height:32px;padding:2px;cursor:pointer">
+              </div>
+              <div style="flex:1">
+                <label class="form-label" style="font-size:11px">Outline</label>
+                <input type="color" id="ov-stroke" value="#000000" oninput="updateSelectedOverlayText()" style="width:100%;height:32px;padding:2px;cursor:pointer">
+              </div>
+            </div>
+            <div>
+              <label class="form-label" style="font-size:11px">Background pill</label>
+              <div style="display:flex;align-items:center;gap:8px">
+                <input type="checkbox" id="ov-bg-enabled" onchange="updateSelectedOverlayText()">
+                <input type="color" id="ov-bg-color" value="#000000" oninput="updateSelectedOverlayText()" style="flex:1;height:28px;padding:2px;cursor:pointer">
+              </div>
+            </div>
+            <div>
+              <label class="form-label" style="font-size:11px">Alignment</label>
+              <div style="display:flex;gap:4px">
+                <button class="btn btn-secondary btn-sm" style="flex:1" onclick="document.getElementById('ov-align').value='left';updateSelectedOverlayText()">⬅</button>
+                <button class="btn btn-secondary btn-sm" style="flex:1" onclick="document.getElementById('ov-align').value='center';updateSelectedOverlayText()">⬌</button>
+                <button class="btn btn-secondary btn-sm" style="flex:1" onclick="document.getElementById('ov-align').value='right';updateSelectedOverlayText()">➡</button>
+                <input type="hidden" id="ov-align" value="center">
+              </div>
+            </div>
+            <button class="btn btn-secondary btn-sm" style="width:100%;color:var(--red)" onclick="deleteSelectedOverlayText()">🗑 Delete This Text</button>
+          </div>
+
+          <div style="font-size:11px;color:var(--text3);line-height:1.6;margin-top:auto">
+            💡 Drag any text box on the image to reposition it. Click a text box to select and edit it.
+          </div>
+
+          <button class="btn btn-primary" style="width:100%" onclick="saveTextOverlay()">✓ Apply to Photo</button>
+        </div>
+      </div>
+    </div>`;
+  document.body.appendChild(div);
+
+  // Load image into canvas
+  const img = new Image();
+  img.crossOrigin = 'anonymous';
+  img.onload = () => {
+    const canvas = document.getElementById('overlay-canvas');
+    const ctx = canvas.getContext('2d');
+    const maxW = 760, maxH = 560;
+    let w = img.width, h = img.height;
+    const scale = Math.min(maxW / w, maxH / h, 1);
+    canvas.width = w * scale;
+    canvas.height = h * scale;
+
+    _textOverlayState = { texts: [], selectedId: null, img, canvas, ctx, scale, naturalW: w, naturalH: h };
+    redrawOverlayCanvas();
+    setupOverlayDragHandlers();
+  };
+  img.onerror = () => showToast('Could not load image for editing — try a different photo', 'error');
+  img.src = primaryPhoto;
+}
+
+function redrawOverlayCanvas() {
+  const { canvas, ctx, img, texts, selectedId } = _textOverlayState;
+  if (!canvas || !ctx || !img) return;
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+  texts.forEach(t => {
+    ctx.save();
+    ctx.font = `${t.weight} ${t.size}px ${t.font}`;
+    ctx.textAlign = t.align;
+    ctx.textBaseline = 'middle';
+
+    const lines = t.content.split('\n');
+    const lineHeight = t.size * 1.2;
+    const totalH = lines.length * lineHeight;
+
+    if (t.bgEnabled) {
+      let maxWidth = 0;
+      lines.forEach(line => { const w = ctx.measureText(line).width; if (w > maxWidth) maxWidth = w; });
+      const padX = 16, padY = 10;
+      let bgX = t.x;
+      if (t.align === 'center') bgX = t.x - maxWidth/2 - padX;
+      else if (t.align === 'right') bgX = t.x - maxWidth - padX;
+      else bgX = t.x - padX;
+      ctx.fillStyle = t.bgColor;
+      ctx.globalAlpha = 0.7;
+      ctx.fillRect(bgX, t.y - totalH/2 - padY, maxWidth + padX*2, totalH + padY*2);
+      ctx.globalAlpha = 1;
+    }
+
+    lines.forEach((line, i) => {
+      const ly = t.y - totalH/2 + lineHeight * i + lineHeight/2;
+      if (t.stroke) {
+        ctx.strokeStyle = t.stroke;
+        ctx.lineWidth = t.size / 16;
+        ctx.strokeText(line, t.x, ly);
+      }
+      ctx.fillStyle = t.color;
+      ctx.fillText(line, t.x, ly);
+    });
+
+    if (t.id === selectedId) {
+      let maxWidth = 0;
+      lines.forEach(line => { const w = ctx.measureText(line).width; if (w > maxWidth) maxWidth = w; });
+      let boxX = t.x;
+      if (t.align === 'center') boxX = t.x - maxWidth/2;
+      else if (t.align === 'right') boxX = t.x - maxWidth;
+      ctx.strokeStyle = 'var(--accent2)'.includes('var') ? '#7c5cff' : t.color;
+      ctx.setLineDash([4,3]);
+      ctx.lineWidth = 1.5;
+      ctx.strokeRect(boxX - 8, t.y - totalH/2 - 8, maxWidth + 16, totalH + 16);
+      ctx.setLineDash([]);
+    }
+    ctx.restore();
+  });
+}
+
+function addOverlayText() {
+  const { canvas } = _textOverlayState;
+  const id = 'txt_' + Date.now();
+  _textOverlayState.texts.push({
+    id, content: 'Your text here',
+    x: canvas.width / 2, y: canvas.height / 2,
+    font: 'Arial, sans-serif', size: 48, weight: '700',
+    color: '#ffffff', stroke: '#000000',
+    bgEnabled: false, bgColor: '#000000',
+    align: 'center'
+  });
+  selectOverlayText(id);
+}
+
+function selectOverlayText(id) {
+  _textOverlayState.selectedId = id;
+  const t = _textOverlayState.texts.find(t => t.id === id);
+  if (!t) return;
+  document.getElementById('overlay-text-controls').style.display = 'flex';
+  document.getElementById('ov-text-content').value = t.content;
+  document.getElementById('ov-font').value = t.font;
+  document.getElementById('ov-size').value = t.size;
+  document.getElementById('ov-weight').value = t.weight;
+  document.getElementById('ov-color').value = t.color;
+  document.getElementById('ov-stroke').value = t.stroke;
+  document.getElementById('ov-bg-enabled').checked = t.bgEnabled;
+  document.getElementById('ov-bg-color').value = t.bgColor;
+  document.getElementById('ov-align').value = t.align;
+  redrawOverlayCanvas();
+}
+
+function updateSelectedOverlayText() {
+  const t = _textOverlayState.texts.find(t => t.id === _textOverlayState.selectedId);
+  if (!t) return;
+  t.content = document.getElementById('ov-text-content').value || 'Text';
+  t.font = document.getElementById('ov-font').value;
+  t.size = parseInt(document.getElementById('ov-size').value);
+  t.weight = document.getElementById('ov-weight').value;
+  t.color = document.getElementById('ov-color').value;
+  t.stroke = document.getElementById('ov-stroke').value;
+  t.bgEnabled = document.getElementById('ov-bg-enabled').checked;
+  t.bgColor = document.getElementById('ov-bg-color').value;
+  t.align = document.getElementById('ov-align').value;
+  redrawOverlayCanvas();
+}
+
+function deleteSelectedOverlayText() {
+  _textOverlayState.texts = _textOverlayState.texts.filter(t => t.id !== _textOverlayState.selectedId);
+  _textOverlayState.selectedId = null;
+  document.getElementById('overlay-text-controls').style.display = 'none';
+  redrawOverlayCanvas();
+}
+
+function setupOverlayDragHandlers() {
+  const { canvas } = _textOverlayState;
+  let dragging = null, offsetX = 0, offsetY = 0;
+
+  function getTextAt(mx, my) {
+    const { ctx, texts } = _textOverlayState;
+    for (let i = texts.length - 1; i >= 0; i--) {
+      const t = texts[i];
+      ctx.font = `${t.weight} ${t.size}px ${t.font}`;
+      const lines = t.content.split('\n');
+      const lineHeight = t.size * 1.2;
+      const totalH = lines.length * lineHeight;
+      let maxWidth = 0;
+      lines.forEach(line => { const w = ctx.measureText(line).width; if (w > maxWidth) maxWidth = w; });
+      let boxX = t.x;
+      if (t.align === 'center') boxX = t.x - maxWidth/2;
+      else if (t.align === 'right') boxX = t.x - maxWidth;
+      if (mx >= boxX - 8 && mx <= boxX + maxWidth + 8 && my >= t.y - totalH/2 - 8 && my <= t.y + totalH/2 + 8) {
+        return t;
+      }
+    }
+    return null;
+  }
+
+  canvas.onmousedown = (e) => {
+    const rect = canvas.getBoundingClientRect();
+    const mx = (e.clientX - rect.left) * (canvas.width / rect.width);
+    const my = (e.clientY - rect.top) * (canvas.height / rect.height);
+    const t = getTextAt(mx, my);
+    if (t) {
+      dragging = t;
+      offsetX = mx - t.x;
+      offsetY = my - t.y;
+      selectOverlayText(t.id);
+    }
+  };
+  canvas.onmousemove = (e) => {
+    if (!dragging) return;
+    const rect = canvas.getBoundingClientRect();
+    const mx = (e.clientX - rect.left) * (canvas.width / rect.width);
+    const my = (e.clientY - rect.top) * (canvas.height / rect.height);
+    dragging.x = mx - offsetX;
+    dragging.y = my - offsetY;
+    redrawOverlayCanvas();
+  };
+  canvas.onmouseup = () => { dragging = null; };
+  canvas.onmouseleave = () => { dragging = null; };
+
+  // Touch support for mobile
+  canvas.ontouchstart = (e) => {
+    const touch = e.touches[0];
+    const rect = canvas.getBoundingClientRect();
+    const mx = (touch.clientX - rect.left) * (canvas.width / rect.width);
+    const my = (touch.clientY - rect.top) * (canvas.height / rect.height);
+    const t = getTextAt(mx, my);
+    if (t) { dragging = t; offsetX = mx - t.x; offsetY = my - t.y; selectOverlayText(t.id); e.preventDefault(); }
+  };
+  canvas.ontouchmove = (e) => {
+    if (!dragging) return;
+    const touch = e.touches[0];
+    const rect = canvas.getBoundingClientRect();
+    const mx = (touch.clientX - rect.left) * (canvas.width / rect.width);
+    const my = (touch.clientY - rect.top) * (canvas.height / rect.height);
+    dragging.x = mx - offsetX;
+    dragging.y = my - offsetY;
+    redrawOverlayCanvas();
+    e.preventDefault();
+  };
+  canvas.ontouchend = () => { dragging = null; };
+}
+
+function saveTextOverlay() {
+  const { canvas } = _textOverlayState;
+  if (!canvas) return;
+  // Deselect before final render so selection outline doesn't get baked in
+  _textOverlayState.selectedId = null;
+  redrawOverlayCanvas();
+  const dataUrl = canvas.toDataURL('image/jpeg', 0.92);
+  setCurrentPhoto(dataUrl);
+  closeTextOverlayEditor();
+  showToast('✓ Text added to photo', 'success');
+}
+
+function closeTextOverlayEditor() {
+  document.getElementById('text-overlay-modal')?.remove();
+  _textOverlayState = { texts: [], selectedId: null, img: null, canvas: null, ctx: null, scale: 1 };
+}
+
 // ── VIDEO TRIMMER (client-side, no API tokens used) ────────────
 function openVideoTrimmer() {
   const v = APP.currentVideo;
@@ -9274,6 +9590,13 @@ function openEnhanceModal(extraPhotos) {
             <div style="font-size:13px;font-weight:500;margin-bottom:4px">📷 Use Photo As-Is</div>
             <div style="font-size:12px;color:var(--text3);margin-bottom:8px">Keep your actual photo — best for authentic, real content that performs well on Facebook.</div>
             <button class="btn btn-primary btn-sm" onclick="document.getElementById('enhance-modal').remove();showToast('Photo kept — generate your caption now','success')">Use This Photo</button>
+          </div>
+
+          <!-- Option 1b: Add text overlay -->
+          <div style="background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius);padding:12px 14px">
+            <div style="font-size:13px;font-weight:500;margin-bottom:4px">🔤 Add Text Overlay</div>
+            <div style="font-size:12px;color:var(--text3);margin-bottom:8px">Add a clean, readable headline or tagline directly on your photo — real fonts, not AI-generated text.</div>
+            <button class="btn btn-secondary btn-sm" onclick="openTextOverlayEditor()">Add Text</button>
           </div>
 
           <!-- Option 2: AI inspired image -->
