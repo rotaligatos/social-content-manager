@@ -10388,6 +10388,7 @@ async function fetchFacebookInsights() {
   const errors = []; // collect actual error messages so we can show them, not just a count
 
   for (const post of published) {
+    if (post.insightsUnavailable) { skipped++; continue; } // previously confirmed unreadable by Facebook — don't retry
     const pageData = resolveFbPageData(post);
     if (!pageData?.token) { skipped++; continue; } // no token — skip silently
 
@@ -10402,6 +10403,14 @@ async function fetchFacebookInsights() {
       const d = await res.json();
       if (d.error) {
         failed++;
+        const isPermissionError = d.error.code === 10;
+        if (isPermissionError) {
+          // Facebook is reporting this specific post object is unreadable by the API —
+          // mark it so we stop retrying it every time (it will never succeed without
+          // re-authorizing the page, and retrying wastes a call each fetch).
+          post.insightsUnavailable = true;
+          post.insightsError = 'Facebook API cannot read this post (permission/visibility issue) — likely created before the app had full page permissions, or the post was modified by Facebook.';
+        }
         errors.push(`${post.company.toUpperCase()} (${post.fbPostId}): ${d.error.message} [code ${d.error.code}${d.error.error_subcode ? '/' + d.error.error_subcode : ''}]`);
         continue;
       }
@@ -10436,10 +10445,10 @@ async function fetchFacebookInsights() {
     for (const post of published.filter(p => p.performance?.fetchedAt)) {
       upsertPost(post);
     }
-    showToast(`✓ Fetched insights for ${fetched} post${fetched!==1?'s':''}${skipped ? ' · ' + skipped + ' skipped (no token)' : ''}${failed ? ' · ' + failed + ' failed' : ''}`, 'success');
+    showToast(`✓ Fetched insights for ${fetched} post${fetched!==1?'s':''}${skipped ? ' · ' + skipped + ' skipped' : ''}${failed ? ' · ' + failed + ' permanently unreadable' : ''}`, 'success');
     updateDashboard();
   } else if (failed) {
-    // Show the actual reason instead of a generic message
+    saveState(); // persist insightsUnavailable flags even if nothing succeeded this run
     const uniqueErrors = [...new Set(errors)];
     showToast(`❌ ${uniqueErrors[0] || 'Could not fetch insights'}`, 'error');
     console.error('Facebook insights fetch errors:', errors);
