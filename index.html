@@ -1667,6 +1667,15 @@ function loadState() {
   try {
     APP.posts = JSON.parse(localStorage.getItem('scm_posts') || '[]');
     APP.photos = JSON.parse(localStorage.getItem('scm_photos') || '[]');
+    // Repair any Drive photos saved with an expiring thumbnailLink — switch to the stable endpoint
+    let repaired = false;
+    APP.photos.forEach(p => {
+      if (p.driveId && p.data && !p.data.includes('drive.google.com/thumbnail')) {
+        p.data = `https://drive.google.com/thumbnail?id=${p.driveId}&sz=w800`;
+        repaired = true;
+      }
+    });
+    if (repaired) savePhotos();
     APP.apiKeys.anthropic = localStorage.getItem('scm_anthropic_key') || '';
     APP.apiKeys.facebook = localStorage.getItem('scm_facebook_key') || '';
     APP.apiKeys.ideogram = localStorage.getItem('scm_ideogram_key') || '';
@@ -2740,7 +2749,7 @@ function renderPhotoLibrary() {
   }
   grid.innerHTML = filtered.map(p => `
     <div class="photo-card" data-photo-id="${p.id}" onclick="openPhotoLightboxById(this)" style="cursor:zoom-in">
-      <img src="${p.data}" style="width:100%;height:130px;object-fit:cover" alt="${p.name}" loading="lazy">
+      <img src="${p.data}" style="width:100%;height:130px;object-fit:cover" alt="${p.name}" loading="lazy" ${p.driveId ? `onerror="this.onerror=null;this.src='https://drive.google.com/thumbnail?id=${p.driveId}&sz=w800'"` : ''}>
       <div class="photo-meta">
         <div class="photo-name">${p.name}</div>
         <div style="display:flex;align-items:center;gap:6px;margin-top:4px">
@@ -3183,13 +3192,15 @@ function pickDrivePhotos(mode) {
   selected.forEach(f => {
     const existing = APP.photos.find(p => p.driveId === f.id);
     if (!existing) {
-      const thumb = f.thumbnailUrl || `https://drive.google.com/thumbnail?id=${f.id}&sz=w800`;
+      // Use the stable public thumbnail endpoint — Google's thumbnailLink expires after a few hours,
+      // but this drive.google.com/thumbnail?id=... format stays valid as long as the file is shared.
+      const stableThumb = `https://drive.google.com/thumbnail?id=${f.id}&sz=w800`;
       APP.photos.push({
         id: 'drive_' + f.id,
         driveId: f.id,
         name: f.name,
         company: f.company || APP.currentCompany || 'mssi',
-        data: thumb,           // thumbnail URL for display
+        data: stableThumb,     // stable thumbnail URL for display
         driveUrl: f.viewUrl,   // direct URL for publishing
         addedAt: new Date().toISOString(),
         size: parseInt(f.size || 0),
@@ -3200,12 +3211,8 @@ function pickDrivePhotos(mode) {
   });
   if (added) savePhotos();
 
-  // Use thumbnail URL for in-app preview (avoids CORS)
-  const thumbUrls = selected.map(f =>
-    f.thumbnailUrl
-      ? f.thumbnailUrl.replace('=s400','=s800')
-      : `https://drive.google.com/thumbnail?id=${f.id}&sz=w800`
-  );
+  // Use the same stable thumbnail format for in-app preview (avoids expiring thumbnailLink)
+  const thumbUrls = selected.map(f => `https://drive.google.com/thumbnail?id=${f.id}&sz=w1200`);
   // Store drive view URLs for publishing
   APP._driveViewUrls = selected.map(f => f.viewUrl);
 
