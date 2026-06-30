@@ -1105,6 +1105,8 @@ select:focus{border-color:var(--accent-border);}
           </div>
           <div id="token-exchange-status" style="font-size:12px;margin-bottom:10px"></div>
           <button class="btn btn-primary" onclick="convertToPermanentToken()">Convert & Save Permanently</button>
+          <button class="btn btn-secondary" style="margin-top:8px" onclick="checkTokenHealth()">🔍 Check Token Health (MSSI &amp; WCLI)</button>
+          <div id="token-health-result" style="font-size:12px;margin-top:10px;display:none"></div>
         </div>
         <div class="card" style="margin-top:16px">
           <div style="font-size:14px;font-weight:500;margin-bottom:4px">📡 Facebook Webhook Subscription</div>
@@ -3993,6 +3995,52 @@ async function upsertPost(post) {
 
 // Bulk-sync all posts in localStorage to Supabase posts table
 // Called on startup and after push-all-to-cloud
+async function checkTokenHealth() {
+  const resultEl = document.getElementById('token-health-result');
+  resultEl.style.display = 'block';
+  resultEl.innerHTML = '<div style="color:var(--text3)">Checking…</div>';
+
+  const pages = APP.fbPages || JSON.parse(localStorage.getItem('scm_fb_pages') || '{}');
+  const checks = [];
+
+  if (pages.mssi?.token) checks.push({ company: 'MSSI', token: pages.mssi.token });
+  if (Array.isArray(pages.wcli) && pages.wcli[0]?.token) checks.push({ company: 'WCLI', token: pages.wcli[0].token });
+  if (pages.cwli?.token) checks.push({ company: 'CWLI', token: pages.cwli.token });
+
+  if (!checks.length) { resultEl.innerHTML = '<div style="color:var(--red)">No tokens configured yet</div>'; return; }
+
+  let html = '';
+  for (const c of checks) {
+    try {
+      // Facebook lets you debug a token using itself as both the input_token and access_token
+      const res = await fetch(`https://graph.facebook.com/debug_token?input_token=${c.token}&access_token=${c.token}`);
+      const d = await res.json();
+      if (d.error) {
+        html += `<div style="background:var(--bg3);border-radius:var(--radius);padding:8px 10px;margin-bottom:6px"><strong>${c.company}</strong>: <span style="color:var(--red)">❌ ${d.error.message}</span></div>`;
+        continue;
+      }
+      const info = d.data;
+      const isValid = info.is_valid;
+      const expiresAt = info.expires_at === 0 ? 'Never' : new Date(info.expires_at * 1000).toLocaleDateString();
+      const dataAccessExpires = info.data_access_expires_at === 0 ? 'Never' : new Date(info.data_access_expires_at * 1000).toLocaleDateString();
+      const dataAccessExpired = info.data_access_expires_at !== 0 && info.data_access_expires_at * 1000 < Date.now();
+      const scopes = (info.scopes || []).join(', ') || 'none listed';
+
+      html += `<div style="background:var(--bg3);border-radius:var(--radius);padding:10px 12px;margin-bottom:6px">
+        <strong>${c.company}</strong>: ${isValid ? '<span style="color:var(--green)">✓ Token valid</span>' : '<span style="color:var(--red)">❌ Token invalid</span>'}<br>
+        <span style="font-size:11px;color:var(--text3)">
+          Token expires: ${expiresAt}<br>
+          Data access expires: <span style="${dataAccessExpired ? 'color:var(--red);font-weight:600' : ''}">${dataAccessExpires}${dataAccessExpired ? ' ⚠️ EXPIRED — this is likely why insights fail' : ''}</span><br>
+          Permissions: ${scopes}
+        </span>
+      </div>`;
+    } catch (e) {
+      html += `<div style="background:var(--bg3);border-radius:var(--radius);padding:8px 10px;margin-bottom:6px"><strong>${c.company}</strong>: <span style="color:var(--red)">❌ ${e.message}</span></div>`;
+    }
+  }
+  resultEl.innerHTML = html;
+}
+
 async function convertToPermanentToken() {
   const shortToken = document.getElementById('short-lived-token-input')?.value?.trim();
   const company = document.getElementById('token-exchange-company')?.value;
@@ -10337,6 +10385,7 @@ async function fetchFacebookInsights() {
   let fetched = 0;
   let failed = 0;
   let skipped = 0;
+  const errors = []; // collect actual error messages so we can show them, not just a count
 
   for (const post of published) {
     const pageData = resolveFbPageData(post);
@@ -10348,7 +10397,11 @@ async function fetchFacebookInsights() {
         `https://graph.facebook.com/v19.0/${post.fbPostId}?fields=${fields}&access_token=${pageData.token}`
       );
       const d = await res.json();
-      if (d.error) { failed++; continue; }
+      if (d.error) {
+        failed++;
+        errors.push(`${post.company.toUpperCase()}: ${d.error.message}${d.error.code === 190 ? ' (token expired — reconnect in Settings → Facebook Pages)' : ''}`);
+        continue;
+      }
 
       const insights = {
         likes: d.likes?.summary?.total_count || 0,
@@ -10360,7 +10413,10 @@ async function fetchFacebookInsights() {
 
       post.performance = { ...(post.performance || {}), ...insights };
       fetched++;
-    } catch (_e) { failed++; }
+    } catch (e) {
+      failed++;
+      errors.push(`${post.company.toUpperCase()}: ${e.message}`);
+    }
   }
 
   if (fetched) {
@@ -10371,6 +10427,11 @@ async function fetchFacebookInsights() {
     }
     showToast(`✓ Fetched insights for ${fetched} post${fetched!==1?'s':''}${skipped ? ' · ' + skipped + ' skipped (no token)' : ''}${failed ? ' · ' + failed + ' failed' : ''}`, 'success');
     updateDashboard();
+  } else if (failed) {
+    // Show the actual reason instead of a generic message
+    const uniqueErrors = [...new Set(errors)];
+    showToast(`❌ ${uniqueErrors[0] || 'Could not fetch insights'}`, 'error');
+    console.error('Facebook insights fetch errors:', errors);
   } else {
     showToast('Could not fetch insights — check Facebook tokens', 'error');
   }
