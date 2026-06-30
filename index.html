@@ -1880,6 +1880,7 @@ function switchMediaTab(type) {
     APP.currentPhoto = null;
     APP.currentPhotos = null;
     APP._selectedPhotos = null;
+    APP._driveViewUrls = null;
   } else {
     APP.currentVideo = null;
     document.getElementById('video-preview-area').innerHTML = '';
@@ -2126,12 +2127,12 @@ function renderPhotoLibrary() {
   }
   grid.innerHTML = filtered.map(p => `
     <div class="photo-card" data-photo-id="${p.id}" onclick="openPhotoLightboxById(this)" style="cursor:zoom-in">
-      <img src="${p.data}" style="width:100%;height:130px;object-fit:cover" alt="${p.name}">
+      <img src="${p.data}" style="width:100%;height:130px;object-fit:cover" alt="${p.name}" loading="lazy">
       <div class="photo-meta">
         <div class="photo-name">${p.name}</div>
         <div style="display:flex;align-items:center;gap:6px;margin-top:4px">
           <span class="post-company-badge badge-${p.company}" style="font-size:9px">${p.company.toUpperCase()}</span>
-          <span style="font-size:10.5px;color:var(--text3)">${p.size ? (p.size/1024).toFixed(0)+'KB' : 'stored'}</span>
+          ${p.fromDrive ? '<span style="font-size:9px;color:var(--accent2)">📁 Drive</span>' : `<span style="font-size:10.5px;color:var(--text3)">${p.size ? (p.size/1024).toFixed(0)+'KB' : ''}</span>`}
           <button class="icon-btn reject" style="margin-left:auto;width:22px;height:22px" onclick="event.stopPropagation();deletePhoto(${JSON.stringify(p.id)})" title="Delete">×</button>
         </div>
       </div>
@@ -2564,22 +2565,50 @@ function pickDrivePhotos(mode) {
   if (!selected.length) { showToast('Select at least one photo', 'error'); return; }
   closePhotoPicker();
 
-  // Convert Drive file IDs to direct image URLs
-  const urls = selected.map(f => `https://drive.google.com/uc?export=view&id=${f.id}`);
+  // Add selected Drive photos to APP.photos library (if not already there)
+  let added = 0;
+  selected.forEach(f => {
+    const existing = APP.photos.find(p => p.driveId === f.id);
+    if (!existing) {
+      const thumb = f.thumbnailUrl || `https://drive.google.com/thumbnail?id=${f.id}&sz=w800`;
+      APP.photos.push({
+        id: 'drive_' + f.id,
+        driveId: f.id,
+        name: f.name,
+        company: f.company || APP.currentCompany || 'mssi',
+        data: thumb,           // thumbnail URL for display
+        driveUrl: f.viewUrl,   // direct URL for publishing
+        addedAt: new Date().toISOString(),
+        size: parseInt(f.size || 0),
+        fromDrive: true
+      });
+      added++;
+    }
+  });
+  if (added) savePhotos();
 
-  if (urls.length === 1) {
+  // Use thumbnail URL for in-app preview (avoids CORS)
+  const thumbUrls = selected.map(f =>
+    f.thumbnailUrl
+      ? f.thumbnailUrl.replace('=s400','=s800')
+      : `https://drive.google.com/thumbnail?id=${f.id}&sz=w800`
+  );
+  // Store drive view URLs for publishing
+  APP._driveViewUrls = selected.map(f => f.viewUrl);
+
+  if (thumbUrls.length === 1) {
     APP.currentPhotos = null;
     APP._selectedPhotos = null;
-    setCurrentPhoto(urls[0]);
+    setCurrentPhoto(thumbUrls[0]);
     if (mode === 'enhance') setTimeout(() => openEnhanceModal(), 150);
     else showToast('Photo selected from Google Drive', 'success');
   } else {
-    APP.currentPhotos = urls;
-    APP._selectedPhotos = urls;
-    setCurrentPhoto(urls[0]);
+    APP.currentPhotos = thumbUrls;
+    APP._selectedPhotos = thumbUrls;
+    setCurrentPhoto(thumbUrls[0]);
     updateCarouselPreview();
     if (mode === 'enhance') setTimeout(() => openEnhanceModal(), 150);
-    else showToast(`${urls.length} photos selected — will publish as album`, 'success');
+    else showToast(`${thumbUrls.length} photos selected — will publish as album`, 'success');
   }
 }
 
@@ -3511,7 +3540,10 @@ function saveDraft() {
     pillar: APP.currentPillar,
     caption: APP.currentCaption,
     photo: hasVideo ? null : (APP.currentPhotos?.length > 1 ? APP.currentPhotos[0] : APP.currentPhoto),
+    // For Drive photos: store direct URL for Facebook publishing (thumbnail can't be published)
+    photoPublishUrl: !hasVideo && APP._driveViewUrls?.length === 1 ? APP._driveViewUrls[0] : null,
     photos: (!hasVideo && APP.currentPhotos?.length > 1) ? APP.currentPhotos : null,
+    photosPublishUrls: (!hasVideo && APP._driveViewUrls?.length > 1) ? APP._driveViewUrls : null,
     mediaType: hasVideo ? 'video' : (APP.currentPhotos?.length > 1 ? 'album' : 'photo'),
     videoMeta: hasVideo ? { name: APP.currentVideo.name, size: APP.currentVideo.size } : null,
     videoUrl: videoAnyUrl,
@@ -6279,8 +6311,10 @@ async function publishToFacebook(post) {
   try {
     // ── ALBUM (multiple photos) ──────────────────────────────
     if (post.mediaType === 'album' && post.photos?.length > 1) {
+      // Use publish URLs (Drive direct) if available, else fall back to stored photos
+      const photosToPublish = post.photosPublishUrls?.length > 1 ? post.photosPublishUrls : post.photos;
       const photoIds = [];
-      for (const photoData of post.photos) {
+      for (const photoData of photosToPublish) {
         const isHttpUrl = /^https?:\/\//i.test(photoData);
         let uploadRes;
         if (isHttpUrl) {
@@ -6318,9 +6352,11 @@ async function publishToFacebook(post) {
       //    directly via the "url" parameter, which is simpler and avoids re-uploading bytes.
       //  - A base64 data URL (manually uploaded photos) → upload the raw bytes via "source".
       const isHttpUrl = /^https?:\/\//i.test(post.photo);
-      if (isHttpUrl) {
+      // Use direct Drive URL for publishing if available (thumbnail URL can't be published)
+      const publishPhoto = post.photoPublishUrl || post.photo;
+      if (isHttpUrl || post.photoPublishUrl) {
         const params = new URLSearchParams();
-        params.append('url', post.photo);
+        params.append('url', publishPhoto);
         params.append('message', post.caption);
         params.append('published', 'true');
         params.append('access_token', pageData.token);
