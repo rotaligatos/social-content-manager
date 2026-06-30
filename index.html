@@ -1043,6 +1043,22 @@ select:focus{border-color:var(--accent-border);}
             <div class="api-key-row"><input class="api-key-input" type="password" id="key-veo" placeholder="AIza..."><button class="btn btn-secondary btn-sm" onclick="saveApiKey('veo')">Save</button></div>
             <div style="font-size:11.5px;color:var(--text3)">Enables AI video generation (Veo 3.1). Get a key at aistudio.google.com/apikey — requires billing enabled on your Google Cloud account.</div>
           </div>
+
+          <div style="padding-top:16px;border-top:1px solid var(--border)">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+              <label class="form-label" style="margin:0">Google Service Account <span style="color:var(--text3);font-weight:400">(For Drive Photo Picker)</span></label>
+              <div class="api-status optional" id="status-google-sa"><div style="width:6px;height:6px;border-radius:50%;background:currentColor"></div>Optional</div>
+            </div>
+            <div class="api-key-row">
+              <input class="api-key-input" type="password" id="key-google-sa" placeholder='Paste full JSON key from Google Cloud Console'>
+              <button class="btn btn-secondary btn-sm" onclick="saveGoogleSA()">Save</button>
+            </div>
+            <div style="font-size:11.5px;color:var(--text3);margin-top:6px;line-height:1.6">
+              Enables browsing your Google Drive SCM Photos folder in the app.
+              <a href="https://console.cloud.google.com/" target="_blank" style="color:var(--accent2)">Setup guide ↗</a>:
+              Create project → Enable Drive API → IAM → Service Accounts → Create → Download JSON key → Share SCM Photos folder with service account email → paste JSON here.
+            </div>
+          </div>
         </div>
       </div>
       <div id="stab-fb-pages" style="display:none">
@@ -2424,82 +2440,60 @@ async function loadDriveFolder(tab) {
 
   const grid = document.getElementById('drive-photo-grid');
   if (!grid) return;
-  grid.innerHTML = `<div style="text-align:center;padding:30px;color:var(--text3)"><div style="font-size:28px;margin-bottom:8px">⏳</div><div style="font-size:13px">Loading from Google Drive…</div></div>`;
+  grid.innerHTML = `<div style="text-align:center;padding:30px;color:var(--text3)">
+    <div style="font-size:28px;margin-bottom:8px">⏳</div>
+    <div style="font-size:13px">Loading from Google Drive…</div>
+  </div>`;
 
   window._driveSelected = [];
   window._driveFiles = [];
   updateDrivePickerCount();
 
-  // Known folder IDs
-  const FOLDER_IDS = {
-    MSSI: '1_q_ZvJNdwKnK1WN3JrcwMQEe1iw_aJ6O',
-    WCLI: '1iKTpKygDtSeED8b5RQ8IrRke0oND2OnP',
-    CWLI: '1q7HiKfL9SLX34kCG9INP2V9-qeSpDPuQ'
-  };
-
   try {
-    const apiKey = (APP.apiKeys?.anthropic || localStorage.getItem('scm_anthropic_key') || '').trim();
-    if (!apiKey) throw new Error('Anthropic API key not set — go to Settings');
+    const proxyBase = (APP.apiKeys?.imgproxy || localStorage.getItem('scm_imgproxy_key') || '')
+      .replace(/generate-image\/?$/, '').replace(/\/$/, '');
+    if (!proxyBase) throw new Error('Image Proxy URL not set — go to Settings');
 
-    // Build query for specific folder(s)
-    const foldersToSearch = tab === 'All'
-      ? Object.entries(FOLDER_IDS)
-      : [[tab, FOLDER_IDS[tab]]];
-
-    const folderList = foldersToSearch.map(([name, id]) =>
-      `Sub-folder "${name}" with ID "${id}"`).join(', ');
-
-    const prompt = `List all image files (JPG, JPEG, PNG, GIF, WEBP) inside these Google Drive folders: ${folderList}. 
-For each file return its ID, name, thumbnailLink (if available), mimeType, and which folder it's in.
-Return ONLY valid JSON array, no other text:
-[{"id":"FILE_ID","name":"filename.jpg","thumbnailUrl":"THUMBNAIL_URL_OR_NULL","mimeType":"image/jpeg","company":"mssi|wcli|cwli"}]
-If no images found return: []`;
-
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01',
-        'anthropic-dangerous-direct-browser-access': 'true'
-      },
-      body: JSON.stringify({
-        model: 'claude-haiku-4-5',
-        max_tokens: 2000,
-        mcp_servers: [{
-          type: 'url',
-          url: 'https://drivemcp.googleapis.com/mcp/v1',
-          name: 'google-drive'
-        }],
-        system: `You are a Google Drive file listing assistant. Use the Google Drive MCP tools to list files from the specified folders. Return ONLY a JSON array — no markdown, no explanation, no backticks. Just the raw JSON array.`,
-        messages: [{ role: 'user', content: prompt }]
-      })
+    const res = await fetch(`${proxyBase}/list-drive-photos?tab=${tab.toLowerCase()}`, {
+      headers: { 'Authorization': `Bearer ${_session?.access_token || ''}` }
     });
 
     const data = await res.json();
-    if (data.error) throw new Error(data.error.message || 'API error');
 
-    const text = data.content?.filter(b => b.type === 'text').map(b => b.text).join('') || '[]';
+    if (data.setup_required) {
+      // Service account not set up yet — show setup instructions
+      grid.innerHTML = `
+        <div style="padding:20px;font-size:13px;line-height:1.8;color:var(--text2)">
+          <div style="font-size:15px;font-weight:600;margin-bottom:12px">⚙️ One-time Setup Required</div>
+          <p style="color:var(--text3);font-size:12px;margin-bottom:16px">To browse Google Drive photos in the app, create a free Google Service Account:</p>
+          <ol style="padding-left:18px;color:var(--text3);font-size:12px;line-height:2">
+            <li>Go to <a href="https://console.cloud.google.com/" target="_blank" style="color:var(--accent2)">console.cloud.google.com</a></li>
+            <li>Create a project → Enable <strong>Google Drive API</strong></li>
+            <li>IAM & Admin → Service Accounts → Create → Download JSON key</li>
+            <li>Share the <strong>SCM Photos</strong> Drive folder with the service account email</li>
+            <li>Paste the JSON key in <strong>Settings → API Keys → Google Service Account</strong></li>
+          </ol>
+          <div style="margin-top:14px;padding:10px;background:var(--bg3);border-radius:var(--radius);font-size:11.5px;color:var(--text3)">
+            💡 Meanwhile you can still use photos by URL — paste any direct image URL in Create Post
+          </div>
+        </div>`;
+      return;
+    }
 
-    let files = [];
-    try {
-      const clean = text.replace(/```json|```/g,'').trim();
-      // Find JSON array in response
-      const match = clean.match(/\[[\s\S]*\]/);
-      files = match ? JSON.parse(match[0]) : [];
-    } catch (_e) { files = []; }
+    if (data.error) throw new Error(data.error);
 
+    const files = data.files || [];
     window._driveFiles = files;
     renderDriveGrid(files, tab);
 
   } catch (err) {
     grid.innerHTML = `<div style="padding:24px;text-align:center">
       <div style="color:var(--red);font-size:13px;margin-bottom:10px">❌ ${err.message}</div>
-      <div style="font-size:12px;color:var(--text3);margin-bottom:12px">Make sure your Anthropic API key is set in Settings</div>
-      <a href="https://drive.google.com/drive/folders/${SCM_DRIVE_FOLDER_ID}" target="_blank" class="btn btn-secondary btn-sm">Open Drive Folder ↗</a>
+      <a href="https://drive.google.com/drive/folders/${SCM_DRIVE_FOLDER_ID}" target="_blank" class="btn btn-secondary btn-sm" style="margin-top:8px">Open Drive Folder ↗</a>
     </div>`;
   }
 }
+
 
 function renderDriveGrid(files, tab) {
   const grid = document.getElementById('drive-photo-grid');
@@ -5403,6 +5397,20 @@ async function pushAllToCloud() {
     btn.disabled = false;
     btn.textContent = 'Retry';
   }
+}
+
+async function saveGoogleSA() {
+  const input = document.getElementById('key-google-sa');
+  const val = input?.value?.trim();
+  if (!val) { showToast('Paste your Google Service Account JSON first', 'error'); return; }
+  try { JSON.parse(val); } catch (_e) {
+    showToast('Invalid JSON — paste the full service account key file', 'error'); return;
+  }
+  await pushSettingToSupabase('google_service_account_json', val);
+  localStorage.setItem('scm_google_sa', val);
+  const status = document.getElementById('status-google-sa');
+  if (status) { status.style.color = 'var(--green)'; status.innerHTML = '<div style="width:6px;height:6px;border-radius:50%;background:currentColor"></div>Connected'; }
+  showToast('Google Service Account saved ✓ — Drive photo picker is now ready', 'success');
 }
 
 function saveApiKey(service) {
