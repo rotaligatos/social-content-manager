@@ -10392,21 +10392,32 @@ async function fetchFacebookInsights() {
     if (!pageData?.token) { skipped++; continue; } // no token — skip silently
 
     try {
-      const fields = 'likes.summary(true),comments.summary(true),shares,reactions.summary(true)';
+      // Request likes/comments/reactions together (always available).
+      // 'shares' is requested separately because it frequently fails or is omitted entirely
+      // on photo-posted content when the count is zero, which was breaking the whole combined call.
+      const fields = 'likes.summary(true),comments.summary(true),reactions.summary(true)';
       const res = await fetch(
         `https://graph.facebook.com/v19.0/${post.fbPostId}?fields=${fields}&access_token=${pageData.token}`
       );
       const d = await res.json();
       if (d.error) {
         failed++;
-        errors.push(`${post.company.toUpperCase()}: ${d.error.message}${d.error.code === 190 ? ' (token expired — reconnect in Settings → Facebook Pages)' : ''}`);
+        errors.push(`${post.company.toUpperCase()} (${post.fbPostId}): ${d.error.message} [code ${d.error.code}${d.error.error_subcode ? '/' + d.error.error_subcode : ''}]`);
         continue;
       }
+
+      // Fetch shares separately so its absence/failure never blocks likes/comments/reactions
+      let shares = 0;
+      try {
+        const sharesRes = await fetch(`https://graph.facebook.com/v19.0/${post.fbPostId}?fields=shares&access_token=${pageData.token}`);
+        const sharesData = await sharesRes.json();
+        shares = sharesData.shares?.count || 0;
+      } catch (_e) { /* shares are commonly unavailable on posts with 0 shares — not a failure */ }
 
       const insights = {
         likes: d.likes?.summary?.total_count || 0,
         comments: d.comments?.summary?.total_count || 0,
-        shares: d.shares?.count || 0,
+        shares: shares,
         reactions: d.reactions?.summary?.total_count || 0,
         fetchedAt: new Date().toISOString()
       };
@@ -10415,7 +10426,7 @@ async function fetchFacebookInsights() {
       fetched++;
     } catch (e) {
       failed++;
-      errors.push(`${post.company.toUpperCase()}: ${e.message}`);
+      errors.push(`${post.company.toUpperCase()} (${post.fbPostId}): ${e.message}`);
     }
   }
 
