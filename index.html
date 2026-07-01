@@ -495,11 +495,11 @@ select:focus{border-color:var(--accent-border);}
           <div class="form-section-header"><div class="form-section-num">3</div><div class="form-section-title">Content Type</div></div>
           <div class="form-section-body">
             <div class="pillar-grid">
-              <button class="pillar-btn" onclick="selectPillar(this)"><span class="pillar-icon">✦</span><span class="pillar-name">Product</span></button>
+              <button class="pillar-btn" onclick="selectPillar(this)"><span class="pillar-icon">✦</span><span class="pillar-name">Product Showcase</span></button>
               <button class="pillar-btn" onclick="selectPillar(this)"><span class="pillar-icon">📖</span><span class="pillar-name">Education</span></button>
               <button class="pillar-btn" onclick="selectPillar(this)"><span class="pillar-icon">⭐</span><span class="pillar-name">Social Proof</span></button>
               <button class="pillar-btn" onclick="selectPillar(this)"><span class="pillar-icon">🎯</span><span class="pillar-name">Sales Push</span></button>
-              <button class="pillar-btn" onclick="selectPillar(this)"><span class="pillar-icon">✨</span><span class="pillar-name">Aspiration</span></button>
+              <button class="pillar-btn" onclick="selectPillar(this)"><span class="pillar-icon">✨</span><span class="pillar-name">Aspiration / Lifestyle</span></button>
               <button class="pillar-btn" onclick="selectPillar(this)"><span class="pillar-icon">🏭</span><span class="pillar-name">Brand Story</span></button>
               <button class="pillar-btn" onclick="selectPillar(this)"><span class="pillar-icon">💬</span><span class="pillar-name">Engagement</span></button>
               <button class="pillar-btn" onclick="selectPillar(this)"><span class="pillar-icon">🤝</span><span class="pillar-name">Trade Partner</span></button>
@@ -8121,7 +8121,8 @@ async function fixColorFamilyTags(company) {
   const apiKey = APP.apiKeys.claude || localStorage.getItem('scm_claude_key');
   if (!apiKey) { showToast('Claude API key not configured in Settings', 'error'); return; }
 
-  const colors = getColors(company).filter(c => c.swatchUrl && c.status !== 'retired');
+  const allColors = getColors(company);
+  const colors = allColors.filter(c => c.swatchUrl && c.status !== 'retired');
   if (!colors.length) { showToast('No colors with swatch images found', 'info'); return; }
 
   if (!confirm(`This will use AI to check ${colors.length} colors against their actual swatch photos and fix any mismatched color tags (many are currently mislabeled "red"). This uses Claude API tokens — 1 call per color. Continue?`)) return;
@@ -8215,7 +8216,7 @@ async function fixColorFamilyTags(company) {
 
   barEl.style.width = '100%';
   progressEl.textContent = `Done — checked ${checked}, fixed ${fixed}, failed ${failed}`;
-  saveState();
+  saveColors(company, allColors); // save the FULL list — colors is a filtered subset and would drop excluded entries
   renderColorList(company);
 
   setTimeout(() => {
