@@ -1797,7 +1797,7 @@ function showScreen(id) {
   const items = document.querySelectorAll('.nav-item');
   if (map[id] !== undefined && items[map[id]]) items[map[id]].classList.add('active');
   if (id === 'calendar') renderCalendar();
-  if (id === 'review') updateReviewQueue();
+  if (id === 'review') { repairMissingScheduledDates(); updateReviewQueue(); }
   if (id === 'dashboard') updateDashboard();
   if (id === 'create') renderHolidayBanner();
   if (id === 'performance') { renderPerformance(); fetchAllInsights(); setTimeout(() => fetchFacebookInsights(), 1500); }
@@ -4247,6 +4247,34 @@ function saveDraft() {
 }
 
 // REVIEW QUEUE
+function repairMissingScheduledDates() {
+  // Find scheduled posts with no date and assign them
+  const broken = APP.posts.filter(p => p.status === 'scheduled' && !p.scheduledFor);
+  if (!broken.length) return;
+
+  const baseDate = new Date();
+  baseDate.setDate(baseDate.getDate() + 1);
+  baseDate.setHours(10, 0, 0, 0);
+
+  // Find the latest scheduled date already assigned so we can stagger after it
+  const existingDates = APP.posts
+    .filter(p => p.status === 'scheduled' && p.scheduledFor)
+    .map(p => new Date(p.scheduledFor).getTime());
+  let nextSlot = existingDates.length
+    ? Math.max(...existingDates) + 6 * 60 * 60 * 1000
+    : baseDate.getTime();
+
+  broken.forEach(p => {
+    p.scheduledFor = new Date(nextSlot).toISOString();
+    nextSlot += 6 * 60 * 60 * 1000; // stagger 6 hours apart
+    upsertPost(p);
+    syncPostToSupabase(p);
+  });
+
+  saveState();
+  if (broken.length) showToast(`✓ Fixed ${broken.length} post${broken.length>1?'s':''} with missing dates — check the queue`, 'info');
+}
+
 function updateReviewQueue() {
   const filter = typeof _companyFilter !== 'undefined' ? _companyFilter : 'all';
   const allPending = APP.posts.filter(p => p.status === 'draft');
@@ -4346,12 +4374,37 @@ function updateReviewQueue() {
 }
 
 function approveAll() {
-  APP.posts.filter(p => p.status === 'draft').forEach(p => { p.status = 'scheduled'; });
+  const drafts = APP.posts.filter(p => p.status === 'draft');
+  if (!drafts.length) { showToast('No drafts to approve', 'info'); return; }
+
+  // Base date: tomorrow 10am PH, then stagger by 6 hours per post
+  // unless the post already has a suggestedDate or scheduledFor
+  const baseDate = new Date();
+  baseDate.setDate(baseDate.getDate() + 1);
+  baseDate.setHours(10, 0, 0, 0);
+  let slotOffset = 0;
+
+  drafts.forEach(p => {
+    p.status = 'scheduled';
+    if (!p.scheduledFor) {
+      // Use suggestedDate if available, otherwise stagger from tomorrow
+      if (p.suggestedDate) {
+        p.scheduledFor = p.suggestedDate;
+      } else {
+        const slot = new Date(baseDate.getTime() + slotOffset * 6 * 60 * 60 * 1000);
+        p.scheduledFor = slot.toISOString();
+        slotOffset++;
+      }
+    }
+    upsertPost(p);
+    syncPostToSupabase(p);
+  });
+
   saveState();
   updateReviewQueue();
   updateReviewBadge();
   updateDashboard();
-  showToast('All posts approved and scheduled', 'success');
+  showToast(`✓ ${drafts.length} post${drafts.length>1?'s':''} scheduled — check and adjust dates in the queue`, 'success');
 }
 
 // SUPABASE BACKGROUND SCHEDULER SYNC
