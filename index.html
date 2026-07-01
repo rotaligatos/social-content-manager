@@ -893,6 +893,7 @@ select:focus{border-color:var(--accent-border);}
               Import from Website
             </button>
             <button class="btn btn-secondary btn-sm" onclick="refetchColorImages('wcli')" title="Re-fetch swatch images for colors that are missing them">🖼 Fetch Images</button>
+            <button class="btn btn-secondary btn-sm" style="color:var(--amber)" onclick="fixColorFamilyTags('wcli')" title="Uses AI to look at each swatch photo and correct mislabeled color families (many were imported incorrectly as 'red')">🔧 Fix Color Tags</button>
             <button class="btn btn-ghost btn-sm" onclick="openAddColorModal('wcli')">+ Add</button>
           </div>
         </div>
@@ -8111,6 +8112,124 @@ async function importWcliColors() {
 }
 
 // Re-fetch swatch images for colors that are missing them
+// ── AI-POWERED COLOR FAMILY REPAIR ─────────────────────────────
+// Fixes the widespread data corruption where most colors were imported
+// with color_family = "red" regardless of their actual appearance.
+// Uses Claude Vision to look at each color's real swatch photo and
+// assign an accurate family so AI image generation matches reality.
+async function fixColorFamilyTags(company) {
+  const apiKey = APP.apiKeys.claude || localStorage.getItem('scm_claude_key');
+  if (!apiKey) { showToast('Claude API key not configured in Settings', 'error'); return; }
+
+  const colors = getColors(company).filter(c => c.swatchUrl && c.status !== 'retired');
+  if (!colors.length) { showToast('No colors with swatch images found', 'info'); return; }
+
+  if (!confirm(`This will use AI to check ${colors.length} colors against their actual swatch photos and fix any mismatched color tags (many are currently mislabeled "red"). This uses Claude API tokens — 1 call per color. Continue?`)) return;
+
+  const modal = document.createElement('div');
+  modal.id = 'color-fix-modal';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:5000;display:flex;align-items:center;justify-content:center';
+  modal.innerHTML = `
+    <div style="background:var(--bg2);border:1px solid var(--border2);border-radius:var(--radius-lg);padding:24px;width:420px;max-width:90vw">
+      <div style="font-size:14px;font-weight:500;margin-bottom:12px">🔧 Checking Color Tags…</div>
+      <div id="color-fix-progress" style="font-size:12px;color:var(--text3);margin-bottom:12px">Starting…</div>
+      <div style="background:var(--bg3);border-radius:8px;height:8px;overflow:hidden">
+        <div id="color-fix-bar" style="background:var(--accent2);height:100%;width:0%;transition:width 0.3s"></div>
+      </div>
+      <div id="color-fix-log" style="margin-top:14px;max-height:200px;overflow-y:auto;font-size:11px;color:var(--text3)"></div>
+    </div>`;
+  document.body.appendChild(modal);
+
+  const progressEl = document.getElementById('color-fix-progress');
+  const barEl = document.getElementById('color-fix-bar');
+  const logEl = document.getElementById('color-fix-log');
+
+  let fixed = 0, checked = 0, failed = 0;
+  const proxyBase = (APP.apiKeys.imgproxy || localStorage.getItem('scm_imgproxy_key') || '').replace(/generate-image\/?$/, '');
+
+  for (let i = 0; i < colors.length; i++) {
+    const c = colors[i];
+    checked++;
+    progressEl.textContent = `Checking ${i+1}/${colors.length}: ${c.name}`;
+    barEl.style.width = Math.round((i / colors.length) * 100) + '%';
+
+    try {
+      // Fetch swatch image as base64 via proxy (handles CORS)
+      const imgRes = await fetch(`${proxyBase}proxy-image?url=${encodeURIComponent(c.swatchUrl)}`);
+      if (!imgRes.ok) throw new Error('Could not fetch swatch image');
+      const blob = await imgRes.blob();
+      const base64 = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result.split(',')[1]);
+        reader.onerror = reject;
+        reader.readAsDataURL(blob);
+      });
+      const mimeType = blob.type || 'image/jpeg';
+
+      const res = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': apiKey,
+          'anthropic-version': '2023-06-01',
+          'anthropic-dangerous-direct-browser-access': 'true'
+        },
+        body: JSON.stringify({
+          model: 'claude-haiku-4-5-20251001',
+          max_tokens: 50,
+          messages: [{
+            role: 'user',
+            content: [
+              { type: 'image', source: { type: 'base64', media_type: mimeType, data: base64 } },
+              { type: 'text', text: `Look at this laminate/wood finish swatch photo. Respond with ONLY ONE WORD for its dominant color family, choosing from exactly this list: red, brown, beige, cream, white, gray, black, tan, khaki, green, blue, yellow. Base your answer purely on what you SEE in the image, not the product name. Respond with just the single word, nothing else.` }
+            ]
+          }]
+        })
+      });
+      const data = await res.json();
+      const suggested = data.content?.[0]?.text?.trim().toLowerCase();
+
+      if (suggested && suggested !== c.colorFamily?.toLowerCase()) {
+        logEl.innerHTML += `<div>✓ ${c.name}: "${c.colorFamily || 'none'}" → "${suggested}"</div>`;
+        logEl.scrollTop = logEl.scrollHeight;
+        c.colorFamily = suggested;
+        // Persist to Supabase
+        try {
+          await fetch(`${proxyBase}upsert-color`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id: c.id, color_family: suggested })
+          });
+        } catch (_e) { /* will still be saved locally, non-fatal */ }
+        fixed++;
+      }
+    } catch (err) {
+      failed++;
+      logEl.innerHTML += `<div style="color:var(--red)">✗ ${c.name}: ${err.message}</div>`;
+      logEl.scrollTop = logEl.scrollHeight;
+    }
+
+    // Small delay to avoid rate limits
+    await new Promise(r => setTimeout(r, 300));
+  }
+
+  barEl.style.width = '100%';
+  progressEl.textContent = `Done — checked ${checked}, fixed ${fixed}, failed ${failed}`;
+  saveState();
+  renderColorList(company);
+
+  setTimeout(() => {
+    const closeBtn = document.createElement('button');
+    closeBtn.className = 'btn btn-primary';
+    closeBtn.style.cssText = 'width:100%;margin-top:14px';
+    closeBtn.textContent = 'Close';
+    closeBtn.onclick = () => modal.remove();
+    document.querySelector('#color-fix-modal > div').appendChild(closeBtn);
+  }, 100);
+
+  showToast(`✓ Fixed ${fixed} color tags out of ${checked} checked`, 'success');
+}
+
 async function refetchColorImages(company, forceAll) {
   const colors = getColors(company);
   // forceAll = re-fetch even colors that already have images (for re-sync)
