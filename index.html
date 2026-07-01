@@ -3838,6 +3838,15 @@ function showVisualDescriptionModal(initialDesc) {
 }
 
 // STEP 2: Called when the user clicks "Generate Image" in the description review modal.
+// Swatch panel is only offered for these content pillars — it doesn't fit
+// lifestyle/social/education posts where a technical color card would feel out of place.
+const SWATCH_ELIGIBLE_PILLARS = ['Product Showcase', 'Sales Push', 'Trade Partner'];
+function isSwatchEligiblePillar(pillar) {
+  if (!pillar) return false;
+  // pillar strings sometimes carry a sub-tag like "Sales Push · Dealer" — match the prefix
+  return SWATCH_ELIGIBLE_PILLARS.some(p => pillar === p || pillar.startsWith(p + ' '));
+}
+
 async function confirmAndGenerateImage() {
   const ta = document.getElementById('visual-desc-input');
   const visualDesc = ta ? ta.value.trim() : '';
@@ -3850,12 +3859,13 @@ async function confirmAndGenerateImage() {
     let imageUrl = await generateImageViaProxy(imgPrompt, getWatermarkOpts(APP.currentCompany));
 
     const colorId = APP.currentColorId || document.getElementById('post-color-id')?.value || '';
-    const isSwatchCompany = APP.currentCompany === 'wcli' || APP.currentCompany === 'cwli';
+    const isSwatchCompany = (APP.currentCompany === 'wcli' || APP.currentCompany === 'cwli')
+      && isSwatchEligiblePillar(APP.currentPillar);
 
     setCurrentPhoto(imageUrl);
     if (modal) modal.remove();
 
-    // Show swatch control only for WCLI/CWLI with a color selected
+    // Show swatch control only for WCLI/CWLI, color selected, AND an eligible content pillar
     if (colorId && isSwatchCompany) {
       showSwatchControls(imageUrl, colorId, APP.currentCompany);
       showToast('Image generated — add color swatch?', 'success');
@@ -3897,8 +3907,11 @@ function updateColorFinishOptions() {
   // For those companies the swatch is used as a panel overlay on AI-generated images,
   // not as the base photo. Auto-loading it was causing the swatch texture to fill the
   // entire post image instead of appearing as the bottom-right color chip.
-  const isSwatchCompany = (APP.currentCompany === 'wcli' || APP.currentCompany === 'cwli');
-  const postImageUrl = (!isSwatchCompany && (color.mockupUrl || color.swatchUrl)) || '';
+  // Swatch overlay only makes sense for Product Showcase / Sales Push / Trade Partner —
+  // other pillars (Lifestyle, Social Proof, Education, etc.) use the color photo directly.
+  const isSwatchPillar = (APP.currentCompany === 'wcli' || APP.currentCompany === 'cwli')
+    && isSwatchEligiblePillar(APP.currentPillar);
+  const postImageUrl = (!isSwatchPillar && (color.mockupUrl || color.swatchUrl)) || '';
 
   if (color && postImageUrl) {
     const previewEl = document.getElementById('preview-image');
@@ -3919,14 +3932,23 @@ function updateColorFinishOptions() {
   }
   swatchHint.style.display = 'block';
   const swatchPreviewUrl = color.swatchUrl || color.mockupUrl || '';
+  const isSwatchCompany = (APP.currentCompany === 'wcli' || APP.currentCompany === 'cwli');
+  let hintText;
+  if (isSwatchPillar) {
+    hintText = 'Generate an AI image — the swatch panel will be offered as an overlay after generation.';
+  } else if (isSwatchCompany) {
+    hintText = `Swatch overlay is only available for Product Showcase, Sales Push, or Trade Partner posts. ${color.mockupUrl ? 'Mockup photo loaded as post image.' : 'Swatch loaded as post image.'}`;
+  } else {
+    hintText = color.mockupUrl ? 'Mockup photo loaded as post image.' : 'Swatch loaded as post image.';
+  }
   swatchHint.innerHTML = `<div style="display:flex;align-items:center;gap:8px;margin-top:8px;padding:8px 10px;background:var(--bg3);border-radius:var(--radius);border:1px solid var(--border)">
     ${swatchPreviewUrl ? `<img src="${swatchPreviewUrl}" style="width:32px;height:32px;object-fit:cover;border-radius:4px;flex-shrink:0">` : ''}
     <div style="flex:1;min-width:0">
       <div style="font-size:12px;font-weight:500">"${color.name}" selected</div>
-      <div style="font-size:11px;color:var(--text3)">${isSwatchCompany ? 'Generate an AI image — the swatch panel will be offered as an overlay after generation.' : (color.mockupUrl ? 'Mockup photo loaded as post image.' : 'Swatch loaded as post image.')}</div>
+      <div style="font-size:11px;color:var(--text3)">${hintText}</div>
     </div>
   </div>`;
-  if (!isSwatchCompany) showToast(`"${color.name}" loaded as post image`, 'info');
+  if (!isSwatchPillar) showToast(`"${color.name}" loaded as post image`, 'info');
 }
 
 async function generatePost() {
@@ -4343,7 +4365,7 @@ function updateReviewQueue() {
           <button class="btn btn-ghost btn-sm" onclick="deletePost('${p.id}')" style="color:var(--red)">Delete</button>
           <button class="btn btn-secondary btn-sm" onclick="copyCaption('${p.id}')">Copy Caption</button>
           <button class="btn btn-secondary btn-sm" onclick="toggleScheduledPreview('${p.id}')">👁 Preview</button>
-          ${(p.company === 'wcli' || p.company === 'cwli') && (p.swatchColorId || APP.currentColorId) && p.photo ? `<button class="btn btn-secondary btn-sm" style="color:var(--accent2)" onclick="applySwatchToPost('${p.id}')">🎨 Swatch</button>` : ''}
+          ${(p.company === 'wcli' || p.company === 'cwli') && (p.swatchColorId || APP.currentColorId) && p.photo && isSwatchEligiblePillar(p.pillar) ? `<button class="btn btn-secondary btn-sm" style="color:var(--accent2)" onclick="applySwatchToPost('${p.id}')">🎨 Swatch</button>` : ''}
           <input type="datetime-local" class="time-input" style="flex:1;padding:6px 10px;font-size:12px" id="sched-${p.id}" value="${(p.scheduledFor || p.suggestedDate || '').slice(0,16)}">
           <button class="btn btn-primary btn-sm" onclick="schedulePost('${p.id}')">Schedule &amp; Approve</button>
         </div>
@@ -4370,7 +4392,7 @@ function updateReviewQueue() {
           ${pageSelectorHtml}
           <button class="btn btn-ghost btn-sm" onclick="toggleScheduledPreview('${p.id}')" style="font-size:11px">👁 Preview</button>
           <button class="btn btn-secondary btn-sm" onclick="copyCaption('${p.id}')">Copy</button>
-          ${(p.company === 'wcli' || p.company === 'cwli') && p.swatchColorId && p.photo ? `<button class="btn btn-secondary btn-sm" style="color:var(--accent2)" onclick="applySwatchToPost('${p.id}')">🎨 Swatch</button>` : ''}
+          ${(p.company === 'wcli' || p.company === 'cwli') && p.swatchColorId && p.photo && isSwatchEligiblePillar(p.pillar) ? `<button class="btn btn-secondary btn-sm" style="color:var(--accent2)" onclick="applySwatchToPost('${p.id}')">🎨 Swatch</button>` : ''}
           ${p.mediaType === 'video' && !p._videoFileRef && !p.videoUrl ? `<button class="btn btn-secondary btn-sm" style="color:var(--amber)" onclick="loadPostIntoCreate('${p.id}')">📎 Re-attach Video</button>` : ''}
           <button class="btn btn-secondary btn-sm" onclick="deletePost('${p.id}')" style="color:var(--red)">Cancel</button>
           <button class="btn btn-primary btn-sm" onclick="publishPostNow('${p.id}')">Publish Now</button>
@@ -9054,7 +9076,9 @@ async function runAutoGenerate() {
             post.photoOriginal = imageUrl; // always save original so swatch can be applied/removed later
             // Note: swatch overlay is NOT auto-applied during batch generation.
             // User can apply it per-post from the Review queue using the swatch controls.
-            post.swatchColorId = colorId || null; // save which color was used so Review queue can offer the swatch button
+            // Only save swatchColorId for eligible pillars — swatch panel doesn't fit
+            // lifestyle/social/education style posts.
+            post.swatchColorId = (colorId && isSwatchEligiblePillar(pillar)) ? colorId : null;
             imageCount++;
             if (row) row.innerHTML = baseRowHtml + `<span style="color:var(--green);font-size:13px">✓ 🖼</span>`;
           } catch (iErr) {
