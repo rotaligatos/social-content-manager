@@ -3602,7 +3602,7 @@ async function captionToVisualDescription(apiKey, caption, forVideo, company, pi
       const primaryFinish = c.finishes?.[0];
       const lightingNote = primaryFinish ? (finishLighting[primaryFinish] || '') : '';
 
-      colorApplicationHint = ` CRITICAL: The featured laminate color is "${c.name}" — a ${c.colorFamily || ''} ${c.pattern || 'laminate'} finish${primaryFinish ? ' with ' + primaryFinish.toLowerCase() + ' surface' : ''}. The image must show this color APPLIED to ${bestUse}. The furniture/surface must clearly show this exact ${c.colorFamily || ''} ${c.pattern ? c.pattern.toLowerCase() : ''} color — not a generic or different color. ${lightingNote ? 'Lighting: ' + lightingNote + '.' : ''} The laminate color is the hero of the image — show it prominently in a realistic Philippine home, office, or kitchen setting.`;
+      colorApplicationHint = ` IMPORTANT: The featured laminate color is "${c.name}" — a ${c.colorFamily || ''} ${c.pattern || 'laminate'} finish${primaryFinish ? ' with ' + primaryFinish.toLowerCase() + ' surface' : ''}. Show this color APPLIED to ${bestUse} within a realistic interior scene. The image must be a FULL ROOM OR SPACE — a Philippine home, kitchen, office, or living area — with the ${c.colorFamily || ''} ${c.pattern ? c.pattern.toLowerCase() : 'laminate'} surface visible on the furniture. DO NOT generate a close-up texture shot or material swatch — the scene must show the color in context, applied to actual furniture in a real space. ${lightingNote ? 'Lighting: ' + lightingNote + '.' : ''}`;
     }
   }
 
@@ -3893,9 +3893,13 @@ function updateColorFinishOptions() {
       (color.finishes || []).map(f => `<option value="${f}">${f}</option>`).join('');
   }
 
-  // Auto-load color photo as post image if available
-  // Prefer mockupUrl (shows color on furniture) over swatchUrl (close-up chip)
-  const postImageUrl = color.mockupUrl || color.swatchUrl || '';
+  // Show color swatch hint — but do NOT auto-set as post photo for WCLI/CWLI.
+  // For those companies the swatch is used as a panel overlay on AI-generated images,
+  // not as the base photo. Auto-loading it was causing the swatch texture to fill the
+  // entire post image instead of appearing as the bottom-right color chip.
+  const isSwatchCompany = (APP.currentCompany === 'wcli' || APP.currentCompany === 'cwli');
+  const postImageUrl = (!isSwatchCompany && (color.mockupUrl || color.swatchUrl)) || '';
+
   if (color && postImageUrl) {
     const previewEl = document.getElementById('preview-image');
     if (previewEl) {
@@ -3904,25 +3908,25 @@ function updateColorFinishOptions() {
     APP.currentPhoto = postImageUrl;
     APP.currentPhotoOriginal = postImageUrl;
     APP.mediaType = 'photo';
-
-    // Show swatch hint
-    let swatchHint = document.getElementById('color-swatch-hint');
-    if (!swatchHint) {
-      swatchHint = document.createElement('div');
-      swatchHint.id = 'color-swatch-hint';
-      finishSel.parentNode.appendChild(swatchHint);
-    }
-    swatchHint.style.display = 'block';
-    swatchHint.innerHTML = `<div style="display:flex;align-items:center;gap:8px;margin-top:8px;padding:8px 10px;background:var(--bg3);border-radius:var(--radius);border:1px solid var(--border)">
-      <img src="${postImageUrl}" style="width:32px;height:32px;object-fit:cover;border-radius:4px;flex-shrink:0">
-      <div style="flex:1;min-width:0">
-        <div style="font-size:12px;font-weight:500">"${color.name}" photo loaded as post image</div>
-        <div style="font-size:11px;color:var(--text3)">${color.mockupUrl ? 'Mockup photo (color on furniture) loaded. ' : 'Swatch close-up loaded. '}When you generate an AI image, the real swatch will be added as a color chip in the corner.</div>
-      </div>
-      ${color.swatchUrl && color.mockupUrl ? `<img src="${color.swatchUrl}" style="width:28px;height:28px;object-fit:cover;border-radius:4px;flex-shrink:0;border:1px solid var(--border)" title="Swatch chip — added to AI images">` : ''}
-    </div>`;
-    showToast(`"${color.name}" swatch loaded as post image`, 'info');
   }
+
+  // Always show the swatch hint so user knows which color is featured
+  let swatchHint = document.getElementById('color-swatch-hint');
+  if (!swatchHint) {
+    swatchHint = document.createElement('div');
+    swatchHint.id = 'color-swatch-hint';
+    finishSel.parentNode.appendChild(swatchHint);
+  }
+  swatchHint.style.display = 'block';
+  const swatchPreviewUrl = color.swatchUrl || color.mockupUrl || '';
+  swatchHint.innerHTML = `<div style="display:flex;align-items:center;gap:8px;margin-top:8px;padding:8px 10px;background:var(--bg3);border-radius:var(--radius);border:1px solid var(--border)">
+    ${swatchPreviewUrl ? `<img src="${swatchPreviewUrl}" style="width:32px;height:32px;object-fit:cover;border-radius:4px;flex-shrink:0">` : ''}
+    <div style="flex:1;min-width:0">
+      <div style="font-size:12px;font-weight:500">"${color.name}" selected</div>
+      <div style="font-size:11px;color:var(--text3)">${isSwatchCompany ? 'Generate an AI image — the swatch panel will be offered as an overlay after generation.' : (color.mockupUrl ? 'Mockup photo loaded as post image.' : 'Swatch loaded as post image.')}</div>
+    </div>
+  </div>`;
+  if (!isSwatchCompany) showToast(`"${color.name}" loaded as post image`, 'info');
 }
 
 async function generatePost() {
@@ -4323,6 +4327,7 @@ function updateReviewQueue() {
           <button class="btn btn-ghost btn-sm" onclick="deletePost('${p.id}')" style="color:var(--red)">Delete</button>
           <button class="btn btn-secondary btn-sm" onclick="copyCaption('${p.id}')">Copy Caption</button>
           <button class="btn btn-secondary btn-sm" onclick="toggleScheduledPreview('${p.id}')">👁 Preview</button>
+          ${(p.company === 'wcli' || p.company === 'cwli') && (p.swatchColorId || APP.currentColorId) && p.photo ? `<button class="btn btn-secondary btn-sm" style="color:var(--accent2)" onclick="applySwatchToPost('${p.id}')">🎨 Swatch</button>` : ''}
           <input type="datetime-local" class="time-input" style="flex:1;padding:6px 10px;font-size:12px" id="sched-${p.id}" value="${(p.scheduledFor || p.suggestedDate || '').slice(0,16)}">
           <button class="btn btn-primary btn-sm" onclick="schedulePost('${p.id}')">Schedule &amp; Approve</button>
         </div>
@@ -4349,6 +4354,7 @@ function updateReviewQueue() {
           ${pageSelectorHtml}
           <button class="btn btn-ghost btn-sm" onclick="toggleScheduledPreview('${p.id}')" style="font-size:11px">👁 Preview</button>
           <button class="btn btn-secondary btn-sm" onclick="copyCaption('${p.id}')">Copy</button>
+          ${(p.company === 'wcli' || p.company === 'cwli') && p.swatchColorId && p.photo ? `<button class="btn btn-secondary btn-sm" style="color:var(--accent2)" onclick="applySwatchToPost('${p.id}')">🎨 Swatch</button>` : ''}
           ${p.mediaType === 'video' && !p._videoFileRef && !p.videoUrl ? `<button class="btn btn-secondary btn-sm" style="color:var(--amber)" onclick="loadPostIntoCreate('${p.id}')">📎 Re-attach Video</button>` : ''}
           <button class="btn btn-secondary btn-sm" onclick="deletePost('${p.id}')" style="color:var(--red)">Cancel</button>
           <button class="btn btn-primary btn-sm" onclick="publishPostNow('${p.id}')">Publish Now</button>
@@ -4371,6 +4377,30 @@ function updateReviewQueue() {
   }
 
   el.innerHTML = html;
+}
+
+async function applySwatchToPost(postId) {
+  const post = APP.posts.find(p => String(p.id) === String(postId));
+  if (!post || !post.photo) return;
+  const colorId = post.swatchColorId || APP.currentColorId;
+  if (!colorId) { showToast('No color selected for this post', 'error'); return; }
+
+  const btn = document.querySelector(`[onclick="applySwatchToPost('${postId}')"]`);
+  if (btn) { btn.textContent = '…'; btn.disabled = true; }
+
+  try {
+    const showSeries = false; // default off — user can toggle via Create Post if needed
+    const result = await applyColorSwatchOverlay(post.photoOriginal || post.photo, colorId, post.company, { showSeries });
+    post.photo = result;
+    post.swatchApplied = true;
+    upsertPost(post);
+    saveState();
+    showToast('✓ Color swatch applied', 'success');
+    updateReviewQueue();
+  } catch (err) {
+    showToast('Swatch failed: ' + err.message, 'error');
+    if (btn) { btn.textContent = '🎨 Swatch'; btn.disabled = false; }
+  }
 }
 
 function approveAll() {
@@ -7294,13 +7324,21 @@ async function applyColorSwatchOverlay(imageDataUrl, colorId, company, options =
     // Draw texture swatch in top portion
     if (color.swatchUrl) {
       try {
-        const swatchImg = await loadImageFromUrl(color.swatchUrl);
+        // Proxy external URLs through Supabase to bypass CORS restrictions
+        // worldclasslaminate.com.ph doesn't allow cross-origin canvas access
+        const proxyBase = (APP.apiKeys?.imgproxy || localStorage.getItem('scm_imgproxy_key') || '')
+          .replace(/generate-image\/?$/, '').replace(/\/$/, '');
+        let swatchSrc = color.swatchUrl;
+        if (proxyBase && (swatchSrc.includes('worldclasslaminate') || swatchSrc.includes('http'))) {
+          swatchSrc = `${proxyBase}/proxy-image?url=${encodeURIComponent(swatchSrc)}`;
+        }
+        const swatchImg = await loadImageFromUrl(swatchSrc);
         ctx.save();
         ctx.beginPath();
         ctx.rect(panelX, panelY, panelW, textureH);
         ctx.clip();
-        // Fill texture scaled to cover, centered
-        const sw = swatchImg.naturalWidth, sh = swatchImg.naturalHeight;
+        const sw = swatchImg.naturalWidth || swatchImg.width;
+        const sh = swatchImg.naturalHeight || swatchImg.height;
         const scale = Math.max(panelW / sw, textureH / sh);
         const dw = sw * scale, dh = sh * scale;
         const dx = panelX + (panelW - dw) / 2;
@@ -7308,12 +7346,11 @@ async function applyColorSwatchOverlay(imageDataUrl, colorId, company, options =
         ctx.drawImage(swatchImg, dx, dy, dw, dh);
         ctx.restore();
       } catch (_e) {
-        // Fallback: flat color based on color family
+        // Fallback: flat color
         ctx.fillStyle = getColorFamilyHex(color.colorFamily || '');
         ctx.fillRect(panelX, panelY, panelW, textureH);
       }
     } else {
-      // No swatch — flat fill
       ctx.fillStyle = getColorFamilyHex(color.colorFamily || '');
       ctx.fillRect(panelX, panelY, panelW, textureH);
     }
@@ -7485,10 +7522,17 @@ function roundRect(ctx, x, y, w, h, r) {
 
 function loadImageFromUrl(url) {
   return new Promise((resolve, reject) => {
+    // First try with crossOrigin (needed for Canvas drawImage without tainting)
     const img = new Image();
     img.crossOrigin = 'anonymous';
     img.onload = () => resolve(img);
-    img.onerror = () => reject(new Error('Could not load: ' + url));
+    img.onerror = () => {
+      // If CORS fails, try without crossOrigin (canvas will be tainted but we can still draw)
+      const img2 = new Image();
+      img2.onload = () => resolve(img2);
+      img2.onerror = () => reject(new Error('Could not load image: ' + url));
+      img2.src = url + (url.includes('?') ? '&' : '?') + '_nocors=' + Date.now();
+    };
     img.src = url;
   });
 }
@@ -8989,12 +9033,11 @@ async function runAutoGenerate() {
             const visualDesc = prebuiltImageDesc || await captionToVisualDescription(apiKey, fullText, false, co, pillar, colorId);
             const imgPrompt = `Professional, photorealistic marketing photograph. ${visualDesc} Bright, clean, high-quality commercial photography with natural lighting and sharp focus. Absolutely no text, words, logos, or watermarks in the image.`;
             let imageUrl = await generateImageViaProxy(imgPrompt, getWatermarkOpts(co));
-            // Apply real color swatch chip if a color was rotated for this post
-            if (colorId && !colorSwatchUrl) {
-              imageUrl = await applyColorSwatchOverlay(imageUrl, colorId, co);
-            }
             post.photo = imageUrl;
-            post.photoOriginal = imageUrl;
+            post.photoOriginal = imageUrl; // always save original so swatch can be applied/removed later
+            // Note: swatch overlay is NOT auto-applied during batch generation.
+            // User can apply it per-post from the Review queue using the swatch controls.
+            post.swatchColorId = colorId || null; // save which color was used so Review queue can offer the swatch button
             imageCount++;
             if (row) row.innerHTML = baseRowHtml + `<span style="color:var(--green);font-size:13px">✓ 🖼</span>`;
           } catch (iErr) {
