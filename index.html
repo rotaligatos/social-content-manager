@@ -4522,7 +4522,21 @@ function approveAll() {
   updateReviewQueue();
   updateReviewBadge();
   updateDashboard();
-  showToast(`✓ ${drafts.length} post${drafts.length>1?'s':''} scheduled — check and adjust dates in the queue`, 'success');
+
+  // The staggering above only avoids collisions within this batch — check whether any
+  // of these newly-scheduled posts landed within 30 minutes of a post scheduled earlier
+  // (a different session, a manual time entry, etc.) and flag it rather than stay silent.
+  const collidedCompanies = new Set();
+  drafts.forEach(p => {
+    const conflicts = findSchedulingConflicts(p.company, p.scheduledFor, p.id);
+    if (conflicts.length) collidedCompanies.add(p.company.toUpperCase());
+  });
+
+  if (collidedCompanies.size) {
+    showToast(`✓ ${drafts.length} post${drafts.length>1?'s':''} scheduled — ⚠️ check timing overlaps for ${[...collidedCompanies].join(', ')} in the queue`, 'info');
+  } else {
+    showToast(`✓ ${drafts.length} post${drafts.length>1?'s':''} scheduled — check and adjust dates in the queue`, 'success');
+  }
 }
 
 // SUPABASE BACKGROUND SCHEDULER SYNC
@@ -4642,13 +4656,46 @@ async function syncStatusFromSupabase() {
   }
 }
 
+// Checks for other SCHEDULED posts on the same company within `windowMinutes` of the
+// given time. Used before finalizing Schedule & Approve, so two posts don't accidentally
+// land back-to-back (or at the exact same time) on the same Facebook page.
+function findSchedulingConflicts(company, scheduledForISO, excludePostId, windowMinutes = 30) {
+  if (!company || !scheduledForISO) return [];
+  const targetTime = new Date(scheduledForISO).getTime();
+  if (isNaN(targetTime)) return [];
+  const windowMs = windowMinutes * 60 * 1000;
+  return APP.posts.filter(p => {
+    if (String(p.id) === String(excludePostId)) return false;
+    if (p.company !== company) return false;
+    if (p.status !== 'scheduled') return false;
+    if (!p.scheduledFor) return false;
+    const t = new Date(p.scheduledFor).getTime();
+    if (isNaN(t)) return false;
+    return Math.abs(t - targetTime) < windowMs;
+  });
+}
+
 function schedulePost(id) {
   const post = APP.posts.find(p => String(p.id) === String(id));
   if (!post) return;
   const editEl = document.getElementById('caption-edit-' + id);
   if (editEl) post.caption = editEl.value;
   const dt = document.getElementById('sched-' + id)?.value;
-  post.scheduledFor = dt || new Date().toISOString();
+  const proposedTime = dt || new Date().toISOString();
+
+  const conflicts = findSchedulingConflicts(post.company, proposedTime, id);
+  if (conflicts.length) {
+    const conflictList = conflicts.map(c => {
+      const time = new Date(c.scheduledFor).toLocaleString('en-PH', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+      return `• ${c.pillar || 'Post'} — ${time}`;
+    }).join('\n');
+    const proceed = confirm(
+      `Heads up: ${post.company.toUpperCase()} already has ${conflicts.length === 1 ? 'a post' : conflicts.length + ' posts'} scheduled within 30 minutes of this time:\n\n${conflictList}\n\nSchedule this one anyway?`
+    );
+    if (!proceed) return;
+  }
+
+  post.scheduledFor = proposedTime;
   post.status = 'scheduled';
   saveState();
   upsertPost(post); // persist to Supabase posts table
@@ -7289,6 +7336,8 @@ function toggleWatermarkAiSetting(el) {
   const newState = !el.classList.contains('on');
   APP.watermarkAiImages = newState;
   localStorage.setItem('scm_watermark_ai', newState ? '1' : '0');
+  // Sync to Supabase so server-side jobs (Autopilot) respect this preference too
+  pushSettingToSupabase('watermark_ai_images', newState).catch(() => {});
   // Keep both copies of the toggle (Create Post + Auto-Generate Week) visually in sync
   ['create-watermark-toggle', 'autogen-toggle-watermark'].forEach(id => {
     const t = document.getElementById(id);
