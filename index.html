@@ -3603,7 +3603,19 @@ async function captionToVisualDescription(apiKey, caption, forVideo, company, pi
       const primaryFinish = c.finishes?.[0];
       const lightingNote = primaryFinish ? (finishLighting[primaryFinish] || '') : '';
 
-      colorApplicationHint = ` IMPORTANT: The featured laminate color is "${c.name}" — a ${c.colorFamily || ''} ${c.pattern || 'laminate'} finish${primaryFinish ? ' with ' + primaryFinish.toLowerCase() + ' surface' : ''}. Show this color APPLIED to ${bestUse} within a realistic interior scene. The image must be a FULL ROOM OR SPACE — a Philippine home, kitchen, office, or living area — with the ${c.colorFamily || ''} ${c.pattern ? c.pattern.toLowerCase() : 'laminate'} surface visible on the furniture. DO NOT generate a close-up texture shot or material swatch — the scene must show the color in context, applied to actual furniture in a real space. ${lightingNote ? 'Lighting: ' + lightingNote + '.' : ''}`;
+      // AI image models tend to drift dark/neutral colors toward warm brown or espresso tones,
+      // especially under warm interior lighting — this counteracts that specific known failure mode.
+      const colorAccuracyMap = {
+        'black': ' The surface MUST be TRUE NEUTRAL BLACK or very dark charcoal — NOT brown, NOT espresso, NOT dark wood tone. Avoid warm brown color casts entirely; keep the black neutral even under warm lighting.',
+        'white': ' The surface MUST be TRUE WHITE or off-white — NOT cream, NOT beige, NOT yellow-tinted.',
+        'gray': ' The surface MUST be a NEUTRAL GRAY — NOT brown-gray, NOT beige-gray, NOT warm-toned.',
+        'grey': ' The surface MUST be a NEUTRAL GRAY — NOT brown-gray, NOT beige-gray, NOT warm-toned.',
+        'blue': ' The surface MUST clearly read as BLUE — not gray, not teal, not muted.',
+        'green': ' The surface MUST clearly read as GREEN — not gray, not olive-brown.',
+      };
+      const colorAccuracyNote = colorAccuracyMap[(c.colorFamily || '').toLowerCase()] || '';
+
+      colorApplicationHint = ` IMPORTANT: The featured laminate color is "${c.name}" — a ${c.colorFamily || ''} ${c.pattern || 'laminate'} finish${primaryFinish ? ' with ' + primaryFinish.toLowerCase() + ' surface' : ''}. Show this color APPLIED to ${bestUse} within a realistic interior scene. The image must be a FULL ROOM OR SPACE — a Philippine home, kitchen, office, or living area — with the ${c.colorFamily || ''} ${c.pattern ? c.pattern.toLowerCase() : 'laminate'} surface visible on the furniture. DO NOT generate a close-up texture shot or material swatch — the scene must show the color in context, applied to actual furniture in a real space. ${colorAccuracyNote}${lightingNote ? ' Lighting: ' + lightingNote + '.' : ''}`;
     }
   }
 
@@ -3848,6 +3860,26 @@ function isSwatchEligiblePillar(pillar) {
   return SWATCH_ELIGIBLE_PILLARS.some(p => pillar === p || pillar.startsWith(p + ' '));
 }
 
+// AI image models systematically drift certain colors toward warm/brown tones,
+// especially black and gray under warm interior lighting. This builds a corrective
+// instruction to append directly to the final image prompt as a last line of defense,
+// in case Claude's scene description drops the nuance when condensing to one sentence.
+function getColorAccuracyNote(company, colorId) {
+  if (!colorId) return '';
+  const colors = getColors(company);
+  const c = colors.find(x => x.id === colorId);
+  if (!c) return '';
+  const map = {
+    'black': ' The featured surface must render as TRUE NEUTRAL BLACK or dark charcoal — absolutely NOT brown, espresso, or dark wood-toned.',
+    'white': ' The featured surface must render as TRUE WHITE or off-white — NOT cream, beige, or yellow-tinted.',
+    'gray': ' The featured surface must render as NEUTRAL GRAY — NOT brown-gray or warm-toned.',
+    'grey': ' The featured surface must render as NEUTRAL GRAY — NOT brown-gray or warm-toned.',
+    'blue': ' The featured surface must clearly render as BLUE, not gray or teal.',
+    'green': ' The featured surface must clearly render as GREEN, not olive-brown or gray.',
+  };
+  return map[(c.colorFamily || '').toLowerCase()] || '';
+}
+
 async function confirmAndGenerateImage() {
   const ta = document.getElementById('visual-desc-input');
   const visualDesc = ta ? ta.value.trim() : '';
@@ -3856,10 +3888,11 @@ async function confirmAndGenerateImage() {
   const genBtn = modal && modal.querySelector('.btn-primary');
   if (genBtn) { genBtn.textContent = 'Generating...'; genBtn.disabled = true; }
   try {
-    const imgPrompt = 'Professional, photorealistic marketing photograph. ' + visualDesc + ' Bright, clean, high-quality commercial photography with natural lighting and sharp focus. Absolutely no text, words, logos, or watermarks in the image.';
+    const colorId = APP.currentColorId || document.getElementById('post-color-id')?.value || '';
+    const colorAccuracyNote = getColorAccuracyNote(APP.currentCompany, colorId);
+    const imgPrompt = 'Professional, photorealistic marketing photograph. ' + visualDesc + ' Bright, clean, high-quality commercial photography with natural lighting and sharp focus.' + colorAccuracyNote + ' Absolutely no text, words, logos, or watermarks in the image.';
     let imageUrl = await generateImageViaProxy(imgPrompt, getWatermarkOpts(APP.currentCompany));
 
-    const colorId = APP.currentColorId || document.getElementById('post-color-id')?.value || '';
     const isSwatchCompany = (APP.currentCompany === 'wcli' || APP.currentCompany === 'cwli')
       && isSwatchEligiblePillar(APP.currentPillar);
 
@@ -9190,7 +9223,8 @@ async function runAutoGenerate() {
           try {
             // Use prebuilt image description from combined call — no extra API call needed
             const visualDesc = prebuiltImageDesc || await captionToVisualDescription(apiKey, fullText, false, co, pillar, colorId);
-            const imgPrompt = `Professional, photorealistic marketing photograph. ${visualDesc} Bright, clean, high-quality commercial photography with natural lighting and sharp focus. Absolutely no text, words, logos, or watermarks in the image.`;
+            const colorAccuracyNote = getColorAccuracyNote(co, colorId);
+            const imgPrompt = `Professional, photorealistic marketing photograph. ${visualDesc} Bright, clean, high-quality commercial photography with natural lighting and sharp focus.${colorAccuracyNote} Absolutely no text, words, logos, or watermarks in the image.`;
             let imageUrl = await generateImageViaProxy(imgPrompt, getWatermarkOpts(co));
             post.photo = imageUrl;
             post.photoOriginal = imageUrl; // always save original so swatch can be applied/removed later
