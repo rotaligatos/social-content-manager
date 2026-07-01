@@ -3990,14 +3990,30 @@ function resetGenerateBtn() {
 
 async function upsertPost(post) {
   const proxyBase = (APP.apiKeys.imgproxy || localStorage.getItem('scm_imgproxy_key') || '').replace(/generate-image\/?$/, '');
-  if (!proxyBase) return; // silently skip — no proxy configured
+  if (!proxyBase) return;
   try {
-    await fetch(proxyBase + 'upsert-post', {
+    // Strip large base64 image data before sending — Supabase stores URLs not raw base64
+    // Base64 strings are >100KB and cause silent fetch failures
+    const payload = { ...post };
+    if (payload.photo && payload.photo.startsWith('data:') && payload.photo.length > 50000) {
+      payload.photo = payload.supabasePhotoUrl || payload.photoOriginal || null;
+    }
+    if (payload.photoOriginal && payload.photoOriginal.startsWith('data:')) {
+      payload.photoOriginal = null; // never send original base64
+    }
+    if (payload._videoFileRef) delete payload._videoFileRef; // File objects can't serialize
+    const res = await fetch(proxyBase + 'upsert-post', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(post)
+      body: JSON.stringify(payload)
     });
-  } catch (_e) { /* non-fatal — localStorage is the fallback */ }
+    if (!res.ok) {
+      const err = await res.text();
+      console.warn('upsertPost failed:', res.status, err);
+    }
+  } catch (e) {
+    console.warn('upsertPost error (post kept in localStorage):', e.message);
+  }
 }
 
 // Bulk-sync all posts in localStorage to Supabase posts table
@@ -9434,16 +9450,20 @@ async function pullFromSupabase() {
         };
       });
 
-      // Only keep local-only posts created AFTER the most recent Supabase post
-      // (these are genuinely new, not yet synced — not old deleted posts)
+      // Keep local-only posts that are drafts or scheduled (not yet synced to Supabase)
+      // ONLY discard local posts that are older than Supabase posts AND have no status
+      // (i.e. genuinely stale/deleted content). Never discard unsynced scheduled/draft posts.
       const remoteIds = new Set((data.posts || []).map(p => String(p.id)));
-      const latestRemoteTime = data.posts?.length
-        ? Math.max(...data.posts.map(p => new Date(p.created_at).getTime()))
-        : 0;
-      const localOnly = (APP.posts_before_pull || []).filter(p =>
-        !remoteIds.has(String(p.id)) &&
-        new Date(p.createdAt || 0).getTime() > latestRemoteTime - 60000 // within 1 min of latest
-      );
+      const localOnly = (APP.posts_before_pull || []).filter(p => {
+        if (remoteIds.has(String(p.id))) return false; // already in Supabase
+        // Always keep drafts and scheduled posts — they may not have synced yet
+        if (p.status === 'draft' || p.status === 'scheduled') return true;
+        // For other statuses (published/missed), only keep if recent (within 5 min)
+        const latestRemoteTime = data.posts?.length
+          ? Math.max(...data.posts.map(r => new Date(r.created_at).getTime()))
+          : 0;
+        return new Date(p.createdAt || 0).getTime() > latestRemoteTime - 5 * 60000;
+      });
       if (localOnly.length) APP.posts = [...APP.posts, ...localOnly];
     } else if (data.posts?.length === 0) {
       // Supabase returned empty — clear all local posts (they were deleted elsewhere)
