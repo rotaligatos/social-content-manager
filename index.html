@@ -8971,8 +8971,9 @@ async function runAutoGenerate() {
           if (companyColors.length) {
             const selectedColor = companyColors[i % companyColors.length];
             colorId = selectedColor.id;
-            // Use the actual swatch photo from the website instead of AI-generating
-            if (selectedColor.swatchUrl) colorSwatchUrl = selectedColor.swatchUrl;
+            // NOTE: we no longer use swatchUrl as the post photo directly.
+            // The swatch is an overlay panel applied on top of AI-generated images.
+            // colorSwatchUrl kept as null so AI image generation always runs.
           }
         }
         // Retail context for WCLI/CWLI
@@ -8983,7 +8984,7 @@ async function runAutoGenerate() {
         // Skip image generation entirely if we already have a real color photo
         let fullText = '';
         let prebuiltImageDesc = '';
-        if (isImagePost && genImages && !colorSwatchUrl) {
+        if (isImagePost && genImages) {
           const imageContext = getColorImageContext(co, colorId);
           const combined = await callClaudeCombined(apiKey, captionPrompt, imageContext);
           fullText = combined.caption;
@@ -9005,9 +9006,9 @@ async function runAutoGenerate() {
           pillar: pillar,
           caption: fullText,
           // Use swatch URL directly if available — real product photo from website
-          photo: colorSwatchUrl || null,
+          photo: null,
           watermark: false,
-          photoOriginal: colorSwatchUrl || null,
+          photoOriginal: null,
           mediaType: isVideoPost ? 'video' : 'photo',
           video: null,
           videoMeta: null,
