@@ -7930,6 +7930,10 @@ function getColors(company) {
 }
 function saveColors(company, colors) {
   localStorage.setItem('scm_colors_' + company, JSON.stringify(colors));
+  // Every mutation path (add, edit, retire, AI tag-fix, WCLI->CWLI copy) funnels
+  // through here — syncing here once means none of those call sites need their
+  // own push call, and none can be silently missed the way CWLI's colors were.
+  pushColorsToSupabase(company);
 }
 function getRetailPartners() {
   return JSON.parse(localStorage.getItem('scm_retail_partners') || '[]');
@@ -8019,17 +8023,42 @@ function deleteColor(company, id) {
   showToast('Color removed', 'info');
 }
 
-// Copy WCLI colors to CWLI (Cebu Exclusive ones pre-selected)
+// Copy WCLI colors to CWLI (Cebu Exclusive ones pre-selected).
+// Also re-syncs corrected fields (e.g. color_family fixes from "Fix Color Tags")
+// onto colors that were already copied over previously — a plain "copy missing
+// only" pass would silently leave stale/wrong data sitting in CWLI forever.
 function copyWcliToCwli() {
   const wcliColors = getColors('wcli');
   if (!wcliColors.length) { showToast('Import WCLI colors first', 'error'); return; }
   const cwliColors = getColors('cwli');
-  const existingIds = new Set(cwliColors.map(c => c.id));
-  const toAdd = wcliColors.filter(c => !existingIds.has(c.id));
-  if (!toAdd.length) { showToast('All WCLI colors already in CWLI', 'info'); return; }
-  saveColors('cwli', [...cwliColors, ...toAdd]);
+  const existingById = new Map(cwliColors.map(c => [c.id, c]));
+
+  let added = 0, updated = 0;
+  const merged = wcliColors.map(wc => {
+    const existing = existingById.get(wc.id);
+    if (!existing) { added++; return wc; }
+    // Preserve CWLI-specific fields (Cebu Exclusive flag, retired/active status)
+    // while pulling in corrected shared fields (color_family, pattern, swatchUrl, etc.)
+    // from the current WCLI record.
+    const refreshed = { ...wc, isCebuExclusive: existing.isCebuExclusive, status: existing.status };
+    if (JSON.stringify({ ...existing, isCebuExclusive: undefined, status: undefined }) !==
+        JSON.stringify({ ...wc, isCebuExclusive: undefined, status: undefined })) {
+      updated++;
+    }
+    return refreshed;
+  });
+  // Keep any CWLI-only colors that don't exist in WCLI at all (manually added, etc.)
+  const cwliOnly = cwliColors.filter(c => !wcliColors.some(wc => wc.id === c.id));
+
+  saveColors('cwli', [...merged, ...cwliOnly]);
   renderColorList('cwli');
-  showToast(`${toAdd.length} colors copied to CWLI`, 'success');
+
+  if (!added && !updated) {
+    showToast('CWLI colors already match WCLI — nothing to update', 'info');
+  } else {
+    showToast(`${added} new, ${updated} updated (synced to CWLI + Supabase)`, 'success');
+  }
+
   // Auto-fetch images for CWLI colors that are missing swatches
   const cwliMissingImages = getColors('cwli').filter(c => c.slug && !c.swatchUrl);
   if (cwliMissingImages.length) {
