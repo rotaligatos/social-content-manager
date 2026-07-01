@@ -1014,6 +1014,7 @@ select:focus{border-color:var(--accent-border);}
         <button class="settings-nav-item" onclick="switchSettingsTab(this,'schedule')">Auto-Schedule</button>
         <button class="settings-nav-item" onclick="switchSettingsTab(this,'autopilot')">✦ Autopilot</button>
         <button class="settings-nav-item" onclick="switchSettingsTab(this,'data')">Data &amp; Export</button>
+        <button class="settings-nav-item" onclick="switchSettingsTab(this,'activity')">Activity Log</button>
       </div>
       <div id="stab-api-keys">
         <div class="card">
@@ -1331,6 +1332,23 @@ select:focus{border-color:var(--accent-border);}
           <div style="font-size:14px;font-weight:500;margin-bottom:4px;color:var(--red)">Danger Zone</div>
           <div style="font-size:12px;color:var(--text3);margin-bottom:14px">This permanently deletes everything in this browser. Download a backup first.</div>
           <button class="btn btn-ghost" style="color:var(--red);border-color:var(--red-bg);width:100%" onclick="clearData()">Clear All Local Data</button>
+        </div>
+      </div>
+
+      <div id="stab-activity" style="display:none">
+        <div class="card" style="margin-bottom:16px">
+          <div style="font-size:14px;font-weight:500;margin-bottom:4px">Activity Log</div>
+          <div style="font-size:12px;color:var(--text3);margin-bottom:14px">Who scheduled, edited, or deleted each post, and when. Covers actions taken while signed in and synced — actions made offline or before sync was enabled won't appear here.</div>
+          <div style="display:flex;gap:8px;margin-bottom:12px">
+            <select id="activity-log-company-filter" onchange="loadActivityLog()" style="flex:1;padding:8px 10px;font-size:12px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg3);color:var(--text)">
+              <option value="">All companies</option>
+              <option value="mssi">MSSI</option>
+              <option value="wcli">WCLI</option>
+              <option value="cwli">CWLI</option>
+            </select>
+            <button class="btn btn-secondary btn-sm" onclick="loadActivityLog()">↻ Refresh</button>
+          </div>
+          <div id="activity-log-list" style="max-height:480px;overflow-y:auto"></div>
         </div>
       </div>
     </div>
@@ -6182,11 +6200,12 @@ function loadBrandProfiles() {
 function switchSettingsTab(btn, tab) {
   document.querySelectorAll('.settings-nav-item').forEach(b => b.classList.remove('active'));
   btn.classList.add('active');
-  ['api-keys','fb-pages','team','sla','schedule','autopilot','data'].forEach(t => {
+  ['api-keys','fb-pages','team','sla','schedule','autopilot','data','activity'].forEach(t => {
     const el = document.getElementById('stab-' + t);
     if (el) el.style.display = t === tab ? 'block' : 'none';
   });
   if (tab === 'data') renderStorageUsage();
+  if (tab === 'activity') loadActivityLog();
   if (tab === 'autopilot') {
     // Load autopilot settings into UI
     const s = getAutopilotSettings();
@@ -9934,6 +9953,43 @@ async function runAutopilotNow() {
     showToast('Autopilot test failed: ' + err.message, 'error');
   }
   btn.disabled = false; btn.textContent = 'Run Now (Test)';
+}
+
+// Renders the Activity Log tab — who scheduled/edited/deleted each post, and when.
+// Goes through app-sync (authenticated) rather than a direct REST call, since
+// activity_log has RLS enabled with no public policies (staff names shouldn't be
+// readable via the anon key the way autopilot_log currently is).
+const ACTIVITY_LOG_LABELS = {
+  created_draft: '📝 created draft',
+  scheduled: '📅 scheduled',
+  rescheduled: '🔁 rescheduled',
+  edited_caption: '✏️ edited caption',
+  deleted: '🗑️ deleted',
+};
+
+async function loadActivityLog() {
+  const el = document.getElementById('activity-log-list');
+  if (!el || !_session) return;
+  el.textContent = 'Loading…';
+  try {
+    const company = document.getElementById('activity-log-company-filter')?.value || '';
+    const res = await syncRequest({ operation: 'get_activity_log', company: company || undefined, limit: 100 });
+    const entries = res?.entries || [];
+    if (!entries.length) { el.innerHTML = '<div style="font-size:12px;color:var(--text3);padding:10px 0">No activity recorded yet.</div>'; return; }
+    el.innerHTML = entries.map(e => {
+      const label = ACTIVITY_LOG_LABELS[e.action] || e.action;
+      const time = new Date(e.created_at).toLocaleString('en-PH', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+      const companyTag = e.company ? `<span style="font-size:10px;color:var(--text3);text-transform:uppercase">${e.company}</span>` : '';
+      return `<div style="padding:8px 0;border-top:1px solid var(--border);display:flex;align-items:center;gap:10px;font-size:12px">
+        <span style="font-size:10.5px;color:var(--text3);white-space:nowrap">${time}</span>
+        <span style="font-weight:500">${e.actor_name || 'Unknown'}</span>
+        <span style="flex:1">${label}${e.detail ? ' — ' + e.detail : ''}</span>
+        ${companyTag}
+      </div>`;
+    }).join('');
+  } catch (_e) {
+    el.innerHTML = '<div style="font-size:12px;color:var(--red);padding:10px 0">Could not load activity log.</div>';
+  }
 }
 
 async function loadAutopilotLog() {
