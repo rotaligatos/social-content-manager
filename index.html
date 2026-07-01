@@ -3849,16 +3849,19 @@ async function confirmAndGenerateImage() {
     const imgPrompt = 'Professional, photorealistic marketing photograph. ' + visualDesc + ' Bright, clean, high-quality commercial photography with natural lighting and sharp focus. Absolutely no text, words, logos, or watermarks in the image.';
     let imageUrl = await generateImageViaProxy(imgPrompt, getWatermarkOpts(APP.currentCompany));
 
-    // Apply real color swatch chip overlay if a color is selected
     const colorId = APP.currentColorId || document.getElementById('post-color-id')?.value || '';
-    if (colorId && APP.currentCompany) {
-      if (genBtn) genBtn.textContent = 'Adding color chip…';
-      imageUrl = await applyColorSwatchOverlay(imageUrl, colorId, APP.currentCompany);
-    }
+    const isSwatchCompany = APP.currentCompany === 'wcli' || APP.currentCompany === 'cwli';
 
     setCurrentPhoto(imageUrl);
     if (modal) modal.remove();
-    showToast('Image generated with color chip ✓', 'success');
+
+    // Show swatch control only for WCLI/CWLI with a color selected
+    if (colorId && isSwatchCompany) {
+      showSwatchControls(imageUrl, colorId, APP.currentCompany);
+      showToast('Image generated — add color swatch?', 'success');
+    } else {
+      showToast('Image generated ✓', 'success');
+    }
   } catch (err) {
     if (genBtn) { genBtn.textContent = 'Generate Image'; genBtn.disabled = false; }
     showToast('Image generation failed: ' + err.message, 'error');
@@ -7192,85 +7195,225 @@ async function applyWatermarkToPost(post) {
 // This ensures the viewer can see the exact laminate color clearly
 // even if the AI image doesn't perfectly reproduce it.
 
-async function applyColorSwatchOverlay(imageDataUrl, colorId, company) {
+async function applyColorSwatchOverlay(imageDataUrl, colorId, company, options = {}) {
   if (!colorId || !company) return imageDataUrl;
+  // Only applies to WCLI and CWLI
+  if (company !== 'wcli' && company !== 'cwli') return imageDataUrl;
+
   const colors = getColors(company);
   const color = colors.find(c => c.id === colorId);
-  if (!color || !color.swatchUrl) return imageDataUrl;
+  if (!color) return imageDataUrl;
+
+  const showSeries = options.showSeries !== false && (color.series || color.is_hpl);
 
   try {
-    const [mainImg, swatchImg] = await Promise.all([
-      loadImageFromUrl(imageDataUrl),
-      loadImageFromUrl(color.swatchUrl),
-    ]);
-
+    const mainImg = await loadImageFromUrl(imageDataUrl);
     const canvas = document.createElement('canvas');
     canvas.width = mainImg.naturalWidth;
     canvas.height = mainImg.naturalHeight;
     const ctx = canvas.getContext('2d');
-
-    // Draw main AI image
     ctx.drawImage(mainImg, 0, 0);
 
-    // Color chip size — 22% of shorter side
-    const chipSize = Math.min(canvas.width, canvas.height) * 0.22;
-    const margin = chipSize * 0.12;
+    const W = canvas.width;
+    const H = canvas.height;
 
-    // Position: bottom-left
-    const chipX = margin;
-    const chipY = canvas.height - chipSize - margin;
+    // Panel dimensions — ~28% of image width, same width as height ratio ~1.2:1
+    const panelW = Math.round(W * 0.28);
+    const textureH = Math.round(panelW * 0.72); // top 72% = texture
+    const labelH = Math.round(panelW * 0.30);   // bottom 30% = label
+    const panelH = textureH + labelH;
+    const margin = Math.round(W * 0.03);
 
-    // Draw rounded rect shadow
+    // Position: bottom-right, slightly inset
+    const panelX = W - panelW - margin;
+    const panelY = H - panelH - margin;
+
+    // Drop shadow
     ctx.save();
-    ctx.shadowColor = 'rgba(0,0,0,0.5)';
-    ctx.shadowBlur = 16;
-    ctx.shadowOffsetX = 2;
-    ctx.shadowOffsetY = 4;
-    roundRect(ctx, chipX, chipY, chipSize, chipSize, chipSize * 0.08);
-    ctx.fillStyle = '#fff';
-    ctx.fill();
+    ctx.shadowColor = 'rgba(0,0,0,0.35)';
+    ctx.shadowBlur = Math.round(W * 0.025);
+    ctx.shadowOffsetX = -3;
+    ctx.shadowOffsetY = -3;
+    ctx.fillStyle = '#f5f0eb';
+    ctx.fillRect(panelX, panelY, panelW, panelH);
     ctx.restore();
 
-    // Clip and draw swatch inside rounded rect
-    ctx.save();
-    roundRect(ctx, chipX, chipY, chipSize, chipSize, chipSize * 0.08);
-    ctx.clip();
-    ctx.drawImage(swatchImg, chipX, chipY, chipSize, chipSize);
-    ctx.restore();
+    // Draw texture swatch in top portion
+    if (color.swatchUrl) {
+      try {
+        const swatchImg = await loadImageFromUrl(color.swatchUrl);
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(panelX, panelY, panelW, textureH);
+        ctx.clip();
+        // Fill texture scaled to cover, centered
+        const sw = swatchImg.naturalWidth, sh = swatchImg.naturalHeight;
+        const scale = Math.max(panelW / sw, textureH / sh);
+        const dw = sw * scale, dh = sh * scale;
+        const dx = panelX + (panelW - dw) / 2;
+        const dy = panelY + (textureH - dh) / 2;
+        ctx.drawImage(swatchImg, dx, dy, dw, dh);
+        ctx.restore();
+      } catch (_e) {
+        // Fallback: flat color based on color family
+        ctx.fillStyle = getColorFamilyHex(color.colorFamily || '');
+        ctx.fillRect(panelX, panelY, panelW, textureH);
+      }
+    } else {
+      // No swatch — flat fill
+      ctx.fillStyle = getColorFamilyHex(color.colorFamily || '');
+      ctx.fillRect(panelX, panelY, panelW, textureH);
+    }
 
-    // Thin white border
-    ctx.save();
-    roundRect(ctx, chipX, chipY, chipSize, chipSize, chipSize * 0.08);
-    ctx.strokeStyle = 'rgba(255,255,255,0.9)';
-    ctx.lineWidth = 3;
-    ctx.stroke();
-    ctx.restore();
+    // Label background — warm off-white matching reference
+    ctx.fillStyle = '#f0ebe4';
+    ctx.fillRect(panelX, panelY + textureH, panelW, labelH);
 
-    // Color name label below chip
-    const labelH = chipSize * 0.28;
-    const labelY = chipY + chipSize + margin * 0.5;
+    // Thin separator line between texture and label
+    ctx.fillStyle = 'rgba(0,0,0,0.08)';
+    ctx.fillRect(panelX, panelY + textureH, panelW, 1.5);
+
+    // Color name — bold, uppercase, dark navy (matching reference)
+    const nameFontSize = Math.round(labelH * 0.38);
     ctx.save();
-    ctx.fillStyle = 'rgba(0,0,0,0.65)';
-    roundRect(ctx, chipX, labelY, chipSize, labelH, labelH * 0.3);
-    ctx.fill();
-    ctx.fillStyle = '#fff';
-    ctx.font = `600 ${Math.round(labelH * 0.45)}px "DM Sans", sans-serif`;
+    ctx.fillStyle = '#1a2d4a';
+    ctx.font = `700 ${nameFontSize}px Arial, sans-serif`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    // Truncate name if too long
-    let name = color.name;
-    if (ctx.measureText(name).width > chipSize - 12) {
-      while (ctx.measureText(name + '…').width > chipSize - 12 && name.length > 0) name = name.slice(0, -1);
+    let name = (color.name || '').toUpperCase();
+    const maxNameW = panelW - 16;
+    if (ctx.measureText(name).width > maxNameW) {
+      while (ctx.measureText(name + '…').width > maxNameW && name.length > 0) name = name.slice(0,-1);
       name += '…';
     }
-    ctx.fillText(name, chipX + chipSize / 2, labelY + labelH / 2);
+
+    if (showSeries && color.series) {
+      // Two lines: color name + series
+      const seriesFontSize = Math.round(nameFontSize * 0.62);
+      const lineGap = Math.round(labelH * 0.08);
+      const totalTextH = nameFontSize + lineGap + seriesFontSize;
+      const startY = panelY + textureH + (labelH - totalTextH) / 2 + nameFontSize / 2;
+      ctx.font = `700 ${nameFontSize}px Arial, sans-serif`;
+      ctx.fillText(name, panelX + panelW / 2, startY);
+      ctx.font = `400 ${seriesFontSize}px Arial, sans-serif`;
+      ctx.fillStyle = '#4a5568';
+      let series = color.series.toUpperCase();
+      if (ctx.measureText(series).width > maxNameW) {
+        while (ctx.measureText(series + '…').width > maxNameW && series.length > 0) series = series.slice(0,-1);
+        series += '…';
+      }
+      ctx.fillText(series, panelX + panelW / 2, startY + nameFontSize / 2 + lineGap + seriesFontSize / 2);
+    } else {
+      ctx.fillText(name, panelX + panelW / 2, panelY + textureH + labelH / 2);
+    }
     ctx.restore();
 
     return canvas.toDataURL('image/jpeg', 0.93);
   } catch (err) {
     console.warn('Color swatch overlay failed:', err.message);
-    return imageDataUrl; // Return original if overlay fails
+    return imageDataUrl;
   }
+}
+
+// ── COLOR SWATCH OVERLAY CONTROLS ─────────────────────────────
+function showSwatchControls(originalImageUrl, colorId, company) {
+  // Remove any existing swatch controls
+  document.getElementById('swatch-controls')?.remove();
+
+  const colors = getColors(company);
+  const color = colors.find(c => c.id === colorId);
+  if (!color) return;
+
+  const previewEl = document.getElementById('preview-image');
+  if (!previewEl) return;
+
+  const ctrl = document.createElement('div');
+  ctrl.id = 'swatch-controls';
+  ctrl.style.cssText = 'margin-top:8px;background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius);padding:10px 12px';
+  ctrl.innerHTML = `
+    <div style="font-size:12px;font-weight:500;color:var(--text2);margin-bottom:8px">🎨 Color Swatch Panel</div>
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap">
+      <label style="display:flex;align-items:center;gap:5px;font-size:12px;color:var(--text3);cursor:pointer">
+        <input type="checkbox" id="swatch-show-series" ${color.series ? '' : 'disabled'}> Show series name
+      </label>
+      <span style="font-size:11px;color:var(--text3)">${color.name}${color.series ? ' · ' + color.series : ''}</span>
+    </div>
+    <div style="display:flex;gap:6px">
+      <button class="btn btn-primary btn-sm" id="swatch-apply-btn" onclick="applySwatch(false)">✓ Apply Swatch</button>
+      <button class="btn btn-secondary btn-sm" onclick="applySwatchToAll()">Apply to All Posts</button>
+      <button class="btn btn-ghost btn-sm" onclick="document.getElementById('swatch-controls').remove()">Skip</button>
+    </div>`;
+  previewEl.parentNode.insertBefore(ctrl, previewEl.nextSibling);
+
+  // Store for apply function
+  window._swatchState = { originalImageUrl, colorId, company };
+}
+
+async function applySwatch(skipToast) {
+  const s = window._swatchState;
+  if (!s) return;
+  const btn = document.getElementById('swatch-apply-btn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Applying…'; }
+  const showSeries = document.getElementById('swatch-show-series')?.checked || false;
+  try {
+    const result = await applyColorSwatchOverlay(s.originalImageUrl, s.colorId, s.company, { showSeries });
+    setCurrentPhoto(result);
+    document.getElementById('swatch-controls')?.remove();
+    if (!skipToast) showToast('✓ Color swatch applied', 'success');
+    return result;
+  } catch (err) {
+    if (btn) { btn.disabled = false; btn.textContent = '✓ Apply Swatch'; }
+    showToast('Swatch apply failed: ' + err.message, 'error');
+    return null;
+  }
+}
+
+async function applySwatchToAll() {
+  const s = window._swatchState;
+  if (!s) return;
+  const showSeries = document.getElementById('swatch-show-series')?.checked || false;
+  const drafts = APP.posts.filter(p => p.status === 'draft' && p.photo &&
+    (p.company === 'wcli' || p.company === 'cwli'));
+  if (!drafts.length) {
+    await applySwatch(false);
+    return;
+  }
+  if (!confirm(`Apply this color swatch to all ${drafts.length} draft WCLI/CWLI post${drafts.length>1?'s':''}? This will update their photos.`)) return;
+
+  const btn = document.getElementById('swatch-apply-btn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Applying to all…'; }
+  let done = 0;
+  // Apply to current image first
+  await applySwatch(true);
+  // Apply to all other drafts
+  for (const post of drafts) {
+    try {
+      const result = await applyColorSwatchOverlay(post.photo, s.colorId, post.company, { showSeries });
+      if (result) {
+        post.photo = result;
+        upsertPost(post);
+        done++;
+      }
+    } catch (_e) {}
+  }
+  document.getElementById('swatch-controls')?.remove();
+  showToast(`✓ Color swatch applied to ${done+1} post${done+1>1?'s':''}`, 'success');
+  saveState();
+  updateReviewQueue();
+}
+
+function getColorFamilyHex(family) {
+  const map = {
+    'beige': '#d4c5a9', 'white': '#f5f5f0', 'grey': '#a0a0a0', 'gray': '#a0a0a0',
+    'brown': '#8b6f47', 'black': '#2d2d2d', 'walnut': '#6b4226', 'oak': '#c8a96e',
+    'wenge': '#3d2b1f', 'teak': '#a0522d', 'cherry': '#8b2635', 'maple': '#e8c99a',
+    'pine': '#d4a853', 'green': '#5c7a5c', 'blue': '#4a6fa5', 'red': '#8b2020',
+  };
+  const lower = (family || '').toLowerCase();
+  for (const [key, hex] of Object.entries(map)) {
+    if (lower.includes(key)) return hex;
+  }
+  return '#c8b99a'; // default warm neutral
 }
 
 function roundRect(ctx, x, y, w, h, r) {
