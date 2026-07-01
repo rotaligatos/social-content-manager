@@ -3521,6 +3521,12 @@ async function generateImageViaProxy(prompt, opts) {
     payload.watermark = true;
     payload.logoDataUrl = opts.logoDataUrl;
   }
+  // When a real swatch photo is available, pass it through so the server can feed it to
+  // Gemini 2.5 Flash Image as a reference — matching the ACTUAL material texture/shade,
+  // not just a text description of the color name. Only used for WCLI/CWLI color-featured posts.
+  if (opts && opts.swatchUrl) {
+    payload.swatchUrl = opts.swatchUrl;
+  }
   const res = await fetch(proxyUrl, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -3891,7 +3897,7 @@ async function confirmAndGenerateImage() {
     const colorId = APP.currentColorId || document.getElementById('post-color-id')?.value || '';
     const colorAccuracyNote = getColorAccuracyNote(APP.currentCompany, colorId);
     const imgPrompt = 'Professional, photorealistic marketing photograph. ' + visualDesc + ' Bright, clean, high-quality commercial photography with natural lighting and sharp focus.' + colorAccuracyNote + ' Absolutely no text, words, logos, or watermarks in the image.';
-    let imageUrl = await generateImageViaProxy(imgPrompt, getWatermarkOpts(APP.currentCompany));
+    let imageUrl = await generateImageViaProxy(imgPrompt, buildImageGenOpts(APP.currentCompany, colorId));
 
     const isSwatchCompany = (APP.currentCompany === 'wcli' || APP.currentCompany === 'cwli')
       && isSwatchEligiblePillar(APP.currentPillar);
@@ -7257,6 +7263,18 @@ function getWatermarkOpts(company) {
   return { watermark: true, logoDataUrl: logo };
 }
 
+// Combines watermark opts with an optional real swatch photo reference — used so
+// generateImageViaProxy gets both in one options object without overwriting either.
+function buildImageGenOpts(company, colorId) {
+  const opts = getWatermarkOpts(company) || {};
+  if (colorId && (company === 'wcli' || company === 'cwli')) {
+    const colors = getColors(company);
+    const c = colors.find(x => x.id === colorId);
+    if (c && c.swatchUrl) opts.swatchUrl = c.swatchUrl;
+  }
+  return Object.keys(opts).length ? opts : null;
+}
+
 function toggleWatermarkAiSetting(el) {
   const newState = !el.classList.contains('on');
   APP.watermarkAiImages = newState;
@@ -9225,7 +9243,7 @@ async function runAutoGenerate() {
             const visualDesc = prebuiltImageDesc || await captionToVisualDescription(apiKey, fullText, false, co, pillar, colorId);
             const colorAccuracyNote = getColorAccuracyNote(co, colorId);
             const imgPrompt = `Professional, photorealistic marketing photograph. ${visualDesc} Bright, clean, high-quality commercial photography with natural lighting and sharp focus.${colorAccuracyNote} Absolutely no text, words, logos, or watermarks in the image.`;
-            let imageUrl = await generateImageViaProxy(imgPrompt, getWatermarkOpts(co));
+            let imageUrl = await generateImageViaProxy(imgPrompt, buildImageGenOpts(co, colorId));
             post.photo = imageUrl;
             post.photoOriginal = imageUrl; // always save original so swatch can be applied/removed later
             // Note: swatch overlay is NOT auto-applied during batch generation.
@@ -10311,7 +10329,7 @@ async function generateImageForPreview(postId) {
   try {
     const notes = post.caption ? post.caption.slice(0, 200) : '';
     const visualPrompt = buildImagePrompt(post.company, post.audience, post.pillar, notes);
-    const url = await generateImageViaProxy(visualPrompt, getWatermarkOpts(post.company));
+    const url = await generateImageViaProxy(visualPrompt, buildImageGenOpts(post.company, post.swatchColorId));
     post.photo = url;
     post.mediaType = 'photo';
     saveState();
@@ -10377,7 +10395,7 @@ async function previewRegenImage(postId) {
   try {
     const notes = post.caption ? post.caption.slice(0, 200) : '';
     const visualPrompt = buildImagePrompt(post.company, post.audience, post.pillar, notes);
-    const url = await generateImageViaProxy(visualPrompt, getWatermarkOpts(post.company));
+    const url = await generateImageViaProxy(visualPrompt, buildImageGenOpts(post.company, post.swatchColorId));
     post.photo = url;
     post.mediaType = 'photo';
     saveState();
