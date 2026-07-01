@@ -8247,7 +8247,7 @@ async function importWcliColors() {
 // Uses Claude Vision to look at each color's real swatch photo and
 // assign an accurate family so AI image generation matches reality.
 async function fixColorFamilyTags(company) {
-  const apiKey = APP.apiKeys.claude || localStorage.getItem('scm_claude_key');
+  const apiKey = APP.apiKeys.anthropic || localStorage.getItem('scm_anthropic_key');
   if (!apiKey) { showToast('Claude API key not configured in Settings', 'error'); return; }
 
   const allColors = getColors(company);
