@@ -3902,6 +3902,10 @@ async function confirmAndGenerateImage() {
     const isSwatchCompany = (APP.currentCompany === 'wcli' || APP.currentCompany === 'cwli')
       && isSwatchEligiblePillar(APP.currentPillar);
 
+    // Save the approved visual description so later "Regen Image" actions (in Review & Schedule)
+    // can recreate a variation of THIS scene instead of inventing an unrelated one from scratch.
+    APP.currentVisualDescription = visualDesc;
+
     setCurrentPhoto(imageUrl);
     if (modal) modal.remove();
 
@@ -4009,6 +4013,9 @@ async function generatePost() {
 
   // Store for image generation
   APP.currentColorId = colorId;
+  // Clear any leftover visual description from a previous post — this is a new caption,
+  // so a stale scene description must not carry over onto it.
+  APP.currentVisualDescription = null;
 
   try {
     const fullText = await callClaude(apiKey, prompt);
@@ -4301,6 +4308,9 @@ function saveDraft() {
     videoMeta: hasVideo ? { name: APP.currentVideo.name, size: APP.currentVideo.size } : null,
     videoUrl: videoAnyUrl,
     _videoFileRef: hasVideo ? APP.currentVideo.file : null,
+    // The exact scene description approved before Ideogram generation — reused by
+    // "Regen Image" in Review & Schedule so regeneration stays on-subject.
+    visualDescription: APP.currentVisualDescription || null,
     status: 'draft',
     createdAt: new Date().toISOString(),
     scheduledFor: null,
@@ -10327,9 +10337,17 @@ async function generateImageForPreview(postId) {
   if (btn) btn.style.display = 'none';
   if (statusEl) { statusEl.style.display = 'block'; statusEl.textContent = 'Generating image — this takes about 20 seconds…'; }
   try {
-    const notes = post.caption ? post.caption.slice(0, 200) : '';
-    const visualPrompt = buildImagePrompt(post.company, post.audience, post.pillar, notes);
-    const url = await generateImageViaProxy(visualPrompt, buildImageGenOpts(post.company, post.swatchColorId));
+    const apiKey = APP.apiKeys.anthropic || localStorage.getItem('scm_anthropic_key');
+    if (!apiKey) throw new Error('Add your Anthropic API key in Settings first');
+    const visualDesc = post.visualDescription || await captionToVisualDescription(
+      apiKey, post.caption || '', false, post.company, post.pillar, post.swatchColorId
+    );
+    post.visualDescription = visualDesc; // save so later Regen Image stays on the same subject
+    const colorAccuracyNote = getColorAccuracyNote(post.company, post.swatchColorId);
+    const imgPrompt = 'Professional, photorealistic marketing photograph. ' + visualDesc +
+      ' Bright, clean, high-quality commercial photography with natural lighting and sharp focus.' +
+      colorAccuracyNote + ' Absolutely no text, words, logos, or watermarks in the image.';
+    const url = await generateImageViaProxy(imgPrompt, buildImageGenOpts(post.company, post.swatchColorId));
     post.photo = url;
     post.mediaType = 'photo';
     saveState();
@@ -10393,9 +10411,28 @@ async function previewRegenImage(postId) {
   if (btn) { btn.disabled = true; btn.textContent = 'Generating…'; }
   if (statusEl) { statusEl.style.display = 'block'; statusEl.textContent = 'Generating image — takes ~20 seconds…'; }
   try {
-    const notes = post.caption ? post.caption.slice(0, 200) : '';
-    const visualPrompt = buildImagePrompt(post.company, post.audience, post.pillar, notes);
-    const url = await generateImageViaProxy(visualPrompt, buildImageGenOpts(post.company, post.swatchColorId));
+    let visualDesc = post.visualDescription;
+
+    // Legacy posts created before visualDescription was saved have nothing to reuse —
+    // write one now via the same pipeline Create Post uses, so it's actually grounded
+    // in this post's caption/pillar/brand style instead of the old generic fallback.
+    if (!visualDesc) {
+      const apiKey = APP.apiKeys.anthropic || localStorage.getItem('scm_anthropic_key');
+      if (!apiKey) throw new Error('Add your Anthropic API key in Settings first');
+      visualDesc = await captionToVisualDescription(
+        apiKey, post.caption || '', false, post.company, post.pillar, post.swatchColorId
+      );
+      // Save it so every subsequent regen on this post reuses the same scene, rather
+      // than drifting to a new one every click.
+      post.visualDescription = visualDesc;
+    }
+
+    const colorAccuracyNote = getColorAccuracyNote(post.company, post.swatchColorId);
+    const imgPrompt = 'Professional, photorealistic marketing photograph. ' + visualDesc +
+      ' Bright, clean, high-quality commercial photography with natural lighting and sharp focus.' +
+      colorAccuracyNote + ' Absolutely no text, words, logos, or watermarks in the image.';
+
+    const url = await generateImageViaProxy(imgPrompt, buildImageGenOpts(post.company, post.swatchColorId));
     post.photo = url;
     post.mediaType = 'photo';
     saveState();
