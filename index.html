@@ -5566,6 +5566,10 @@ function renderPerformance() {
   html += `<button class="btn btn-ghost btn-sm" style="margin-top:12px;width:100%" onclick="showAllPosts()">View all ${filtered.length} posts →</button>`;
   html += '</div>';
 
+  // Hashtag performance — which hashtags actually correlate with engagement/reach,
+  // not just which ones get used most often.
+  html += buildHashtagPerformanceCard(filtered);
+
   // Self-learning status card
   const summary = buildPerformanceSummary(PERF_ACTIVE_TAB);
   html += `<div class="card">
@@ -5575,6 +5579,82 @@ function renderPerformance() {
   </div>`;
 
   content.innerHTML = html;
+}
+
+// Aggregates hashtag usage against real outcomes (engagement score + reach) across
+// the currently filtered posts. A hashtag only earns a ranking once it's appeared
+// on at least 2 posts — a single high-performing post using a rare tag is not
+// evidence that tag "works," it's just one data point.
+const HASHTAG_MIN_USES = 2;
+
+function buildHashtagPerformanceCard(posts) {
+  const byTag = {};
+  posts.forEach(p => {
+    if (!p.caption) return;
+    const { tags } = splitCaptionTags(p.caption);
+    if (!tags.length) return;
+    const score = engagementScore(p.performance);
+    const reach = p.performance?.reach || 0;
+    const seen = new Set(); // avoid double-counting a tag used twice in one caption
+    tags.forEach(raw => {
+      const tag = raw.toLowerCase();
+      if (seen.has(tag)) return;
+      seen.add(tag);
+      if (!byTag[tag]) byTag[tag] = { tag: raw, uses: 0, totalScore: 0, totalReach: 0 };
+      byTag[tag].uses++;
+      byTag[tag].totalScore += score;
+      byTag[tag].totalReach += reach;
+    });
+  });
+
+  const ranked = Object.values(byTag)
+    .filter(t => t.uses >= HASHTAG_MIN_USES)
+    .map(t => ({ ...t, avgScore: t.totalScore / t.uses, avgReach: t.totalReach / t.uses }))
+    .sort((a, b) => b.avgScore - a.avgScore);
+
+  if (!ranked.length) {
+    const anyTags = Object.keys(byTag).length > 0;
+    return `<div class="card" style="margin-bottom:20px">
+      <div style="font-size:13px;font-weight:500;margin-bottom:8px">Hashtag Performance</div>
+      <div style="font-size:12.5px;color:var(--text3);line-height:1.7">${
+        anyTags
+          ? `Every hashtag so far has only been used once. Once a hashtag repeats across ${HASHTAG_MIN_USES}+ posts, it'll show up here ranked by average engagement — using it once doesn't tell you whether it actually works.`
+          : `No hashtags found in tracked captions yet.`
+      }</div>
+    </div>`;
+  }
+
+  const top5 = ranked.slice(0, 5);
+  const bottom5 = ranked.length > 5 ? ranked.slice(-5).reverse() : [];
+
+  let html = `<div class="card" style="margin-bottom:20px">
+    <div style="font-size:13px;font-weight:500;margin-bottom:4px">Hashtag Performance</div>
+    <div style="font-size:11.5px;color:var(--text3);margin-bottom:14px">Ranked by average engagement score per use. Only hashtags used ${HASHTAG_MIN_USES}+ times are shown — a single post isn't enough to call a tag a winner.</div>
+    <div style="font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px">Top performers</div>`;
+
+  top5.forEach(t => {
+    html += `<div style="display:flex;align-items:center;gap:10px;padding:7px 0;border-top:1px solid var(--border)">
+      <span style="flex:1;font-size:12.5px;color:var(--accent2)">${t.tag}</span>
+      <span style="font-size:11px;color:var(--text3)">${t.uses}× used</span>
+      <span style="font-size:11px;color:var(--text3)">${Math.round(t.avgReach)} avg reach</span>
+      <span style="font-size:13px;font-weight:600;min-width:36px;text-align:right">${Math.round(t.avgScore)}</span>
+    </div>`;
+  });
+
+  if (bottom5.length) {
+    html += `<div style="font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px;margin-top:16px;margin-bottom:8px">Lowest performers</div>`;
+    bottom5.forEach(t => {
+      html += `<div style="display:flex;align-items:center;gap:10px;padding:7px 0;border-top:1px solid var(--border)">
+        <span style="flex:1;font-size:12.5px;color:var(--text3)">${t.tag}</span>
+        <span style="font-size:11px;color:var(--text3)">${t.uses}× used</span>
+        <span style="font-size:11px;color:var(--text3)">${Math.round(t.avgReach)} avg reach</span>
+        <span style="font-size:13px;font-weight:600;min-width:36px;text-align:right;color:var(--text3)">${Math.round(t.avgScore)}</span>
+      </div>`;
+    });
+  }
+
+  html += '</div>';
+  return html;
 }
 
 function getWeekLabel(date) {
@@ -5769,7 +5849,37 @@ function getPerformanceContextForPrompt(company) {
     ? allLogged.filter(p => p.company === company)
     : allLogged;
   if (logged.length < 3) return '';
-  return `\n\nPerformance context: ${buildPerformanceSummary(company)} Lean into what has worked without forcing it.`;
+  const hashtagNote = getTopHashtagsForPrompt(logged);
+  return `\n\nPerformance context: ${buildPerformanceSummary(company)} Lean into what has worked without forcing it.${hashtagNote}`;
+}
+
+// Surfaces the 3 best-performing hashtags (min 2 uses, matching the Performance
+// screen's own threshold) so Claude can favor proven tags instead of generating
+// a fresh, unproven set every time.
+function getTopHashtagsForPrompt(logged) {
+  const byTag = {};
+  logged.forEach(p => {
+    if (!p.caption) return;
+    const { tags } = splitCaptionTags(p.caption);
+    if (!tags.length) return;
+    const score = engagementScore(p.performance);
+    const seen = new Set();
+    tags.forEach(raw => {
+      const tag = raw.toLowerCase();
+      if (seen.has(tag)) return;
+      seen.add(tag);
+      if (!byTag[tag]) byTag[tag] = { tag: raw, uses: 0, totalScore: 0 };
+      byTag[tag].uses++;
+      byTag[tag].totalScore += score;
+    });
+  });
+  const top = Object.values(byTag)
+    .filter(t => t.uses >= HASHTAG_MIN_USES)
+    .map(t => ({ ...t, avgScore: t.totalScore / t.uses }))
+    .sort((a, b) => b.avgScore - a.avgScore)
+    .slice(0, 3);
+  if (!top.length) return '';
+  return ` These hashtags have performed well historically — include one or two where they fit naturally, but don't force them if irrelevant: ${top.map(t => t.tag).join(', ')}.`;
 }
 
 // ── PERFORMANCE LOG MODAL ─────────────────────────────────────
