@@ -10212,6 +10212,7 @@ async function loadCompetitorsScreen() {
           </div>
           <div style="display:flex;gap:6px;flex-shrink:0">
             <button class="btn btn-secondary btn-sm" style="font-size:11px" onclick="viewCompetitorComparison('${c.id}')">View Comparison</button>
+            <button class="btn btn-ghost btn-sm" style="font-size:11px;color:var(--accent2)" onclick="researchCompetitorNow('${c.id}', this)">✦ Research Now</button>
             <button class="btn btn-ghost btn-sm" style="font-size:11px" onclick="runCompetitorComparison('${c.id}')">Record Snapshot</button>
             <button class="btn btn-ghost btn-sm" style="font-size:11px" onclick="openCompetitorForm('${c.id}')">Edit</button>
             <button class="btn btn-ghost btn-sm" style="font-size:11px;color:var(--red)" onclick="deleteCompetitor('${c.id}','${c.name.replace(/'/g,"\\'")}')">Remove</button>
@@ -10326,14 +10327,40 @@ async function deleteCompetitor(id, name) {
   }
 }
 
-// Opens a manual snapshot form — this does NOT auto-research anything. Claude's
-// plain API call has no web-browsing ability, and there's no Facebook access
-// token for pages you don't own, so an automated "compare" button would either
-// fail outright or produce a plausible-looking but made-up summary — worse than
-// not having the feature. Instead: open their page yourself (or ask Claude in a
-// chat session with web search, like this one, to look it up for you), then
-// record what you actually saw here so it's kept alongside your own performance
-// data for later comparison.
+// Calls the research-competitor Edge Function — real Brave Search + Claude
+// extraction, saved automatically as a snapshot. Manual trigger only, per
+// design: costs a small amount per click (search + Claude call), so it never
+// runs unattended or on a schedule.
+async function researchCompetitorNow(competitorId, btnEl) {
+  const proxyUrl = APP.apiKeys.imgproxy || localStorage.getItem('scm_imgproxy_key');
+  if (!proxyUrl) { showToast('Image Generation Proxy URL not set in Settings — needed to derive the functions endpoint', 'error'); return; }
+  const functionsBase = proxyUrl.replace(/generate-image\/?$/, '');
+
+  const originalText = btnEl.textContent;
+  btnEl.disabled = true;
+  btnEl.textContent = 'Researching…';
+
+  try {
+    const res = await fetch(functionsBase + 'research-competitor', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ competitorId }),
+    });
+    const data = await res.json();
+    if (!res.ok || data.error) throw new Error(data.error || 'Research failed');
+    showToast('Snapshot captured — real web search results saved', 'success');
+    loadCompetitorsScreen();
+  } catch (e) {
+    showToast('Could not research: ' + e.message, 'error');
+  } finally {
+    btnEl.disabled = false;
+    btnEl.textContent = originalText;
+  }
+}
+
+// Opens a manual snapshot form — a fallback for when Research Now isn't available
+// (e.g. no BRAVE_API_KEY set yet) or you want to log something Brave's index
+// wouldn't surface, like something you noticed yourself on their page directly.
 function runCompetitorComparison(competitorId) {
   const c = (APP._competitorsCache || []).find(x => x.id === competitorId);
   if (!c) return;
