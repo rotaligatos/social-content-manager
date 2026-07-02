@@ -10193,7 +10193,8 @@ async function loadCompetitors() {
             ${profileLinks ? `<div style="margin-top:6px">${profileLinks}</div>` : ''}
           </div>
           <div style="display:flex;gap:6px;flex-shrink:0">
-            <button class="btn btn-secondary btn-sm" style="font-size:11px" onclick="runCompetitorComparison('${c.id}')">Compare</button>
+            <button class="btn btn-secondary btn-sm" style="font-size:11px" onclick="viewCompetitorComparison('${c.id}')">View Comparison</button>
+            <button class="btn btn-ghost btn-sm" style="font-size:11px" onclick="runCompetitorComparison('${c.id}')">Record Snapshot</button>
             <button class="btn btn-ghost btn-sm" style="font-size:11px" onclick="openCompetitorForm('${c.id}')">Edit</button>
             <button class="btn btn-ghost btn-sm" style="font-size:11px;color:var(--red)" onclick="deleteCompetitor('${c.id}','${c.name.replace(/'/g,"\\'")}')">Remove</button>
           </div>
@@ -10368,6 +10369,76 @@ async function saveCompetitorSnapshot() {
   } catch (_e) {
     showToast('Could not save snapshot', 'error');
   }
+}
+
+// The actual "us vs. them" view — pulls a competitor's saved snapshots and lines
+// them up against our own performance data (already computed elsewhere via
+// engagementScore / posts.performance), so there's a real comparison to look at
+// instead of two disconnected data sources.
+async function viewCompetitorComparison(competitorId) {
+  const c = (APP._competitorsCache || []).find(x => x.id === competitorId);
+  if (!c) return;
+
+  let snapshots = [];
+  try {
+    const res = await syncRequest({ operation: 'get_competitor_snapshots', competitor_id: competitorId, limit: 10 });
+    snapshots = res?.snapshots || [];
+  } catch (_e) {}
+
+  // Our own numbers, scoped to whichever companies this competitor actually competes with
+  const ourCompanies = c.competes_with || [];
+  const ourPosts = APP.posts.filter(p => p.performance && ourCompanies.includes(p.company));
+  const ourPostCount = ourPosts.length;
+  const ourAvgEngagement = ourPostCount ? Math.round(ourPosts.reduce((s, p) => s + engagementScore(p.performance), 0) / ourPostCount) : 0;
+  const last30 = ourPosts.filter(p => {
+    const d = p.publishedAt ? new Date(p.publishedAt) : null;
+    return d && (Date.now() - d.getTime()) < 30 * 24 * 60 * 60 * 1000;
+  }).length;
+
+  const latestByPlatform = {};
+  snapshots.forEach(s => { if (!latestByPlatform[s.platform]) latestByPlatform[s.platform] = s; });
+
+  let html = `<div id="comp-compare-overlay" style="position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:2000;display:flex;align-items:center;justify-content:center" onclick="if(event.target.id==='comp-compare-overlay')document.getElementById('comp-compare-overlay').remove()">
+    <div style="background:var(--bg2);border:1px solid var(--border2);border-radius:var(--radius-lg);width:560px;max-height:85vh;overflow-y:auto">
+      <div style="padding:16px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
+        <div style="font-size:14px;font-weight:500">Us vs. ${c.name}</div>
+        <button class="btn btn-ghost btn-sm" onclick="document.getElementById('comp-compare-overlay').remove()">Close</button>
+      </div>
+      <div style="padding:18px">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:18px">
+          <div class="card" style="text-align:center;margin:0">
+            <div style="font-size:11px;color:var(--text3);text-transform:uppercase;margin-bottom:6px">Us (${ourCompanies.map(x=>x.toUpperCase()).join('/')})</div>
+            <div style="font-size:24px;font-weight:700">${ourPostCount}</div>
+            <div style="font-size:10px;color:var(--text3)">posts tracked</div>
+            <div style="font-size:13px;font-weight:600;margin-top:6px;color:var(--accent2)">${last30} in last 30 days</div>
+            <div style="font-size:11px;color:var(--text3);margin-top:4px">avg engagement score: ${ourAvgEngagement}</div>
+          </div>
+          <div class="card" style="text-align:center;margin:0">
+            <div style="font-size:11px;color:var(--text3);text-transform:uppercase;margin-bottom:6px">${c.name}</div>
+            ${snapshots.length
+              ? `<div style="font-size:24px;font-weight:700">${Object.values(latestByPlatform)[0]?.follower_count?.toLocaleString() || '—'}</div>
+                 <div style="font-size:10px;color:var(--text3)">followers (last checked)</div>
+                 <div style="font-size:13px;font-weight:600;margin-top:6px;color:var(--amber)">${Object.values(latestByPlatform)[0]?.post_frequency_estimate || 'frequency unknown'}</div>`
+              : `<div style="font-size:12px;color:var(--text3);padding:12px 0">No snapshots recorded yet</div>`
+            }
+          </div>
+        </div>
+
+        ${snapshots.length ? `<div style="font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:10px">Recorded snapshots</div>` : ''}
+        ${snapshots.map(s => `<div style="padding:10px 0;border-top:1px solid var(--border)">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
+            <span style="font-size:11px;font-weight:600;text-transform:uppercase">${s.platform}</span>
+            <span style="font-size:10.5px;color:var(--text3)">${new Date(s.captured_at).toLocaleDateString('en-PH',{month:'short',day:'numeric',year:'numeric'})}</span>
+          </div>
+          ${s.content_themes?.length ? `<div style="font-size:12px;color:var(--text2);margin-bottom:4px"><strong>Posting about:</strong> ${s.content_themes.join(', ')}</div>` : ''}
+          ${s.notable_observations ? `<div style="font-size:12px;color:var(--text2)">${s.notable_observations}</div>` : ''}
+        </div>`).join('')}
+
+        ${!snapshots.length ? `<div style="font-size:12px;color:var(--text3);text-align:center;padding:16px 0">No data recorded yet. Use "Record Snapshot" to add what you've observed, or ask Claude directly in a chat session to research this competitor and save findings here.</div>` : ''}
+      </div>
+    </div>
+  </div>`;
+  document.body.insertAdjacentHTML('beforeend', html);
 }
 
 async function loadAutopilotLog() {
