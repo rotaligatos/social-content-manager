@@ -1015,6 +1015,7 @@ select:focus{border-color:var(--accent-border);}
         <button class="settings-nav-item" onclick="switchSettingsTab(this,'autopilot')">✦ Autopilot</button>
         <button class="settings-nav-item" onclick="switchSettingsTab(this,'data')">Data &amp; Export</button>
         <button class="settings-nav-item" onclick="switchSettingsTab(this,'activity')">Activity Log</button>
+        <button class="settings-nav-item" onclick="switchSettingsTab(this,'competitors')">Competitors</button>
       </div>
       <div id="stab-api-keys">
         <div class="card">
@@ -1349,6 +1350,25 @@ select:focus{border-color:var(--accent-border);}
             <button class="btn btn-secondary btn-sm" onclick="loadActivityLog()">↻ Refresh</button>
           </div>
           <div id="activity-log-list" style="max-height:480px;overflow-y:auto"></div>
+        </div>
+      </div>
+
+      <div id="stab-competitors" style="display:none">
+        <div class="card" style="margin-bottom:16px">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
+            <div style="font-size:14px;font-weight:500">Competitors</div>
+            <button class="btn btn-primary btn-sm" onclick="openCompetitorForm()">+ Add Competitor</button>
+          </div>
+          <div style="font-size:12px;color:var(--text3);margin-bottom:14px">Track who you're up against per company. This list feeds on-demand comparisons — nothing runs automatically or on a schedule.</div>
+          <div style="display:flex;gap:8px;margin-bottom:14px">
+            <select id="competitor-company-filter" onchange="loadCompetitors()" style="flex:1;padding:8px 10px;font-size:12px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg3);color:var(--text)">
+              <option value="">All companies</option>
+              <option value="mssi">MSSI</option>
+              <option value="wcli">WCLI</option>
+              <option value="cwli">CWLI</option>
+            </select>
+          </div>
+          <div id="competitor-list"></div>
         </div>
       </div>
     </div>
@@ -6310,12 +6330,13 @@ function loadBrandProfiles() {
 function switchSettingsTab(btn, tab) {
   document.querySelectorAll('.settings-nav-item').forEach(b => b.classList.remove('active'));
   btn.classList.add('active');
-  ['api-keys','fb-pages','team','sla','schedule','autopilot','data','activity'].forEach(t => {
+  ['api-keys','fb-pages','team','sla','schedule','autopilot','data','activity','competitors'].forEach(t => {
     const el = document.getElementById('stab-' + t);
     if (el) el.style.display = t === tab ? 'block' : 'none';
   });
   if (tab === 'data') renderStorageUsage();
   if (tab === 'activity') loadActivityLog();
+  if (tab === 'competitors') loadCompetitors();
   if (tab === 'autopilot') {
     // Load autopilot settings into UI
     const s = getAutopilotSettings();
@@ -10128,6 +10149,224 @@ async function loadActivityLog() {
     }).join('');
   } catch (_e) {
     el.innerHTML = '<div style="font-size:12px;color:var(--red);padding:10px 0">Could not load activity log.</div>';
+  }
+}
+
+// ── COMPETITOR MONITORING ──────────────────────────────────────────
+// On-demand only. No cron, no live automation — a snapshot only exists when
+// explicitly requested via runCompetitorComparison(). This list is what feeds
+// that comparison, and later, a separate consumer app you're planning.
+
+const COMPETITOR_CATEGORY_LABELS = {
+  hpl: 'HPL', laminated_boards: 'Laminated Boards', modular_fabrication: 'Modular Fabrication',
+  services: 'Services', hardware: 'Hardware', edgeband_tape: 'Edgeband Tape',
+};
+
+async function loadCompetitors() {
+  const el = document.getElementById('competitor-list');
+  if (!el || !_session) return;
+  el.textContent = 'Loading…';
+  try {
+    const company = document.getElementById('competitor-company-filter')?.value || '';
+    const res = await syncRequest({ operation: 'list_competitors', company: company || undefined });
+    const list = res?.competitors || [];
+    APP._competitorsCache = list; // used by the edit form to prefill
+    if (!list.length) {
+      el.innerHTML = `<div style="font-size:12px;color:var(--text3);padding:16px 0;text-align:center">No competitors added yet. Start with a few — you can always add more later.</div>`;
+      return;
+    }
+    el.innerHTML = list.map(c => {
+      const companies = (c.competes_with || []).map(x => x.toUpperCase()).join(', ');
+      const categories = (c.product_categories || []).map(cat => COMPETITOR_CATEGORY_LABELS[cat] || cat).join(' · ');
+      const profiles = (c.competitor_profiles || []);
+      const profileLinks = profiles.map(p =>
+        `<a href="${p.url || '#'}" target="_blank" rel="noopener" style="font-size:11px;color:var(--accent2);text-decoration:none;margin-right:10px">${p.platform}${p.handle ? ' (' + p.handle + ')' : ''}</a>`
+      ).join('');
+      return `<div style="padding:12px 0;border-top:1px solid var(--border)">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:10px">
+          <div style="flex:1;min-width:0">
+            <div style="font-size:13px;font-weight:500">${c.name}</div>
+            <div style="font-size:11px;color:var(--text3);margin-top:2px">
+              vs ${companies || '—'} · ${c.competitor_type === 'importer' ? 'Importer' : 'Manufacturer'}${c.region ? ' · ' + c.region : ''}
+            </div>
+            ${categories ? `<div style="font-size:11px;color:var(--text2);margin-top:2px">${categories}</div>` : ''}
+            ${profileLinks ? `<div style="margin-top:6px">${profileLinks}</div>` : ''}
+          </div>
+          <div style="display:flex;gap:6px;flex-shrink:0">
+            <button class="btn btn-secondary btn-sm" style="font-size:11px" onclick="runCompetitorComparison('${c.id}')">Compare</button>
+            <button class="btn btn-ghost btn-sm" style="font-size:11px" onclick="openCompetitorForm('${c.id}')">Edit</button>
+            <button class="btn btn-ghost btn-sm" style="font-size:11px;color:var(--red)" onclick="deleteCompetitor('${c.id}','${c.name.replace(/'/g,"\\'")}')">Remove</button>
+          </div>
+        </div>
+      </div>`;
+    }).join('');
+  } catch (_e) {
+    el.innerHTML = '<div style="font-size:12px;color:var(--red);padding:10px 0">Could not load competitors.</div>';
+  }
+}
+
+function openCompetitorForm(competitorId) {
+  const existing = competitorId ? (APP._competitorsCache || []).find(c => c.id === competitorId) : null;
+  const profiles = existing?.competitor_profiles || [];
+  const getProfile = (platform) => profiles.find(p => p.platform === platform) || {};
+
+  const categoryOptions = Object.entries(COMPETITOR_CATEGORY_LABELS).map(([val, label]) => {
+    const checked = (existing?.product_categories || []).includes(val) ? 'checked' : '';
+    return `<label style="display:flex;align-items:center;gap:6px;font-size:12px;padding:4px 0"><input type="checkbox" class="comp-category-cb" value="${val}" ${checked}> ${label}</label>`;
+  }).join('');
+
+  const companyOptions = ['mssi', 'wcli', 'cwli'].map(co => {
+    const checked = (existing?.competes_with || []).includes(co) ? 'checked' : '';
+    return `<label style="display:flex;align-items:center;gap:6px;font-size:12px;padding:4px 0"><input type="checkbox" class="comp-company-cb" value="${co}" ${checked}> ${co.toUpperCase()}</label>`;
+  }).join('');
+
+  let html = `<div id="competitor-form-overlay" style="position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:2000;display:flex;align-items:center;justify-content:center" onclick="if(event.target.id==='competitor-form-overlay')closeCompetitorForm()">
+    <div style="background:var(--bg2);border:1px solid var(--border2);border-radius:var(--radius-lg);width:460px;max-height:85vh;overflow-y:auto">
+      <div style="padding:16px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
+        <div style="font-size:14px;font-weight:500">${existing ? 'Edit' : 'Add'} Competitor</div>
+        <button class="btn btn-ghost btn-sm" onclick="closeCompetitorForm()">Close</button>
+      </div>
+      <div style="padding:18px">
+        <input type="hidden" id="comp-id" value="${existing?.id || ''}">
+        <div class="form-group"><label class="form-label">Name</label><input type="text" id="comp-name" placeholder="e.g. United Laminates" value="${existing?.name || ''}"></div>
+
+        <div class="form-group"><label class="form-label">Competes with</label>${companyOptions}</div>
+
+        <div class="form-group"><label class="form-label">Type</label>
+          <select id="comp-type" style="width:100%;padding:8px 10px;font-size:12px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg3);color:var(--text)">
+            <option value="manufacturer" ${existing?.competitor_type !== 'importer' ? 'selected' : ''}>Manufacturer</option>
+            <option value="importer" ${existing?.competitor_type === 'importer' ? 'selected' : ''}>Importer / Distributor</option>
+          </select>
+        </div>
+
+        <div class="form-group"><label class="form-label">Product categories</label>${categoryOptions}</div>
+
+        <div class="form-group"><label class="form-label">Region <span style="font-weight:400;color:var(--text3)">(optional)</span></label><input type="text" id="comp-region" placeholder="e.g. Luzon, National, Cebu/Visayas" value="${existing?.region || ''}"></div>
+
+        <div style="font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px;margin:14px 0 8px">Public profiles (optional, add what you know)</div>
+        <div class="form-group"><label class="form-label">Facebook URL</label><input type="text" id="comp-fb-url" placeholder="https://facebook.com/..." value="${getProfile('facebook').url || ''}"></div>
+        <div class="form-group"><label class="form-label">Website URL</label><input type="text" id="comp-website-url" placeholder="https://..." value="${getProfile('website').url || ''}"></div>
+        <div class="form-group"><label class="form-label">Instagram handle</label><input type="text" id="comp-ig-handle" placeholder="@handle" value="${getProfile('instagram').handle || ''}"></div>
+
+        <div class="form-group"><label class="form-label">Notes <span style="font-weight:400;color:var(--text3)">(optional)</span></label><textarea rows="2" id="comp-notes" placeholder="Anything worth remembering about them">${existing?.notes || ''}</textarea></div>
+
+        <button class="btn btn-primary" style="width:100%" onclick="saveCompetitor()">Save</button>
+      </div>
+    </div>
+  </div>`;
+  document.body.insertAdjacentHTML('beforeend', html);
+}
+
+function closeCompetitorForm() {
+  document.getElementById('competitor-form-overlay')?.remove();
+}
+
+async function saveCompetitor() {
+  const name = document.getElementById('comp-name')?.value.trim();
+  if (!name) { showToast('Competitor name is required', 'error'); return; }
+
+  const competesWith = Array.from(document.querySelectorAll('.comp-company-cb:checked')).map(cb => cb.value);
+  const productCategories = Array.from(document.querySelectorAll('.comp-category-cb:checked')).map(cb => cb.value);
+
+  const profiles = [];
+  const fbUrl = document.getElementById('comp-fb-url')?.value.trim();
+  const websiteUrl = document.getElementById('comp-website-url')?.value.trim();
+  const igHandle = document.getElementById('comp-ig-handle')?.value.trim();
+  if (fbUrl) profiles.push({ platform: 'facebook', url: fbUrl });
+  if (websiteUrl) profiles.push({ platform: 'website', url: websiteUrl });
+  if (igHandle) profiles.push({ platform: 'instagram', handle: igHandle });
+
+  const competitor = {
+    id: document.getElementById('comp-id')?.value || undefined,
+    name, competesWith,
+    competitorType: document.getElementById('comp-type')?.value || 'manufacturer',
+    productCategories,
+    region: document.getElementById('comp-region')?.value.trim() || null,
+    notes: document.getElementById('comp-notes')?.value.trim() || null,
+    profiles,
+  };
+
+  try {
+    await syncRequest({ operation: 'save_competitor', competitor });
+    closeCompetitorForm();
+    showToast('Competitor saved', 'success');
+    loadCompetitors();
+  } catch (_e) {
+    showToast('Could not save competitor', 'error');
+  }
+}
+
+async function deleteCompetitor(id, name) {
+  if (!confirm(`Remove "${name}" from your competitor list? This can't be undone, though past comparisons stay on record.`)) return;
+  try {
+    await syncRequest({ operation: 'delete_competitor', competitor_id: id });
+    showToast('Competitor removed', 'info');
+    loadCompetitors();
+  } catch (_e) {
+    showToast('Could not remove competitor', 'error');
+  }
+}
+
+// Opens a manual snapshot form — this does NOT auto-research anything. Claude's
+// plain API call has no web-browsing ability, and there's no Facebook access
+// token for pages you don't own, so an automated "compare" button would either
+// fail outright or produce a plausible-looking but made-up summary — worse than
+// not having the feature. Instead: open their page yourself (or ask Claude in a
+// chat session with web search, like this one, to look it up for you), then
+// record what you actually saw here so it's kept alongside your own performance
+// data for later comparison.
+function runCompetitorComparison(competitorId) {
+  const c = (APP._competitorsCache || []).find(x => x.id === competitorId);
+  if (!c) return;
+  const profiles = (c.competitor_profiles || []);
+  const links = profiles.map(p => `<a href="${p.url || '#'}" target="_blank" rel="noopener" style="font-size:12px;color:var(--accent2);margin-right:12px">${p.platform}${p.handle ? ' ' + p.handle : ''} →</a>`).join('');
+
+  let html = `<div id="comp-snapshot-overlay" style="position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:2000;display:flex;align-items:center;justify-content:center" onclick="if(event.target.id==='comp-snapshot-overlay')document.getElementById('comp-snapshot-overlay').remove()">
+    <div style="background:var(--bg2);border:1px solid var(--border2);border-radius:var(--radius-lg);width:460px;max-height:85vh;overflow-y:auto">
+      <div style="padding:16px 18px;border-bottom:1px solid var(--border)">
+        <div style="font-size:14px;font-weight:500">Record Snapshot — ${c.name}</div>
+        <div style="font-size:11.5px;color:var(--text3);margin-top:4px">Open their page(s), see what they're doing, and jot it down here. Nothing is fetched automatically.</div>
+      </div>
+      <div style="padding:18px">
+        ${links ? `<div style="margin-bottom:14px">${links}</div>` : '<div style="font-size:11.5px;color:var(--amber);margin-bottom:14px">No public links saved for this competitor yet — add one by editing them first.</div>'}
+        <input type="hidden" id="snap-competitor-id" value="${c.id}">
+        <div class="form-group"><label class="form-label">Platform checked</label>
+          <select id="snap-platform" style="width:100%;padding:8px 10px;font-size:12px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg3);color:var(--text)">
+            <option value="facebook">Facebook</option>
+            <option value="instagram">Instagram</option>
+            <option value="tiktok">TikTok</option>
+            <option value="youtube">YouTube</option>
+            <option value="website">Website</option>
+          </select>
+        </div>
+        <div class="form-group"><label class="form-label">Roughly how often do they post?</label><input type="text" id="snap-frequency" placeholder="e.g. 3-4x per week"></div>
+        <div class="form-group"><label class="form-label">Follower count <span style="font-weight:400;color:var(--text3)">(if visible)</span></label><input type="text" inputmode="numeric" id="snap-followers"></div>
+        <div class="form-group"><label class="form-label">What are they posting about?</label><textarea rows="2" id="snap-themes" placeholder="e.g. product photos, project showcases, promos"></textarea></div>
+        <div class="form-group"><label class="form-label">Anything notable?</label><textarea rows="2" id="snap-observations" placeholder="New products, tone shift, running a promo, etc."></textarea></div>
+        <button class="btn btn-primary" style="width:100%" onclick="saveCompetitorSnapshot()">Save Snapshot</button>
+      </div>
+    </div>
+  </div>`;
+  document.body.insertAdjacentHTML('beforeend', html);
+}
+
+async function saveCompetitorSnapshot() {
+  const competitorId = document.getElementById('snap-competitor-id')?.value;
+  const platform = document.getElementById('snap-platform')?.value;
+  const contentThemes = (document.getElementById('snap-themes')?.value || '').split(',').map(s => s.trim()).filter(Boolean);
+  const snapshot = {
+    competitorId, platform,
+    postFrequencyEstimate: document.getElementById('snap-frequency')?.value.trim() || null,
+    followerCount: parseInt(document.getElementById('snap-followers')?.value) || null,
+    contentThemes,
+    notableObservations: document.getElementById('snap-observations')?.value.trim() || null,
+  };
+  try {
+    await syncRequest({ operation: 'save_competitor_snapshot', snapshot });
+    document.getElementById('comp-snapshot-overlay')?.remove();
+    showToast('Snapshot saved', 'success');
+  } catch (_e) {
+    showToast('Could not save snapshot', 'error');
   }
 }
 
