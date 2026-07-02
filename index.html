@@ -9827,7 +9827,12 @@ function updateUserBadge() {
   badge.textContent = name;
 }
 
-async function syncRequest(body) {
+// Supabase Edge Functions in this project have shown intermittent, transient
+// failures (404s that clear up on retry moments later, confirmed across
+// app-sync, research-competitor, and others via server logs — not specific to
+// any one function's code, likely a platform-level routing hiccup outside our
+// control). One silent retry absorbs this without the user ever seeing it.
+async function syncRequest(body, _isRetry = false) {
   if (!_session) return {};
   try {
     const res = await fetch(SYNC_URL, {
@@ -9835,8 +9840,18 @@ async function syncRequest(body) {
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${_session.access_token}` },
       body: JSON.stringify(body)
     });
+    if (res.status === 404 && !_isRetry) {
+      await new Promise(r => setTimeout(r, 800));
+      return syncRequest(body, true);
+    }
     return res.json();
-  } catch (_e) { return {}; }
+  } catch (_e) {
+    if (!_isRetry) {
+      await new Promise(r => setTimeout(r, 800));
+      return syncRequest(body, true);
+    }
+    return {};
+  }
 }
 
 async function pullFromSupabase() {
