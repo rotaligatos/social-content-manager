@@ -10332,22 +10332,15 @@ async function deleteCompetitor(id, name) {
 // design: costs a small amount per click (search + Claude call), so it never
 // runs unattended or on a schedule.
 async function researchCompetitorNow(competitorId, btnEl) {
-  const proxyUrl = APP.apiKeys.imgproxy || localStorage.getItem('scm_imgproxy_key');
-  if (!proxyUrl) { showToast('Image Generation Proxy URL not set in Settings — needed to derive the functions endpoint', 'error'); return; }
-  const functionsBase = proxyUrl.replace(/generate-image\/?$/, '');
+  if (!_session) { showToast('Please sign in to use Research Now', 'error'); return; }
 
   const originalText = btnEl.textContent;
   btnEl.disabled = true;
   btnEl.textContent = 'Researching…';
 
   try {
-    const res = await fetch(functionsBase + 'research-competitor', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ competitorId }),
-    });
-    const data = await res.json();
-    if (!res.ok || data.error) throw new Error(data.error || 'Research failed');
+    const data = await syncRequest({ operation: 'research_competitor', competitorId });
+    if (!data || data.error) throw new Error((data && data.error) || 'Research failed');
     showToast('Snapshot captured — real web search results saved', 'success');
     loadCompetitorsScreen();
   } catch (e) {
