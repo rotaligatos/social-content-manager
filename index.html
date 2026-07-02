@@ -713,6 +713,10 @@ select:focus{border-color:var(--accent-border);}
         <svg style="width:13px;height:13px" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 1v3M8 12v3M1 8h3M12 8h3"/><circle cx="8" cy="8" r="3"/></svg>
         AI Analyze &amp; Recommend
       </button>
+      <button class="btn btn-secondary btn-sm" id="perf-report-btn" onclick="openReportBuilder()">
+        <svg style="width:13px;height:13px" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 1.5h7l3 3v10a.5.5 0 0 1-.5.5h-9a.5.5 0 0 1-.5-.5v-13Z"/><path d="M5.5 8h5M5.5 10.5h5M5.5 5.5h2"/></svg>
+        Generate Report
+      </button>
     </div>
   </div>
   <div class="content" id="performance-content">
@@ -1438,6 +1442,8 @@ select:focus{border-color:var(--accent-border);}
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
 <script>
 // CHANGELOG — a running, hand-maintained log of what's been added to the app.
 // Newest entries go at the top. Each entry should describe what changed in plain language.
@@ -5786,6 +5792,327 @@ Write in plain, direct English. No fluff. This is for a busy business owner who 
   }
 }
 
+// ── MONTHLY / WEEKLY REPORT (client-side PDF via jsPDF, no server round-trip) ──
+// A real button, real data already in the app, real choices — generated instantly
+// in the browser rather than requiring a chat session each time.
+
+function openReportBuilder() {
+  const today = new Date();
+  const firstOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+  const defaultFrom = firstOfMonth.toISOString().slice(0, 10);
+  const defaultTo = today.toISOString().slice(0, 10);
+
+  let html = `<div id="report-builder-overlay" style="position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:2000;display:flex;align-items:center;justify-content:center" onclick="if(event.target.id==='report-builder-overlay')document.getElementById('report-builder-overlay').remove()">
+    <div style="background:var(--bg2);border:1px solid var(--border2);border-radius:var(--radius-lg);width:440px;max-height:85vh;overflow-y:auto">
+      <div style="padding:16px 18px;border-bottom:1px solid var(--border)">
+        <div style="font-size:14px;font-weight:500">Generate Report</div>
+        <div style="font-size:11.5px;color:var(--text3);margin-top:4px">Builds instantly in your browser — pick a period and what to include.</div>
+      </div>
+      <div style="padding:18px">
+        <div class="form-group"><label class="form-label">Period</label>
+          <select id="report-period" onchange="applyReportPeriodPreset()" style="width:100%;padding:8px 10px;font-size:12px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg3);color:var(--text);margin-bottom:8px">
+            <option value="this_month">This month</option>
+            <option value="last_month">Last month</option>
+            <option value="last_7">Last 7 days</option>
+            <option value="last_30">Last 30 days</option>
+            <option value="custom">Custom range</option>
+          </select>
+          <div style="display:flex;gap:8px">
+            <input type="date" id="report-from" value="${defaultFrom}" style="flex:1;padding:8px 10px;font-size:12px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg3);color:var(--text)">
+            <input type="date" id="report-to" value="${defaultTo}" style="flex:1;padding:8px 10px;font-size:12px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg3);color:var(--text)">
+          </div>
+        </div>
+
+        <div class="form-group"><label class="form-label">Company</label>
+          <select id="report-company" style="width:100%;padding:8px 10px;font-size:12px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg3);color:var(--text)">
+            <option value="">All companies</option>
+            <option value="mssi">MSSI only</option>
+            <option value="wcli">WCLI only</option>
+            <option value="cwli">CWLI only</option>
+          </select>
+        </div>
+
+        <div style="font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px;margin:16px 0 8px">Include in report</div>
+        <label style="display:flex;align-items:center;gap:8px;font-size:12.5px;padding:5px 0;cursor:pointer"><input type="checkbox" id="rep-inc-summary" checked> Summary &amp; performance by company</label>
+        <label style="display:flex;align-items:center;gap:8px;font-size:12.5px;padding:5px 0;cursor:pointer"><input type="checkbox" id="rep-inc-topposts" checked> Top performing posts</label>
+        <label style="display:flex;align-items:center;gap:8px;font-size:12.5px;padding:5px 0;cursor:pointer"><input type="checkbox" id="rep-inc-hashtags" checked> Hashtag performance</label>
+        <label style="display:flex;align-items:center;gap:8px;font-size:12.5px;padding:5px 0;cursor:pointer"><input type="checkbox" id="rep-inc-response" checked> Staff response time to inquiries</label>
+        <label style="display:flex;align-items:center;gap:8px;font-size:12.5px;padding:5px 0;cursor:pointer"><input type="checkbox" id="rep-inc-leads" checked> Leads &amp; inquiries captured</label>
+        <label style="display:flex;align-items:center;gap:8px;font-size:12.5px;padding:5px 0;cursor:pointer"><input type="checkbox" id="rep-inc-competitors" checked> Competitor snapshots</label>
+
+        <button class="btn btn-primary" style="width:100%;margin-top:16px" onclick="generateReportPDF()">Generate PDF</button>
+        <div id="report-gen-status" style="font-size:11.5px;color:var(--text3);margin-top:8px;text-align:center;display:none"></div>
+      </div>
+    </div>
+  </div>`;
+  document.body.insertAdjacentHTML('beforeend', html);
+}
+
+function applyReportPeriodPreset() {
+  const preset = document.getElementById('report-period')?.value;
+  const today = new Date();
+  const fromEl = document.getElementById('report-from');
+  const toEl = document.getElementById('report-to');
+  if (!fromEl || !toEl) return;
+
+  if (preset === 'this_month') {
+    fromEl.value = new Date(today.getFullYear(), today.getMonth(), 1).toISOString().slice(0,10);
+    toEl.value = today.toISOString().slice(0,10);
+  } else if (preset === 'last_month') {
+    const firstOfThisMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+    const lastOfPrevMonth = new Date(firstOfThisMonth.getTime() - 86400000);
+    const firstOfPrevMonth = new Date(lastOfPrevMonth.getFullYear(), lastOfPrevMonth.getMonth(), 1);
+    fromEl.value = firstOfPrevMonth.toISOString().slice(0,10);
+    toEl.value = lastOfPrevMonth.toISOString().slice(0,10);
+  } else if (preset === 'last_7') {
+    fromEl.value = new Date(today.getTime() - 7*86400000).toISOString().slice(0,10);
+    toEl.value = today.toISOString().slice(0,10);
+  } else if (preset === 'last_30') {
+    fromEl.value = new Date(today.getTime() - 30*86400000).toISOString().slice(0,10);
+    toEl.value = today.toISOString().slice(0,10);
+  }
+  // 'custom' leaves the fields as-is for manual entry
+}
+
+async function generateReportPDF() {
+  const statusEl = document.getElementById('report-gen-status');
+  const btn = document.querySelector('#report-builder-overlay .btn-primary');
+  if (btn) { btn.disabled = true; btn.textContent = 'Generating…'; }
+  if (statusEl) { statusEl.style.display = 'block'; statusEl.textContent = 'Pulling data…'; }
+
+  try {
+    const fromDate = new Date(document.getElementById('report-from').value);
+    const toDate = new Date(document.getElementById('report-to').value);
+    toDate.setHours(23, 59, 59, 999);
+    const companyFilter = document.getElementById('report-company')?.value || '';
+
+    const incSummary = document.getElementById('rep-inc-summary')?.checked;
+    const incTopPosts = document.getElementById('rep-inc-topposts')?.checked;
+    const incHashtags = document.getElementById('rep-inc-hashtags')?.checked;
+    const incResponse = document.getElementById('rep-inc-response')?.checked;
+    const incLeads = document.getElementById('rep-inc-leads')?.checked;
+    const incCompetitors = document.getElementById('rep-inc-competitors')?.checked;
+
+    // Posts in range
+    let posts = APP.posts.filter(p => {
+      if (p.status !== 'published' || !p.publishedAt) return false;
+      const d = new Date(p.publishedAt);
+      if (d < fromDate || d > toDate) return false;
+      if (companyFilter && p.company !== companyFilter) return false;
+      return true;
+    });
+
+    const COMPANIES_MAP = { mssi: 'MSSI', wcli: 'WCLI', cwli: 'CWLI' };
+    posts.forEach(p => { p._score = engagementScore(p.performance); });
+
+    const totalScore = posts.reduce((s,p) => s + p._score, 0);
+    const totalLikes = posts.reduce((s,p) => s + ((p.performance||{}).likes||0), 0);
+    const totalShares = posts.reduce((s,p) => s + ((p.performance||{}).shares||0), 0);
+    const totalComments = posts.reduce((s,p) => s + ((p.performance||{}).comments||0), 0);
+
+    // Leads in range
+    let leadsCount = 0, leadsByCompany = {};
+    if (incLeads && _session) {
+      try {
+        const leadsRes = await syncRequest({ operation: 'get_leads_in_range', from: fromDate.toISOString(), to: toDate.toISOString(), company: companyFilter || undefined });
+        const leads = leadsRes?.leads || [];
+        leadsCount = leads.length;
+        leads.forEach(l => { leadsByCompany[l.company] = (leadsByCompany[l.company]||0) + 1; });
+      } catch (_e) { /* leave at 0 if unavailable */ }
+    }
+
+    // Staff response times in range
+    let responseStats = null;
+    if (incResponse && _session) {
+      try {
+        const res = await syncRequest({ operation: 'get_response_times', from: fromDate.toISOString(), to: toDate.toISOString(), company: companyFilter || undefined });
+        responseStats = res?.stats || null;
+      } catch (_e) {}
+    }
+
+    // Competitor snapshots in range
+    let competitorData = [];
+    if (incCompetitors && _session) {
+      try {
+        const compRes = await syncRequest({ operation: 'list_competitors', company: companyFilter || undefined });
+        const competitors = compRes?.competitors || [];
+        for (const c of competitors) {
+          const snapRes = await syncRequest({ operation: 'get_competitor_snapshots', competitor_id: c.id, limit: 1 });
+          const latest = (snapRes?.snapshots || [])[0];
+          if (latest) competitorData.push({ name: c.name, snapshot: latest });
+        }
+      } catch (_e) {}
+    }
+
+    if (statusEl) statusEl.textContent = 'Building PDF…';
+
+    // ── Build the PDF ──
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF({ unit: 'pt', format: 'letter' });
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const margin = 46;
+    let y = 56;
+
+    const periodLabel = `${fromDate.toLocaleDateString('en-PH',{month:'short',day:'numeric',year:'numeric'})} – ${toDate.toLocaleDateString('en-PH',{month:'short',day:'numeric',year:'numeric'})}`;
+    const scopeLabel = companyFilter ? COMPANIES_MAP[companyFilter] : 'MSSI / WCLI / CWLI';
+
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(18); doc.setTextColor(26,26,26);
+    doc.text('Social Content Manager — Report', margin, y); y += 18;
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(10.5); doc.setTextColor(110,110,110);
+    doc.text(`${periodLabel} · ${scopeLabel}`, margin, y); y += 14;
+    doc.setDrawColor(229,229,229); doc.line(margin, y, pageWidth - margin, y); y += 22;
+
+    if (incSummary) {
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(12); doc.setTextColor(26,26,26);
+      doc.text('Summary', margin, y); y += 8;
+      doc.autoTable({
+        startY: y,
+        margin: { left: margin, right: margin },
+        head: [['Posts', 'Engagement', 'Likes', 'Shares', 'Comments', 'Leads']],
+        body: [[String(posts.length), String(totalScore), String(totalLikes), String(totalShares), String(totalComments), String(leadsCount)]],
+        theme: 'plain',
+        headStyles: { fillColor: [245,245,245], textColor: [107,107,107], fontSize: 8 },
+        bodyStyles: { fontSize: 13, fontStyle: 'bold', textColor: [26,26,26], halign: 'center' },
+        styles: { halign: 'center', lineColor: [229,229,229], lineWidth: 0.5 },
+      });
+      y = doc.lastAutoTable.finalY + 20;
+
+      const byCo = {};
+      posts.forEach(p => { (byCo[p.company] = byCo[p.company] || []).push(p); });
+      const coRows = ['mssi','wcli','cwli']
+        .filter(k => !companyFilter || k === companyFilter)
+        .map(k => {
+          const cp = byCo[k] || [];
+          const score = cp.reduce((s,p)=>s+p._score,0);
+          const likes = cp.reduce((s,p)=>s+((p.performance||{}).likes||0),0);
+          return [COMPANIES_MAP[k], String(cp.length), String(score), String(likes), String(leadsByCompany[k]||0)];
+        });
+      if (coRows.length) {
+        doc.setFont('helvetica', 'bold'); doc.setFontSize(11);
+        doc.text('By Company', margin, y); y += 6;
+        doc.autoTable({
+          startY: y, margin: { left: margin, right: margin },
+          head: [['Company', 'Posts', 'Engagement', 'Likes', 'Leads']],
+          body: coRows,
+          theme: 'striped', headStyles: { fillColor: [26,26,26], fontSize: 9 }, bodyStyles: { fontSize: 9 },
+        });
+        y = doc.lastAutoTable.finalY + 20;
+      }
+    }
+
+    if (incTopPosts) {
+      const top = [...posts].sort((a,b) => b._score - a._score).slice(0, 5);
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(12); doc.setTextColor(26,26,26);
+      doc.text('Top Performing Posts', margin, y); y += 8;
+      if (!top.length || totalScore === 0) {
+        doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(150,150,150);
+        doc.text('No posts with meaningful engagement in this period.', margin, y); y += 16;
+      } else {
+        doc.autoTable({
+          startY: y, margin: { left: margin, right: margin },
+          head: [['Company', 'Pillar', 'Date', 'Score']],
+          body: top.map(p => [COMPANIES_MAP[p.company]||p.company, p.pillar||'—', new Date(p.publishedAt).toLocaleDateString('en-PH',{month:'short',day:'numeric'}), String(p._score)]),
+          theme: 'striped', headStyles: { fillColor: [26,26,26], fontSize: 9 }, bodyStyles: { fontSize: 9 },
+        });
+        y = doc.lastAutoTable.finalY + 20;
+      }
+    }
+
+    if (incHashtags) {
+      const byTag = {};
+      posts.forEach(p => {
+        if (!p.caption) return;
+        const { tags } = splitCaptionTags(p.caption);
+        const seen = new Set();
+        tags.forEach(raw => {
+          const tag = raw.toLowerCase();
+          if (seen.has(tag)) return; seen.add(tag);
+          if (!byTag[tag]) byTag[tag] = { tag: raw, uses: 0, totalScore: 0 };
+          byTag[tag].uses++; byTag[tag].totalScore += p._score;
+        });
+      });
+      const ranked = Object.values(byTag).filter(t => t.uses >= HASHTAG_MIN_USES)
+        .map(t => ({ ...t, avg: Math.round(t.totalScore/t.uses) })).sort((a,b) => b.avg - a.avg).slice(0, 8);
+
+      if (y > 620) { doc.addPage(); y = 56; }
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(12); doc.setTextColor(26,26,26);
+      doc.text('Hashtag Performance', margin, y); y += 8;
+      if (!ranked.length) {
+        doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(150,150,150);
+        doc.text(`No hashtags repeated ${HASHTAG_MIN_USES}+ times in this period yet.`, margin, y); y += 16;
+      } else {
+        doc.autoTable({
+          startY: y, margin: { left: margin, right: margin },
+          head: [['Hashtag', 'Uses', 'Avg. Engagement']],
+          body: ranked.map(t => [t.tag, String(t.uses), String(t.avg)]),
+          theme: 'striped', headStyles: { fillColor: [26,26,26], fontSize: 9 }, bodyStyles: { fontSize: 9 },
+        });
+        y = doc.lastAutoTable.finalY + 20;
+      }
+    }
+
+    if (incResponse) {
+      if (y > 620) { doc.addPage(); y = 56; }
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(12); doc.setTextColor(26,26,26);
+      doc.text('Staff Response Time to Inquiries', margin, y); y += 8;
+      if (!responseStats || !responseStats.count) {
+        doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(150,150,150);
+        doc.text('No responded inquiries recorded in this period yet.', margin, y); y += 16;
+      } else {
+        doc.autoTable({
+          startY: y, margin: { left: margin, right: margin },
+          head: [['Inquiries Responded', 'Avg. Response Time', 'Fastest', 'Slowest']],
+          body: [[String(responseStats.count), `${responseStats.avgMinutes} min`, `${responseStats.minMinutes} min`, `${responseStats.maxMinutes} min`]],
+          theme: 'striped', headStyles: { fillColor: [26,26,26], fontSize: 9 }, bodyStyles: { fontSize: 9, halign: 'center' },
+        });
+        y = doc.lastAutoTable.finalY + 6;
+        doc.setFont('helvetica', 'italic'); doc.setFontSize(8); doc.setTextColor(150,150,150);
+        doc.text('Note: response attribution is currently per-team, not per-individual staff member.', margin, y); y += 20;
+      }
+    }
+
+    if (incCompetitors) {
+      if (y > 600) { doc.addPage(); y = 56; }
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(12); doc.setTextColor(26,26,26);
+      doc.text('Competitor Snapshots', margin, y); y += 8;
+      if (!competitorData.length) {
+        doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(150,150,150);
+        doc.text('No competitor snapshots recorded yet. Use Competitors → Record Snapshot.', margin, y); y += 16;
+      } else {
+        doc.autoTable({
+          startY: y, margin: { left: margin, right: margin },
+          head: [['Competitor', 'Followers', 'Posting Frequency', 'Last Checked']],
+          body: competitorData.map(c => [
+            c.name,
+            c.snapshot.follower_count ? String(c.snapshot.follower_count) : '—',
+            c.snapshot.post_frequency_estimate || '—',
+            new Date(c.snapshot.captured_at).toLocaleDateString('en-PH',{month:'short',day:'numeric'}),
+          ]),
+          theme: 'striped', headStyles: { fillColor: [26,26,26], fontSize: 9 }, bodyStyles: { fontSize: 9 },
+        });
+        y = doc.lastAutoTable.finalY + 20;
+      }
+    }
+
+    // Footer
+    const pageCount = doc.internal.getNumberOfPages();
+    for (let i = 1; i <= pageCount; i++) {
+      doc.setPage(i);
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(150,150,150);
+      doc.text(`Generated ${new Date().toLocaleDateString('en-PH',{month:'long',day:'numeric',year:'numeric'})} · Page ${i} of ${pageCount}`, margin, doc.internal.pageSize.getHeight() - 24);
+    }
+
+    const filename = `SCM_Report_${fromDate.toISOString().slice(0,10)}_to_${toDate.toISOString().slice(0,10)}.pdf`;
+    doc.save(filename);
+
+    document.getElementById('report-builder-overlay')?.remove();
+    showToast('Report downloaded', 'success');
+  } catch (err) {
+    if (statusEl) { statusEl.textContent = 'Error: ' + err.message; statusEl.style.color = 'var(--red)'; }
+    if (btn) { btn.disabled = false; btn.textContent = 'Generate PDF'; }
+  }
+}
+
 // Automatically updates Auto-Schedule times based on best-performing posting hours
 function autoApplyBestTimes(posts) {
   if (posts.length < 5) return; // Need enough data to be meaningful
@@ -9832,7 +10159,7 @@ function updateUserBadge() {
 // app-sync, research-competitor, and others via server logs — not specific to
 // any one function's code, likely a platform-level routing hiccup outside our
 // control). One silent retry absorbs this without the user ever seeing it.
-async function syncRequest(body, _isRetry = false) {
+async function syncRequest(body, _attempt = 0) {
   if (!_session) return {};
   try {
     const res = await fetch(SYNC_URL, {
@@ -9840,15 +10167,15 @@ async function syncRequest(body, _isRetry = false) {
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${_session.access_token}` },
       body: JSON.stringify(body)
     });
-    if (res.status === 404 && !_isRetry) {
-      await new Promise(r => setTimeout(r, 800));
-      return syncRequest(body, true);
+    if (res.status === 404 && _attempt < 2) {
+      await new Promise(r => setTimeout(r, 700 * (_attempt + 1)));
+      return syncRequest(body, _attempt + 1);
     }
     return res.json();
   } catch (_e) {
-    if (!_isRetry) {
-      await new Promise(r => setTimeout(r, 800));
-      return syncRequest(body, true);
+    if (_attempt < 2) {
+      await new Promise(r => setTimeout(r, 700 * (_attempt + 1)));
+      return syncRequest(body, _attempt + 1);
     }
     return {};
   }
