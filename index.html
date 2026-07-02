@@ -3560,7 +3560,7 @@ async function uploadVideoToStorage(videoFile) {
 // Shared helper: calls the Supabase image proxy. Returns a short public URL (image is stored
 // on Supabase, NOT returned as base64 — that's what keeps browser localStorage from overflowing).
 // Optionally passes the company logo so the proxy can watermark server-side before storing.
-async function generateImageViaProxy(prompt, opts) {
+async function generateImageViaProxy(prompt, opts, postId) {
   const proxyUrl = APP.apiKeys.imgproxy || localStorage.getItem('scm_imgproxy_key');
   if (!proxyUrl) throw new Error('No image proxy URL configured in Settings');
   const payload = { prompt: prompt, aspect_ratio: '1x1', rendering_speed: 'DEFAULT' };
@@ -3574,6 +3574,9 @@ async function generateImageViaProxy(prompt, opts) {
   if (opts && opts.swatchUrl) {
     payload.swatchUrl = opts.swatchUrl;
   }
+  // Optional — lets the server attribute the estimated cost of this generation to a
+  // specific post, so the report's cost section can be more precise. Safe to omit.
+  if (postId) payload.postId = postId;
   const res = await fetch(proxyUrl, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -3801,7 +3804,21 @@ async function callClaudeSonnet(apiKey, prompt, maxTokens = 800) {
   });
   const data = await res.json();
   if (data.error) throw new Error(data.error.message);
+  logClaudeUsageEstimate(prompt.length, data.content[0].text.length);
   return data.content[0].text.trim();
+}
+
+// Rough, best-effort cost estimate for a Claude Sonnet call — logged for the
+// report's cost section. Estimates tokens from character count (~4 chars/token,
+// a standard approximation) and Sonnet's published per-token pricing. This is
+// NOT pulled from Anthropic's real usage/billing API (no such endpoint is
+// callable from here) — it's an estimate, clearly labeled as such in the report.
+function logClaudeUsageEstimate(promptChars, outputChars) {
+  if (!_session) return;
+  const inputTokens = promptChars / 4;
+  const outputTokens = outputChars / 4;
+  const cost = (inputTokens / 1_000_000) * 3.00 + (outputTokens / 1_000_000) * 15.00;
+  syncRequest({ operation: 'log_api_usage', provider: 'anthropic', purpose: 'caption_or_text', estimatedCostUsd: Math.round(cost * 10000) / 10000 }).catch(() => {});
 }
 
 // Combined caption + image description in ONE call — saves 1 full API call per image post
@@ -5839,6 +5856,7 @@ function openReportBuilder() {
         <label style="display:flex;align-items:center;gap:8px;font-size:12.5px;padding:5px 0;cursor:pointer"><input type="checkbox" id="rep-inc-response" checked> Staff response time to inquiries</label>
         <label style="display:flex;align-items:center;gap:8px;font-size:12.5px;padding:5px 0;cursor:pointer"><input type="checkbox" id="rep-inc-leads" checked> Leads &amp; inquiries captured</label>
         <label style="display:flex;align-items:center;gap:8px;font-size:12.5px;padding:5px 0;cursor:pointer"><input type="checkbox" id="rep-inc-competitors" checked> Competitor snapshots</label>
+        <label style="display:flex;align-items:center;gap:8px;font-size:12.5px;padding:5px 0;cursor:pointer"><input type="checkbox" id="rep-inc-cost" checked> API cost (estimated)</label>
 
         <button class="btn btn-primary" style="width:100%;margin-top:16px" onclick="generateReportPDF()">Generate PDF</button>
         <div id="report-gen-status" style="font-size:11.5px;color:var(--text3);margin-top:8px;text-align:center;display:none"></div>
@@ -5892,6 +5910,7 @@ async function generateReportPDF() {
     const incResponse = document.getElementById('rep-inc-response')?.checked;
     const incLeads = document.getElementById('rep-inc-leads')?.checked;
     const incCompetitors = document.getElementById('rep-inc-competitors')?.checked;
+    const incCost = document.getElementById('rep-inc-cost')?.checked;
 
     // Posts in range
     let posts = APP.posts.filter(p => {
@@ -5941,6 +5960,14 @@ async function generateReportPDF() {
           const latest = (snapRes?.snapshots || [])[0];
           if (latest) competitorData.push({ name: c.name, snapshot: latest });
         }
+      } catch (_e) {}
+    }
+
+    // Cost estimate summary
+    let costSummary = null;
+    if (incCost && _session) {
+      try {
+        costSummary = await syncRequest({ operation: 'get_cost_summary', from: fromDate.toISOString(), to: toDate.toISOString() });
       } catch (_e) {}
     }
 
@@ -6089,6 +6116,43 @@ async function generateReportPDF() {
             new Date(c.snapshot.captured_at).toLocaleDateString('en-PH',{month:'short',day:'numeric'}),
           ]),
           theme: 'striped', headStyles: { fillColor: [26,26,26], fontSize: 9 }, bodyStyles: { fontSize: 9 },
+        });
+        y = doc.lastAutoTable.finalY + 20;
+      }
+    }
+
+    if (incCost) {
+      if (y > 600) { doc.addPage(); y = 56; }
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(12); doc.setTextColor(26,26,26);
+      doc.text('API Cost (Estimated)', margin, y); y += 8;
+      doc.setFont('helvetica', 'italic'); doc.setFontSize(8); doc.setTextColor(150,150,150);
+      doc.text('Estimate based on published per-unit pricing — not pulled from any provider\'s real billing.', margin, y); y += 5;
+      doc.text('Check each provider\'s own dashboard for the actual billed amount.', margin, y); y += 10;
+
+      const providerLabels = {
+        gemini_flash_image_swatch: 'Gemini 2.5 Flash Image (swatch)',
+        imagen: 'Imagen 4 Ultra',
+        imagen_fallback_after_swatch_fail: 'Imagen 4 Ultra (fallback)',
+        ideogram_fallback: 'Ideogram (fallback)',
+        anthropic: 'Claude (captions/text)',
+        brave: 'Brave Search (competitor research)',
+      };
+
+      if (!costSummary || !costSummary.byProvider || !costSummary.byProvider.length) {
+        doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(150,150,150);
+        doc.text('No API usage logged for this period yet.', margin, y); y += 16;
+      } else {
+        doc.autoTable({
+          startY: y, margin: { left: margin, right: margin },
+          head: [['API / Provider', 'Calls', 'Estimated Cost']],
+          body: costSummary.byProvider.map(p => [
+            providerLabels[p.provider] || p.provider,
+            String(p.count),
+            '$' + p.totalUsd.toFixed(4),
+          ]),
+          theme: 'striped', headStyles: { fillColor: [26,26,26], fontSize: 9 }, bodyStyles: { fontSize: 9 },
+          foot: [['Total (estimated)', '', '$' + costSummary.totalUsd.toFixed(4)]],
+          footStyles: { fillColor: [245,245,245], textColor: [26,26,26], fontStyle: 'bold', fontSize: 9.5 },
         });
         y = doc.lastAutoTable.finalY + 20;
       }
