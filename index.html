@@ -1449,6 +1449,79 @@ select:focus{border-color:var(--accent-border);}
 // Newest entries go at the top. Each entry should describe what changed in plain language.
 const CHANGELOG = [
   {
+    date: '2026-07-02',
+    title: 'Generate Report — real PDF, built in your browser',
+    items: [
+      'New "Generate Report" button on the Performance screen. Pick a date range (this month, last month, last 7/30 days, or custom), a company, and which sections to include — no server round-trip, the PDF builds instantly in your browser and downloads directly.',
+      'Sections available: summary & by-company breakdown, top performing posts, hashtag performance, staff response time to inquiries, leads & inquiries captured, competitor snapshots, and an estimated API cost breakdown.',
+      'API cost section shows a per-provider table (Gemini, Imagen, Ideogram, Claude, Brave) with call counts and estimated spend — clearly labeled as an estimate based on published pricing, not your real invoice. Check each provider\'s own dashboard for actual billed amounts.',
+      'Cost tracking now runs automatically in the background from today forward — every image generation and caption call logs a rough cost estimate. Nothing before today was tracked, so early reports will show gaps for older activity.',
+    ]
+  },
+  {
+    date: '2026-07-02',
+    title: 'Hashtag Performance — tracked and self-learning',
+    items: [
+      'New Hashtag Performance card on the Performance screen — ranks your hashtags by real engagement (a tag needs to repeat across 2+ posts before it\'s ranked, so a single lucky post doesn\'t count as proof it works).',
+      'Top-performing hashtags now automatically get suggested to Claude when generating future captions, so proven tags get reused where they genuinely fit — not forced onto unrelated posts.',
+    ]
+  },
+  {
+    date: '2026-07-02',
+    title: 'Competitors — new sidebar screen',
+    items: [
+      'Competitors now lives as its own screen in the main sidebar, next to Performance — not buried in Settings, since it\'s something you check in on, not a one-time configuration.',
+      'Add competitors with name, which company they compete against, manufacturer vs. importer, product categories, region, and public profile links (Facebook, website, Instagram).',
+      '"Record Snapshot" — manually log what you observe on a competitor\'s page (follower count, posting frequency, content themes, notable activity).',
+      '"View Comparison" — shows your own performance numbers side-by-side with a competitor\'s latest recorded snapshot.',
+      '"Research Now" — attempts an automated web search + AI summary of a competitor\'s public presence. This has hit repeated platform-level reliability issues; manual snapshot entry is the dependable option for now.',
+    ]
+  },
+  {
+    date: '2026-07-02',
+    title: 'Leads capture from comments',
+    items: [
+      'When an incoming Facebook comment matches inquiry language (price, quote, order, etc.) and is a genuine new comment — not a reply in an existing thread — it\'s now automatically saved as a lead: name, message, source post, company, audience, and pillar.',
+      'This is a capture layer only — no status pipeline or management screen yet. It exists to make sure no inquiry history is lost between now and a dedicated CRM.',
+    ]
+  },
+  {
+    date: '2026-07-02',
+    title: 'Activity Log — who did what, and when',
+    items: [
+      'New Activity Log tab in Settings — records who scheduled, rescheduled, edited a caption, or deleted a post, tied to the real signed-in person\'s name.',
+      'Filterable by company. Only meaningful transitions are logged (not every autosave) to keep it readable.',
+      'This covers actions taken while signed in and synced — it\'s an accountability aid, not a compliance-grade audit trail.',
+    ]
+  },
+  {
+    date: '2026-07-02',
+    title: 'Scheduling conflict warnings',
+    items: [
+      'Scheduling a post now checks for other posts on the same company within 30 minutes of the chosen time, and warns you before confirming — so two posts don\'t accidentally go out back-to-back on the same page.',
+      'Bulk "Approve All" also checks after the batch completes and flags any company with an overlap, without interrupting the bulk action itself.',
+    ]
+  },
+  {
+    date: '2026-07-02',
+    title: 'Image generation fixes — Regen Image, color accuracy, CWLI sync',
+    items: [
+      'Fixed Regen Image regenerating a completely different, unrelated scene instead of a variation of the approved one — the original visual description is now saved and reused.',
+      'Fixed the "Fix Color Tags" AI repair tool, which was silently broken due to reading the wrong stored API key name — it had never actually run successfully.',
+      'Corrected mislabeled color data (e.g. "Toast" was tagged red in the database; the real swatch is gray).',
+      'Fixed CWLI colors never actually syncing to Supabase — the "Copy from WCLI" button only ever saved to your local browser, so CWLI had zero colors in the cloud database until this fix.',
+      'Autopilot (the Sunday-night automation) now generates real images for every post using the same provider chain as manual posts — it previously shipped text-only posts every week.',
+    ]
+  },
+  {
+    date: '2026-07-02',
+    title: 'Security — Row Level Security enabled',
+    items: [
+      'Enabled Row Level Security on scheduled_posts and post_comments — these tables were previously readable/writable by anyone with the public app key, including live Facebook Page Access Tokens sitting in scheduled_posts.',
+      'Facebook token rotation for MSSI/WCLI is still a recommended follow-up, since tokens were exposed for a period before this fix.',
+    ]
+  },
+  {
     date: '2026-06-29',
     title: 'Preview modal — full Facebook preview with regen inside',
     items: [
@@ -4843,6 +4916,8 @@ function openHelpModal() {
     { icon: '💬', label: 'Comments & Webhooks' },
     { icon: '🎨', label: 'Colors & Brand' },
     { icon: '📊', label: 'Analytics & Performance' },
+    { icon: '📄', label: 'Generate Report' },
+    { icon: '🔍', label: 'Competitors' },
     { icon: '👥', label: 'Team & Users' },
     { icon: '⚙️', label: 'Settings & API Keys' },
     { icon: '📱', label: 'Mobile & Sync' },
@@ -4920,16 +4995,21 @@ async function sendHelpMessage() {
 The app is a single-file HTML/JS/CSS progressive web app hosted at rotaligatos.github.io/social-content-manager/. It connects to Supabase (nssviuuagtlvxjvvvagt, Singapore region) for data persistence and uses Facebook Graph API for publishing.
 
 Key features:
-- Create Post: Select company, audience, pillar → AI generates caption (Claude Haiku) → AI generates image (Ideogram) or video (Veo) → schedule or publish
-- Review & Schedule: Review AI-generated posts, preview Facebook layout, edit caption/image, schedule with datetime picker
+- Create Post: Select company, audience, pillar → AI generates caption (Claude) → AI generates image or video → schedule or publish
+- Image generation priority: if a WCLI/CWLI color is selected, the real swatch photo is fed to Gemini 2.5 Flash Image so the result matches the actual material. Otherwise Imagen 4 Ultra generates from the text description. If both fail, Ideogram is the last-resort fallback. Watermarking with your logo is optional (toggle in Settings).
+- Review & Schedule: Review AI-generated posts, preview Facebook layout, edit caption/image, regenerate image (reuses the same approved scene so it stays on-subject), schedule with datetime picker. Scheduling checks for other posts on the same company within 30 minutes and warns before you accidentally double-book a time slot.
 - Calendar: Visual calendar of scheduled posts by company
 - Auto-Generate Week: Generates 7 days of posts automatically with color rotation and holiday awareness
 - Photo Library: Persistent photo storage, AI enhancement (6 styles), animate to video
-- Performance: Facebook insights (reach, reactions, comments, shares), AI strategy hints
+- Performance: Facebook insights (reach, reactions, comments, shares), AI strategy hints, and a Hashtag Performance card that ranks hashtags by real engagement (needs 2+ uses of a tag before it's ranked) — top-performing hashtags automatically get suggested to Claude in future captions
+- Generate Report (Performance screen): builds a real PDF right in the browser — pick a date range, pick a company, and choose which sections to include: summary/by-company, top posts, hashtag performance, staff response time to inquiries, leads captured, competitor snapshots, and an estimated API cost breakdown. The cost figures are estimates based on published pricing, not pulled from real billing — check each provider's own dashboard for actual charges.
+- Competitors (sidebar, own screen — not under Settings): track named competitors per company, tagged as manufacturer or importer with product categories (HPL, laminated boards, modular fabrication, services, hardware, edgeband tape). "Record Snapshot" lets you manually log what you observed on their page. "View Comparison" shows your own performance next to their latest snapshot. "Research Now" attempts an automated web search + AI summary, but this has been unreliable due to platform issues — manual snapshot entry is the dependable path for now.
+- Leads: when an incoming Facebook comment matches inquiry keywords (price, quote, order, etc.) and it's a new top-level comment (not a reply), it's automatically captured as a lead — name, message, source post, company, audience, pillar. No UI to manage lead status yet; this is a capture layer feeding a future CRM.
+- Activity Log (Settings): records who scheduled, rescheduled, edited, or deleted a post, and when — for accountability, not a legal audit trail. Only actions taken while signed in and synced are recorded.
 - Brand Profiles: Company voice, logos, colors (Melamine/De One HPL/Elemental HPL), retail partners
-- Settings: API keys, Facebook pages, Telegram bot, SLA targets, autopilot, team & users
-- Autonomous Mode: Autopilot runs every Sunday 10PM PH via Supabase pg_cron, generates the week's posts and sends Telegram summary
-- Facebook Webhook: Real-time comments flow to dashboard, AI detects inquiries, staff auto-notified via Telegram
+- Settings: API keys, Facebook pages, Telegram bot, SLA targets, autopilot, team & users, Activity Log
+- Autonomous Mode: Autopilot runs every Sunday 10PM PH via Supabase pg_cron, generates the week's posts (including real images, using the same provider chain as manual posts) and sends a Telegram summary that flags any post that came out without a photo
+- Facebook Webhook: Real-time comments flow to dashboard, AI detects inquiries, staff auto-notified via Telegram (filtered to staff assigned to that company), and qualifying inquiries are captured as leads
 - SLA escalation: Every 30 min, managers alerted if comments unresponded (MSSI: 2h, WCLI/CWLI: 4h)
 - User management: Admin-only invite system, password reset, role-based access (admin sees all, staff sees everything except Settings)
 - Mobile: Add to home screen as PWA, floating ↻ sync button
@@ -9508,8 +9588,8 @@ async function runStoreSearch() {
   }
 
   resultsEl.innerHTML = filtered.slice(0, 25).map(b => {
-    const safeN = b.name.replace(/'/g,"\\'").replace(/"/g,'&quot;');
-    const safeA = (b.address||'').replace(/'/g,"\\'").replace(/"/g,'&quot;');
+    const safeN = b.name.replace(/'/g,"\'").replace(/"/g,'&quot;');
+    const safeA = (b.address||'').replace(/'/g,"\'").replace(/"/g,'&quot;');
     return `<div onclick="selectRetailBranch('${safeN}','${safeA}','${b.area}')"
          style="padding:9px 12px;cursor:pointer;border-bottom:1px solid var(--border)"
          onmouseover="this.style.background='var(--bg4)'" onmouseout="this.style.background=''">
@@ -10639,7 +10719,7 @@ async function loadCompetitorsScreen() {
             <button class="btn btn-ghost btn-sm" style="font-size:11px;color:var(--accent2)" onclick="researchCompetitorNow('${c.id}', this)">✦ Research Now</button>
             <button class="btn btn-ghost btn-sm" style="font-size:11px" onclick="runCompetitorComparison('${c.id}')">Record Snapshot</button>
             <button class="btn btn-ghost btn-sm" style="font-size:11px" onclick="openCompetitorForm('${c.id}')">Edit</button>
-            <button class="btn btn-ghost btn-sm" style="font-size:11px;color:var(--red)" onclick="deleteCompetitor('${c.id}','${c.name.replace(/'/g,"\\'")}')">Remove</button>
+            <button class="btn btn-ghost btn-sm" style="font-size:11px;color:var(--red)" onclick="deleteCompetitor('${c.id}','${c.name.replace(/'/g,"\'")}')">Remove</button>
           </div>
         </div>
       </div>`;
