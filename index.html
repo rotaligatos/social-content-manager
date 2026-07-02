@@ -5989,7 +5989,23 @@ async function generateReportPDF() {
     doc.text(`${periodLabel} · ${scopeLabel}`, margin, y); y += 14;
     doc.setDrawColor(229,229,229); doc.line(margin, y, pageWidth - margin, y); y += 22;
 
+    const pageHeight = doc.internal.pageSize.getHeight();
+    const bottomMargin = 60; // leaves room for the footer
+
+    // Ensures there's real room left on the current page for the next section's
+    // heading + a reasonable amount of content before it starts. Called before
+    // every section heading, not just some — the previous ad-hoc `y > N` checks
+    // didn't account for autoTable's own automatic page breaks changing where
+    // `y` actually ends up, which is what caused the page-2 overlap.
+    function ensureSpace(neededHeight) {
+      if (y + neededHeight > pageHeight - bottomMargin) {
+        doc.addPage();
+        y = 56;
+      }
+    }
+
     if (incSummary) {
+      ensureSpace(60);
       doc.setFont('helvetica', 'bold'); doc.setFontSize(12); doc.setTextColor(26,26,26);
       doc.text('Summary', margin, y); y += 8;
       doc.autoTable({
@@ -6015,6 +6031,7 @@ async function generateReportPDF() {
           return [COMPANIES_MAP[k], String(cp.length), String(score), String(likes), String(leadsByCompany[k]||0)];
         });
       if (coRows.length) {
+        ensureSpace(40 + coRows.length * 20);
         doc.setFont('helvetica', 'bold'); doc.setFontSize(11);
         doc.text('By Company', margin, y); y += 6;
         doc.autoTable({
@@ -6029,6 +6046,7 @@ async function generateReportPDF() {
 
     if (incTopPosts) {
       const top = [...posts].sort((a,b) => b._score - a._score).slice(0, 5);
+      ensureSpace(40 + top.length * 20);
       doc.setFont('helvetica', 'bold'); doc.setFontSize(12); doc.setTextColor(26,26,26);
       doc.text('Top Performing Posts', margin, y); y += 8;
       if (!top.length || totalScore === 0) {
@@ -6061,7 +6079,7 @@ async function generateReportPDF() {
       const ranked = Object.values(byTag).filter(t => t.uses >= HASHTAG_MIN_USES)
         .map(t => ({ ...t, avg: Math.round(t.totalScore/t.uses) })).sort((a,b) => b.avg - a.avg).slice(0, 8);
 
-      if (y > 620) { doc.addPage(); y = 56; }
+      ensureSpace(40 + ranked.length * 20);
       doc.setFont('helvetica', 'bold'); doc.setFontSize(12); doc.setTextColor(26,26,26);
       doc.text('Hashtag Performance', margin, y); y += 8;
       if (!ranked.length) {
@@ -6079,7 +6097,7 @@ async function generateReportPDF() {
     }
 
     if (incResponse) {
-      if (y > 620) { doc.addPage(); y = 56; }
+      ensureSpace(60);
       doc.setFont('helvetica', 'bold'); doc.setFontSize(12); doc.setTextColor(26,26,26);
       doc.text('Staff Response Time to Inquiries', margin, y); y += 8;
       if (!responseStats || !responseStats.count) {
@@ -6099,7 +6117,7 @@ async function generateReportPDF() {
     }
 
     if (incCompetitors) {
-      if (y > 600) { doc.addPage(); y = 56; }
+      ensureSpace(40 + competitorData.length * 20);
       doc.setFont('helvetica', 'bold'); doc.setFontSize(12); doc.setTextColor(26,26,26);
       doc.text('Competitor Snapshots', margin, y); y += 8;
       if (!competitorData.length) {
@@ -6122,7 +6140,7 @@ async function generateReportPDF() {
     }
 
     if (incCost) {
-      if (y > 600) { doc.addPage(); y = 56; }
+      ensureSpace(80);
       doc.setFont('helvetica', 'bold'); doc.setFontSize(12); doc.setTextColor(26,26,26);
       doc.text('API Cost (Estimated)', margin, y); y += 8;
       doc.setFont('helvetica', 'italic'); doc.setFontSize(8); doc.setTextColor(150,150,150);
