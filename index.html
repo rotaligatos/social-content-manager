@@ -6007,7 +6007,7 @@ async function generateReportPDF() {
     if (incSummary) {
       ensureSpace(60);
       doc.setFont('helvetica', 'bold'); doc.setFontSize(12); doc.setTextColor(26,26,26);
-      doc.text('Summary', margin, y); y += 8;
+      doc.text('Summary', margin, y); y += 14;
       doc.autoTable({
         startY: y,
         margin: { left: margin, right: margin },
@@ -6033,7 +6033,7 @@ async function generateReportPDF() {
       if (coRows.length) {
         ensureSpace(40 + coRows.length * 20);
         doc.setFont('helvetica', 'bold'); doc.setFontSize(11);
-        doc.text('By Company', margin, y); y += 6;
+        doc.text('By Company', margin, y); y += 12;
         doc.autoTable({
           startY: y, margin: { left: margin, right: margin },
           head: [['Company', 'Posts', 'Engagement', 'Likes', 'Leads']],
@@ -6048,7 +6048,7 @@ async function generateReportPDF() {
       const top = [...posts].sort((a,b) => b._score - a._score).slice(0, 5);
       ensureSpace(40 + top.length * 20);
       doc.setFont('helvetica', 'bold'); doc.setFontSize(12); doc.setTextColor(26,26,26);
-      doc.text('Top Performing Posts', margin, y); y += 8;
+      doc.text('Top Performing Posts', margin, y); y += 14;
       if (!top.length || totalScore === 0) {
         doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(150,150,150);
         doc.text('No posts with meaningful engagement in this period.', margin, y); y += 16;
@@ -6081,7 +6081,7 @@ async function generateReportPDF() {
 
       ensureSpace(40 + ranked.length * 20);
       doc.setFont('helvetica', 'bold'); doc.setFontSize(12); doc.setTextColor(26,26,26);
-      doc.text('Hashtag Performance', margin, y); y += 8;
+      doc.text('Hashtag Performance', margin, y); y += 14;
       if (!ranked.length) {
         doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(150,150,150);
         doc.text(`No hashtags repeated ${HASHTAG_MIN_USES}+ times in this period yet.`, margin, y); y += 16;
@@ -6099,7 +6099,7 @@ async function generateReportPDF() {
     if (incResponse) {
       ensureSpace(60);
       doc.setFont('helvetica', 'bold'); doc.setFontSize(12); doc.setTextColor(26,26,26);
-      doc.text('Staff Response Time to Inquiries', margin, y); y += 8;
+      doc.text('Staff Response Time to Inquiries', margin, y); y += 14;
       if (!responseStats || !responseStats.count) {
         doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(150,150,150);
         doc.text('No responded inquiries recorded in this period yet.', margin, y); y += 16;
@@ -6119,7 +6119,7 @@ async function generateReportPDF() {
     if (incCompetitors) {
       ensureSpace(40 + competitorData.length * 20);
       doc.setFont('helvetica', 'bold'); doc.setFontSize(12); doc.setTextColor(26,26,26);
-      doc.text('Competitor Snapshots', margin, y); y += 8;
+      doc.text('Competitor Snapshots', margin, y); y += 14;
       if (!competitorData.length) {
         doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(150,150,150);
         doc.text('No competitor snapshots recorded yet. Use Competitors → Record Snapshot.', margin, y); y += 16;
@@ -6142,10 +6142,10 @@ async function generateReportPDF() {
     if (incCost) {
       ensureSpace(80);
       doc.setFont('helvetica', 'bold'); doc.setFontSize(12); doc.setTextColor(26,26,26);
-      doc.text('API Cost (Estimated)', margin, y); y += 8;
+      doc.text('API Cost (Estimated)', margin, y); y += 14;
       doc.setFont('helvetica', 'italic'); doc.setFontSize(8); doc.setTextColor(150,150,150);
-      doc.text('Estimate based on published per-unit pricing — not pulled from any provider\'s real billing.', margin, y); y += 5;
-      doc.text('Check each provider\'s own dashboard for the actual billed amount.', margin, y); y += 10;
+      doc.text('Estimate based on published per-unit pricing — not pulled from any provider\'s real billing.', margin, y); y += 10;
+      doc.text('Check each provider\'s own dashboard for the actual billed amount.', margin, y); y += 14;
 
       const providerLabels = {
         gemini_flash_image_swatch: 'Gemini 2.5 Flash Image (swatch)',
