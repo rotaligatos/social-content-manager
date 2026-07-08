@@ -4043,6 +4043,17 @@ async function confirmAndGenerateImage() {
     // can recreate a variation of THIS scene instead of inventing an unrelated one from scratch.
     APP.currentVisualDescription = visualDesc;
 
+    // Append a plain-language color/shade disclaimer now that a real AI image is attached —
+    // rendered color can drift from the actual product. Only added once per caption.
+    if (APP.currentCaption && !APP.currentCaption.includes('actual color/shade may vary')) {
+      APP.currentCaption += '\n\n(Photo is AI-generated for illustration — actual color/shade may vary slightly from the real product. Please request a physical sample for exact color matching.)';
+      const { body, tags } = splitCaptionTags(APP.currentCaption);
+      const captionEl = document.getElementById('preview-caption');
+      if (captionEl) captionEl.textContent = body;
+      const tagsEl = document.getElementById('preview-tags');
+      if (tagsEl) tagsEl.innerHTML = tags.map(t => '<span class="fb-tag">'+t+'</span>').join(' ');
+    }
+
     setCurrentPhoto(imageUrl);
     if (modal) modal.remove();
 
