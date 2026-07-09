@@ -757,7 +757,7 @@ select:focus{border-color:var(--accent-border);}
           <div style="font-size:14px;font-weight:500;margin-bottom:16px">Select Companies</div>
           <div class="toggle-row"><div><div class="toggle-label" style="color:var(--mssi)">MSSI</div><div class="toggle-sub">Module Systems &amp; Services</div></div><div class="toggle on" id="autogen-toggle-mssi" onclick="toggleSwitch(this)"><div class="toggle-thumb"></div></div></div>
           <div class="toggle-row"><div><div class="toggle-label" style="color:var(--wcli)">WCLI</div><div class="toggle-sub">World Class Laminate</div></div><div class="toggle on" id="autogen-toggle-wcli" onclick="toggleSwitch(this)"><div class="toggle-thumb"></div></div></div>
-          <div class="toggle-row" style="border-bottom:none"><div><div class="toggle-label" style="color:var(--cwli)">CWLI</div><div class="toggle-sub">Cebu World Laminate</div></div><div class="toggle on" id="autogen-toggle-cwli" onclick="toggleSwitch(this)"><div class="toggle-thumb"></div></div></div>
+          <div class="toggle-row" style="border-bottom:none"><div><div class="toggle-label" style="color:var(--cwli)">CWLI</div><div class="toggle-sub">Cebu World Laminate</div></div><div class="toggle" id="autogen-toggle-cwli" onclick="toggleSwitch(this)"><div class="toggle-thumb"></div></div></div>
         </div>
         <div class="card">
           <div style="font-size:14px;font-weight:500;margin-bottom:16px">Posts Per Company</div>
@@ -1262,9 +1262,9 @@ select:focus{border-color:var(--accent-border);}
             <div class="form-group">
               <label class="form-label">Active Companies</label>
               <div style="display:flex;gap:12px;margin-top:4px">
-                <label style="display:flex;align-items:center;gap:4px;font-size:12.5px;cursor:pointer"><input type="checkbox" id="ap-co-mssi" checked> MSSI</label>
-                <label style="display:flex;align-items:center;gap:4px;font-size:12.5px;cursor:pointer"><input type="checkbox" id="ap-co-wcli" checked> WCLI</label>
-                <label style="display:flex;align-items:center;gap:4px;font-size:12.5px;cursor:pointer"><input type="checkbox" id="ap-co-cwli" checked> CWLI</label>
+                <label style="display:flex;align-items:center;gap:4px;font-size:12.5px;cursor:pointer"><input type="checkbox" id="ap-co-mssi"> MSSI</label>
+                <label style="display:flex;align-items:center;gap:4px;font-size:12.5px;cursor:pointer"><input type="checkbox" id="ap-co-wcli"> WCLI</label>
+                <label style="display:flex;align-items:center;gap:4px;font-size:12.5px;cursor:pointer"><input type="checkbox" id="ap-co-cwli"> CWLI</label>
               </div>
             </div>
             <div class="form-group">
@@ -5060,9 +5060,22 @@ Answer helpfully and specifically. Be concise. If the user asks how to do someth
 function updateDashboard() {
   const now = new Date();
   const weekStart = new Date(now); weekStart.setDate(now.getDate() - now.getDay());
+  weekStart.setHours(0,0,0,0);
   const weekEnd = new Date(weekStart); weekEnd.setDate(weekStart.getDate() + 7);
   ['mssi','wcli','cwli'].forEach(co => {
-    const weekPosts = APP.posts.filter(p => p.company === co && new Date(p.createdAt) >= weekStart && new Date(p.createdAt) <= weekEnd);
+    // Count by when a post actually goes out (published/scheduled date), not when it
+    // was generated. Autopilot creates a whole week's batch in one sitting, so
+    // createdAt almost never falls in the same calendar week as when posts actually
+    // publish across the following days — using createdAt made "this week" show
+    // near-zero even with a full week of real posts live.
+    const weekPosts = APP.posts.filter(p => {
+      if (p.company !== co) return false;
+      const relevantDate = p.publishedAt || p.scheduledFor || p.createdAt;
+      if (!relevantDate) return false;
+      const d = new Date(relevantDate);
+      if (isNaN(d.getTime())) return false;
+      return d >= weekStart && d <= weekEnd;
+    });
     document.getElementById('dash-'+co+'-count').textContent = weekPosts.length;
     const sched = weekPosts.filter(p => p.status === 'scheduled').length;
     const pub = weekPosts.filter(p => p.status === 'published').length;
@@ -5567,7 +5580,7 @@ function renderPerformance() {
 
   // ── Aggregate data ──
   const byPillar = {}, byAudience = {}, byDay = {sun:0,mon:0,tue:0,wed:0,thu:0,fri:0,sat:0};
-  const byWeek = {}, byCompany = {mssi:0,wcli:0,cwli:0};
+  const byWeek = {}, byWeekReach = {}, byCompany = {mssi:0,wcli:0,cwli:0};
   const dayKeys = ['sun','mon','tue','wed','thu','fri','sat'];
 
   filtered.forEach(p => {
@@ -5591,6 +5604,9 @@ function renderPerformance() {
     byWeek[weekLabel] = (byWeek[weekLabel] || 0) + score;
     // Company
     byCompany[p.company] = (byCompany[p.company] || 0) + score;
+    // Weekly reach — separate trend from the engagement-score trend above,
+    // since Business-dashboard-style views typically lead with reach specifically.
+    byWeekReach[weekLabel] = (byWeekReach[weekLabel] || 0) + (p.performance.reach || 0);
   });
 
   const pillarData = Object.entries(byPillar)
@@ -5603,6 +5619,11 @@ function renderPerformance() {
 
   const weekTrend = Object.entries(byWeek)
     .map(([week, score]) => ({ week, score }))
+    .sort((a, b) => a.week.localeCompare(b.week))
+    .slice(-8);
+
+  const reachTrend = Object.entries(byWeekReach)
+    .map(([week, reach]) => ({ week, score: reach }))
     .sort((a, b) => a.week.localeCompare(b.week))
     .slice(-8);
 
@@ -5637,6 +5658,29 @@ function renderPerformance() {
     </div>
   </div>`;
 
+  // Engagement Rate — a standard metric (engagement / reach) that Facebook's own
+  // Business Suite shows prominently. Only meaningful once reach data exists —
+  // small/new pages often show 0 reach until Facebook's own Insights populate,
+  // so this card is honest about that rather than showing a misleading 0% or ∞.
+  const totalEngagementForRate = filtered.reduce((s, p) => {
+    const perf = p.performance || {};
+    return s + (perf.reactions || 0) + (perf.comments || 0) + (perf.shares || 0) + (perf.clicks || 0);
+  }, 0);
+  const engagementRate = totalReach > 0 ? ((totalEngagementForRate / totalReach) * 100) : null;
+
+  html += `<div class="card" style="margin-bottom:20px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px">
+    <div>
+      <div style="font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px">Engagement Rate</div>
+      <div style="font-size:11px;color:var(--text3)">Reactions + comments + shares + clicks, as a share of total reach — the same core metric Facebook's own Business Suite leads with.</div>
+    </div>
+    <div style="font-size:28px;font-weight:700;font-family:'Syne',sans-serif;flex-shrink:0">
+      ${engagementRate !== null ? engagementRate.toFixed(1) + '%' : '—'}
+    </div>
+  </div>`;
+  if (engagementRate === null) {
+    html += `<div style="font-size:11px;color:var(--text3);margin:-14px 0 20px;padding-left:2px">No reach data yet for this filter — this fills in automatically once Facebook Insights reports reach for these posts (can take a day or two for new/small pages).</div>`;
+  }
+
   // Charts row
   html += `<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px">
     <div class="card">
@@ -5656,9 +5700,18 @@ function renderPerformance() {
       ${heatmapChart(byDay)}
     </div>
     <div class="card">
-      <div style="font-size:13px;font-weight:500;margin-bottom:14px">Week-over-Week Trend</div>
+      <div style="font-size:13px;font-weight:500;margin-bottom:14px">Week-over-Week Trend <span style="font-size:11px;color:var(--text3);font-weight:400">(engagement score)</span></div>
       ${trendLine(weekTrend)}
     </div>
+  </div>`;
+
+  // Reach trend — the metric most Business-dashboard-style views lead with,
+  // shown separately from engagement score since they can move independently
+  // (e.g. reach flat while engagement rises means the same people are engaging
+  // more, not that new people are seeing the posts).
+  html += `<div class="card" style="margin-bottom:20px">
+    <div style="font-size:13px;font-weight:500;margin-bottom:14px">Reach Trend <span style="font-size:11px;color:var(--text3);font-weight:400">(weekly total reach)</span></div>
+    ${reachTrend.some(w => w.score > 0) ? trendLine(reachTrend) : '<div style="font-size:12px;color:var(--text3);padding:10px 0">No reach data yet — fills in automatically as Facebook Insights reports reach for your posts.</div>'}
   </div>`;
 
   // AI Analysis card
@@ -6846,9 +6899,14 @@ function switchSettingsTab(btn, tab) {
     if (masterToggle) { masterToggle.classList.toggle('on', !!s.enabled); }
     const config = document.getElementById('autopilot-config');
     if (config) config.style.display = s.enabled ? 'block' : 'none';
-    if (s.companies) ['mssi','wcli','cwli'].forEach(c => {
+    // Explicit, safe default: MSSI + WCLI only if no saved setting exists yet.
+    // Never silently default to all 3 — CWLI isn't active yet, and an accidental
+    // "all 3 checked" state would waste real image/video generation on posts
+    // that were never meant to go out.
+    const savedCompanies = s.companies || ['mssi', 'wcli'];
+    ['mssi','wcli','cwli'].forEach(c => {
       const el = document.getElementById('ap-co-' + c);
-      if (el) el.checked = s.companies.includes(c);
+      if (el) el.checked = savedCompanies.includes(c);
     });
     const countEl = document.getElementById('ap-posts-count');
     if (countEl && s.postsCount) countEl.value = String(s.postsCount);
@@ -8561,6 +8619,25 @@ function clearData() {
 function getColors(company) {
   return JSON.parse(localStorage.getItem('scm_colors_' + company) || '[]');
 }
+
+// Builds a weighted pool of colors respecting feature_priority, so rotation
+// naturally favors colors marked "featured" and skips ones marked "excluded"
+// entirely — instead of pure round-robin, which just reflects whichever series
+// happens to have the most entries (e.g. De One HPL's 118 colors dominating a
+// simple modulo rotation over smaller series like German or Italian Series).
+// Priority weights: featured=3x as likely, normal=1x, low=only used as a last
+// resort if nothing else qualifies, excluded=never included.
+function buildWeightedColorPool(colors) {
+  const eligible = colors.filter(c => c.status !== 'retired' && c.featurePriority !== 'excluded');
+  if (!eligible.length) return [];
+  const featured = eligible.filter(c => c.featurePriority === 'featured');
+  const normal = eligible.filter(c => !c.featurePriority || c.featurePriority === 'normal');
+  const low = eligible.filter(c => c.featurePriority === 'low');
+  const primaryPool = [...featured, ...featured, ...featured, ...normal];
+  if (primaryPool.length) return primaryPool;
+  return low.length ? low : eligible;
+}
+
 function saveColors(company, colors) {
   localStorage.setItem('scm_colors_' + company, JSON.stringify(colors));
   // Every mutation path (add, edit, retire, AI tag-fix, WCLI->CWLI copy) funnels
@@ -8635,12 +8712,24 @@ function renderColorList(company) {
           <option value="featured" ${c.status==='featured'?'selected':''}>Featured</option>
           <option value="retired" ${c.status==='retired'?'selected':''}>Retired</option>
         </select>
+        <select style="font-size:10px;padding:2px 4px;border:1px solid var(--border);border-radius:4px;background:var(--bg3);color:var(--text)" onchange="setColorFeaturePriority('${company}','${c.id}',this.value)" title="How often this color is picked in automatic rotation (Auto-Generate Week, Autopilot) — separate from the Active/Featured/Retired status above">
+          <option value="featured" ${c.featurePriority==='featured'?'selected':''}>⭐ Priority: High</option>
+          <option value="normal" ${(!c.featurePriority||c.featurePriority==='normal')?'selected':''}>Priority: Normal</option>
+          <option value="low" ${c.featurePriority==='low'?'selected':''}>Priority: Low</option>
+          <option value="excluded" ${c.featurePriority==='excluded'?'selected':''}>🚫 Exclude from rotation</option>
+        </select>
         <button class="btn btn-ghost btn-sm" style="font-size:10px;padding:2px 6px" onclick="deleteColor('${company}','${c.id}')">✕</button>
       </div>
     </div>`;
   }).join('');
 
   if (countEl) countEl.textContent = `${colors.length} of ${getColors(company).length} colors shown`;
+}
+
+function setColorFeaturePriority(company, id, priority) {
+  const colors = getColors(company);
+  const c = colors.find(x => x.id === id);
+  if (c) { c.featurePriority = priority; saveColors(company, colors); }
 }
 
 function setColorStatus(company, id, status) {
@@ -9900,7 +9989,7 @@ async function runAutoGenerate() {
         let colorId = '';
         let colorSwatchUrl = null;
         if (rotateColors && co !== 'mssi') {
-          const companyColors = getColors(co).filter(c => c.status !== 'retired');
+          const companyColors = buildWeightedColorPool(getColors(co));
           if (companyColors.length) {
             const selectedColor = companyColors[i % companyColors.length];
             colorId = selectedColor.id;
@@ -10441,6 +10530,7 @@ async function pullFromSupabase() {
           series: c.series, is_hpl: c.is_hpl, slug: c.slug,
           isCebuExclusive: c.is_cebu_exclusive, swatchUrl: c.swatch_url,
           status: c.status || 'active', importedAt: c.imported_at,
+          featurePriority: c.feature_priority || 'normal',
         });
       }
       for (const [co, cols] of Object.entries(byCompany)) {
@@ -10459,6 +10549,27 @@ async function pullFromSupabase() {
       if (s.fb_pages) localStorage.setItem('scm_fb_pages', JSON.stringify(s.fb_pages));
       if (s.schedule_times) localStorage.setItem('scm_schedule_times', JSON.stringify(s.schedule_times));
       if (s.autopilot) APP.autopilot = s.autopilot;
+      // The server-side Autopilot function reads the standalone autopilot_companies
+      // key, not the consolidated 'autopilot' object — if these two ever drift apart
+      // (e.g. one saved slightly differently than the other), always trust the
+      // standalone key here too, since that's what actually runs on Sunday.
+      if (s.autopilot_companies) {
+        APP.autopilot = APP.autopilot || {};
+        APP.autopilot.companies = s.autopilot_companies;
+      }
+      // Restore the actual toggle switch visual state from saved settings. Without
+      // this, the toggles silently reset to their hardcoded HTML defaults (CWLI is
+      // hardcoded "on") on every page load/sync — meaning a company you deliberately
+      // turned off would quietly reactivate for the next Autopilot run without any
+      // visible warning, wasting real image/video generation cost on it.
+      if (APP.autopilot?.companies) {
+        ['mssi', 'wcli', 'cwli'].forEach(co => {
+          const toggle = document.getElementById('autogen-toggle-' + co);
+          if (!toggle) return;
+          const shouldBeOn = APP.autopilot.companies.includes(co);
+          if (shouldBeOn) toggle.classList.add('on'); else toggle.classList.remove('on');
+        });
+      }
       // Restore app logo
       if (s.creator_brand_logo) {
         if (!APP.creatorBrand) APP.creatorBrand = {};
