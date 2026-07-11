@@ -12168,6 +12168,51 @@ Reply ONLY with valid JSON, no markdown fences:
 //  Fetches reach/likes/comments/shares for published posts
 //  and stores them back to Supabase for AI analysis
 
+// Meta deprecated post_impressions_unique (and most other post-level
+// reach/impression metrics) on June 15, 2026, replacing the whole "reach"
+// concept with a new "Media Viewers" framework. The exact replacement field
+// names are still inconsistent across Meta's own docs and every analytics
+// vendor as of this writing, so instead of hardcoding one name (which is
+// exactly what broke this before), we probe a candidate list once per
+// session, cache whichever one actually returns data, and fall back
+// gracefully to nothing rather than breaking likes/comments/reactions/shares.
+const REACH_METRIC_CANDIDATES = ['post_impressions_organic_unique', 'post_total_media_view_unique', 'post_total_media_views_unique', 'post_impressions'];
+let _workingReachMetric = null; // null = not yet probed, 'none' = probed, nothing worked
+
+async function fetchPostReach(fbPostId, token) {
+  const tryMetric = async (metric) => {
+    try {
+      const res = await fetch(`https://graph.facebook.com/v19.0/${fbPostId}?fields=insights.metric(${metric})&access_token=${token}`);
+      const data = await res.json();
+      if (data.error) return null;
+      const found = data.insights?.data?.find(d => d.name === metric);
+      const val = found?.values?.[0]?.value;
+      return (typeof val === 'number') ? val : null;
+    } catch (_e) { return null; }
+  };
+
+  if (_workingReachMetric === 'none') return null; // already confirmed nothing works this session
+
+  if (_workingReachMetric) {
+    const val = await tryMetric(_workingReachMetric);
+    if (val !== null) return val;
+    // The previously-working metric stopped working mid-session (Meta is
+    // actively migrating these) — fall through and re-probe below.
+  }
+
+  for (const metric of REACH_METRIC_CANDIDATES) {
+    const val = await tryMetric(metric);
+    if (val !== null) {
+      _workingReachMetric = metric;
+      console.log(`[Insights] Reach metric "${metric}" is working — using it for this session.`);
+      return val;
+    }
+  }
+  _workingReachMetric = 'none';
+  console.warn('[Insights] No reach/views metric worked — Meta may still be migrating these fields. Reach will show as 0 until a working field name is found.');
+  return null;
+}
+
 async function fetchFacebookInsights() {
   const published = APP.posts.filter(p => p.status === 'published' && p.fbPostId);
   if (!published.length) { showToast('No published posts with Facebook IDs yet', 'info'); return; }
@@ -12221,6 +12266,11 @@ async function fetchFacebookInsights() {
         reactions: d.reactions?.summary?.total_count || 0,
         fetchedAt: new Date().toISOString()
       };
+
+      // Reach/views — isolated the same way as shares, so Meta's post-June-2026
+      // metric churn can't take down likes/comments/reactions/shares with it.
+      const reach = await fetchPostReach(post.fbPostId, pageData.token);
+      if (reach !== null) insights.reach = reach;
 
       post.performance = { ...(post.performance || {}), ...insights };
       fetched++;
