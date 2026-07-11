@@ -5745,7 +5745,8 @@ function renderPerformance() {
         <div style="font-size:11px;color:var(--text3)">${p.publishedAt ? new Date(p.publishedAt).toLocaleDateString('en-PH',{month:'short',day:'numeric'}) : ''}</div>
       </div>
       <div style="display:flex;gap:14px;flex-shrink:0">
-        <div style="text-align:center"><div style="font-size:14px;font-weight:600">${p.performance.reach||0}</div><div style="font-size:10px;color:var(--text3)">Reach</div></div>
+        <div style="text-align:center"><div style="font-size:14px;font-weight:600">${p.performance.reach||0}</div><div style="font-size:10px;color:var(--text3)">Views</div></div>
+        ${p.mediaType === 'video' ? `<div style="text-align:center"><div style="font-size:14px;font-weight:600">${p.performance.videoViews||0}</div><div style="font-size:10px;color:var(--text3)">Video Views</div></div>` : ''}
         <div style="text-align:center"><div style="font-size:14px;font-weight:600">${p.performance.reactions||0}</div><div style="font-size:10px;color:var(--text3)">React</div></div>
         <div style="text-align:center"><div style="font-size:14px;font-weight:600">${p.performance.comments||0}</div><div style="font-size:10px;color:var(--text3)">Comments</div></div>
         <div style="text-align:center"><div style="font-size:14px;font-weight:600;color:var(--accent2)">${p.performance.inquiries||0}</div><div style="font-size:10px;color:var(--text3)">Inquiries</div></div>
@@ -12168,21 +12169,22 @@ Reply ONLY with valid JSON, no markdown fences:
 //  Fetches reach/likes/comments/shares for published posts
 //  and stores them back to Supabase for AI analysis
 
-// Meta deprecated post_impressions_unique (and most other post-level
-// reach/impression metrics) on June 15, 2026, replacing the whole "reach"
-// concept with a new "Media Viewers" framework. The exact replacement field
-// names are still inconsistent across Meta's own docs and every analytics
-// vendor as of this writing, so instead of hardcoding one name (which is
-// exactly what broke this before), we probe a candidate list once per
-// session, cache whichever one actually returns data, and fall back
-// gracefully to nothing rather than breaking likes/comments/reactions/shares.
-const REACH_METRIC_CANDIDATES = ['post_impressions_organic_unique', 'post_total_media_view_unique', 'post_total_media_views_unique', 'post_impressions'];
-let _workingReachMetric = null; // null = not yet probed, 'none' = probed, nothing worked
-
-async function fetchPostReach(fbPostId, token) {
-  const tryMetric = async (metric) => {
+// Meta deprecated post_impressions_unique, post_impressions, and
+// post_engaged_users on June 15, 2026, replacing the old "reach" concept
+// with a new "Media Viewers" framework. Confirmed directly against a live
+// post via Graph API Explorer (v25.0) on 2026-07-11:
+//   post_total_media_view_unique  -> valid (views/reach replacement)
+//   post_video_views              -> valid (video-specific views)
+//   post_impressions               -> INVALID (#100)
+//   post_engaged_users             -> INVALID (#100)
+// Both confirmed-valid metrics are fetched with period=lifetime (the default
+// window otherwise only covers a narrow recent day range and reads as empty
+// even for posts with real data), each isolated so a failure on one can't
+// break the other or the surrounding likes/comments/reactions/shares fetch.
+async function fetchPostViewMetrics(fbPostId, token) {
+  const fetchMetric = async (metric) => {
     try {
-      const res = await fetch(`https://graph.facebook.com/v19.0/${fbPostId}?fields=insights.metric(${metric})&access_token=${token}`);
+      const res = await fetch(`https://graph.facebook.com/v19.0/${fbPostId}?fields=insights.metric(${metric}).period(lifetime)&access_token=${token}`);
       const data = await res.json();
       if (data.error) return null;
       const found = data.insights?.data?.find(d => d.name === metric);
@@ -12191,26 +12193,11 @@ async function fetchPostReach(fbPostId, token) {
     } catch (_e) { return null; }
   };
 
-  if (_workingReachMetric === 'none') return null; // already confirmed nothing works this session
-
-  if (_workingReachMetric) {
-    const val = await tryMetric(_workingReachMetric);
-    if (val !== null) return val;
-    // The previously-working metric stopped working mid-session (Meta is
-    // actively migrating these) — fall through and re-probe below.
-  }
-
-  for (const metric of REACH_METRIC_CANDIDATES) {
-    const val = await tryMetric(metric);
-    if (val !== null) {
-      _workingReachMetric = metric;
-      console.log(`[Insights] Reach metric "${metric}" is working — using it for this session.`);
-      return val;
-    }
-  }
-  _workingReachMetric = 'none';
-  console.warn('[Insights] No reach/views metric worked — Meta may still be migrating these fields. Reach will show as 0 until a working field name is found.');
-  return null;
+  const [views, videoViews] = await Promise.all([
+    fetchMetric('post_total_media_view_unique'),
+    fetchMetric('post_video_views'),
+  ]);
+  return { views, videoViews };
 }
 
 async function fetchFacebookInsights() {
@@ -12267,10 +12254,11 @@ async function fetchFacebookInsights() {
         fetchedAt: new Date().toISOString()
       };
 
-      // Reach/views — isolated the same way as shares, so Meta's post-June-2026
-      // metric churn can't take down likes/comments/reactions/shares with it.
-      const reach = await fetchPostReach(post.fbPostId, pageData.token);
-      if (reach !== null) insights.reach = reach;
+      // Views/video views — isolated the same way as shares, so Meta's
+      // post-June-2026 metric churn can't take down likes/comments/reactions/shares.
+      const viewMetrics = await fetchPostViewMetrics(post.fbPostId, pageData.token);
+      if (viewMetrics.views !== null) insights.reach = viewMetrics.views;
+      if (viewMetrics.videoViews !== null) insights.videoViews = viewMetrics.videoViews;
 
       post.performance = { ...(post.performance || {}), ...insights };
       fetched++;
