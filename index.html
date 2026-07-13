@@ -5344,6 +5344,18 @@ async function fetchInsightsForPost(post) {
   const pageData = resolveFbPageData(post);
   if (!pageData || !pageData.token) return false;
 
+  if (post.mediaType === 'video') {
+    // Facebook silently converts page video uploads into Reels. Confirmed live against
+    // a real published post: Reels return error #12 "singular statuses API is deprecated"
+    // on the classic likes/comments/reactions Page-Post fields — they need a dedicated
+    // Video/Reel Insights API with different metrics, which isn't implemented yet.
+    // Mark it so Refresh Insights stops erroring on every video post every time.
+    post.insightsUnavailable = true;
+    post.insightsError = 'This published as a Facebook Reel. Reels use a different Insights API than regular posts, which this app doesn\'t support yet — check engagement directly on Facebook for now.';
+    if (typeof upsertPost === 'function') upsertPost(post);
+    return false;
+  }
+
   try {
     const perf = post.performance || {};
 
@@ -8464,7 +8476,22 @@ async function publishVideoToFacebook(post, pageData) {
     const publishData = await publishRes.json();
     if (publishData.error) return { success: false, error: 'Video publish failed: ' + publishData.error.message };
 
-    return { success: true, postId: publishData.id };
+    // /videos returns the raw VIDEO object ID, not the pageId_postId feed-post format
+    // that likes/comments/reactions/insights expect (confirmed via 400s on every video
+    // post's Insights fetch). Look up the real feed post_id so Performance can read it
+    // later. Meta sometimes needs a moment to attach the video to a feed post, so retry
+    // once after a short delay before falling back to the raw video ID.
+    let finalPostId = publishData.id;
+    for (const delayMs of [0, 3000]) {
+      if (delayMs) await new Promise(r => setTimeout(r, delayMs));
+      try {
+        const lookupRes = await fetch(`https://graph.facebook.com/v21.0/${publishData.id}?fields=post_id&access_token=${pageData.token}`);
+        const lookupData = await lookupRes.json();
+        if (lookupData.post_id) { finalPostId = lookupData.post_id; break; }
+      } catch (_e) { /* fall back to raw video ID — publish already succeeded, don't fail the whole thing */ }
+    }
+
+    return { success: true, postId: finalPostId };
   } catch (err) {
     return { success: false, error: err.message };
   }
