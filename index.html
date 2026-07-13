@@ -5491,9 +5491,32 @@ async function fetchAllInsights() {
 // ── ENGAGEMENT SCORE ──────────────────────────────────────────
 function engagementScore(perf) {
   if (!perf) return 0;
+  // Video/Reel posts store their like count as perf.likes (reactions.summary doesn't
+  // exist on video objects on Facebook's API) — fall back to it so video posts aren't
+  // silently scored as zero-engagement next to photo/text posts.
+  const reactionCount = perf.reactions || perf.likes || 0;
   return (perf.inquiries || 0) * 10 + (perf.comments || 0) * 3 +
-         (perf.shares || 0) * 4 + (perf.reactions || 0) * 1 +
+         (perf.shares || 0) * 4 + reactionCount * 1 +
          Math.round((perf.clicks || 0) * 0.5);
+}
+
+// ── Compact horizontal bar-row list — used for Top Videos and Hashtag Performance.
+// More scannable than plain text rows and much tighter vertically than the old
+// stacked layout: label · bar · value all on one line.
+function miniBarList(items, opts = {}) {
+  if (!items.length) return '';
+  const max = Math.max(...items.map(i => i.value), 1);
+  const labelW = opts.labelWidth || 130;
+  return items.map(i => {
+    const pct = Math.max(Math.round((i.value / max) * 100), 4);
+    return `<div style="display:flex;align-items:center;gap:10px;padding:5px 0">
+      <div style="width:${labelW}px;flex-shrink:0;font-size:11.5px;color:var(--text2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${i.label}">${i.label}</div>
+      <div style="flex:1;height:12px;background:var(--bg4);border-radius:3px;overflow:hidden">
+        <div style="width:${pct}%;height:100%;background:${i.color || 'var(--accent)'};border-radius:3px"></div>
+      </div>
+      <div style="flex-shrink:0;text-align:right;font-size:11px;font-weight:600;color:var(--text2);white-space:nowrap;min-width:70px">${i.display}</div>
+    </div>`;
+  }).join('');
 }
 
 // ── CHART HELPERS (pure SVG, no library) ──────────────────────
@@ -5665,7 +5688,11 @@ function renderPerformance() {
     byCompany[p.company] = (byCompany[p.company] || 0) + score;
     // Weekly reach — separate trend from the engagement-score trend above,
     // since Business-dashboard-style views typically lead with reach specifically.
-    byWeekReach[weekLabel] = (byWeekReach[weekLabel] || 0) + (p.performance.reach || 0);
+    // Video posts excluded: their "reach" field actually holds play count, a different
+    // metric that would otherwise distort this as if it were true Facebook reach.
+    if (p.mediaType !== 'video') {
+      byWeekReach[weekLabel] = (byWeekReach[weekLabel] || 0) + (p.performance.reach || 0);
+    }
   });
 
   const pillarData = Object.entries(byPillar)
@@ -5690,9 +5717,14 @@ function renderPerformance() {
     .sort((a, b) => engagementScore(b.performance) - engagementScore(a.performance))
     .slice(0, 5);
 
+  // Image/text posts vs video posts are kept separate for reach purposes: Facebook's
+  // "reach" for a photo/text post and "plays" for a video are different metrics that
+  // shouldn't be summed together as one number, or they'll skew Reach Trend and
+  // Engagement Rate. Video gets its own dedicated card further down.
+  const nonVideoFiltered = filtered.filter(p => p.mediaType !== 'video');
   const totalInquiries = filtered.reduce((s, p) => s + (p.performance.inquiries || 0), 0);
-  const totalReach = filtered.reduce((s, p) => s + (p.performance.reach || 0), 0);
-  const totalReactions = filtered.reduce((s, p) => s + (p.performance.reactions || 0), 0);
+  const totalReach = nonVideoFiltered.reduce((s, p) => s + (p.performance.reach || 0), 0);
+  const totalReactions = filtered.reduce((s, p) => s + (p.performance.reactions || p.performance.likes || 0), 0);
 
   // ── AI analysis card (if saved) ──
   const analysisKey = 'scm_ai_analysis_' + PERF_ACTIVE_TAB;
@@ -5701,14 +5733,17 @@ function renderPerformance() {
   let html = '';
 
   // KPI row
+  const videoPostsForKpi = filtered.filter(p => p.mediaType === 'video');
   html += `<div class="grid-3" style="margin-bottom:20px">
     <div class="card" style="text-align:center">
       <div style="font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px">Posts Tracked</div>
       <div style="font-size:32px;font-weight:700;font-family:'Syne',sans-serif">${filtered.length}</div>
+      ${videoPostsForKpi.length ? `<div style="font-size:10.5px;color:var(--text3);margin-top:2px">${nonVideoFiltered.length} photo/text · ${videoPostsForKpi.length} video</div>` : ''}
     </div>
     <div class="card" style="text-align:center">
       <div style="font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px">Total Reach</div>
       <div style="font-size:32px;font-weight:700;font-family:'Syne',sans-serif">${totalReach >= 1000 ? (totalReach/1000).toFixed(1)+'k' : totalReach}</div>
+      ${videoPostsForKpi.length ? `<div style="font-size:10.5px;color:var(--text3);margin-top:2px">Photo/text only — video plays below</div>` : ''}
     </div>
     <div class="card" style="text-align:center">
       <div style="font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px">Total Inquiries</div>
@@ -5720,26 +5755,34 @@ function renderPerformance() {
   // Video / Reels rollup — plays and avg watch time come from a completely different
   // Facebook API surface than reach/reactions (see fetchReelVideoInsights), so they get
   // their own dedicated card instead of being buried inside the general numbers above.
-  const videoPosts = filtered.filter(p => p.mediaType === 'video');
+  // Kept visually distinct from photo/text posts throughout this screen since the two
+  // media types report fundamentally different metrics (plays vs. reach, no
+  // reactions/shares fields on video objects) — mixing them into one number would be
+  // comparing apples to oranges.
+  const videoPosts = videoPostsForKpi;
   if (videoPosts.length) {
     const totalPlays = videoPosts.reduce((s, p) => s + (p.performance.reach || 0), 0);
     const watchTimes = videoPosts.filter(p => p.performance.avgWatchSeconds).map(p => p.performance.avgWatchSeconds);
     const avgWatch = watchTimes.length ? Math.round(watchTimes.reduce((s, v) => s + v, 0) / watchTimes.length) : null;
-    const topVideos = [...videoPosts].sort((a, b) => (b.performance.reach || 0) - (a.performance.reach || 0)).slice(0, 3);
+    const avgVideoEngagement = Math.round(videoPosts.reduce((s, p) => s + engagementScore(p.performance), 0) / videoPosts.length);
+    const topVideos = [...videoPosts].sort((a, b) => (b.performance.reach || 0) - (a.performance.reach || 0)).slice(0, 5);
 
     html += `<div class="card" style="margin-bottom:20px">
-      <div style="font-size:13px;font-weight:500;margin-bottom:14px">🎬 Video / Reels Performance</div>
-      <div style="display:flex;gap:28px;flex-wrap:wrap;margin-bottom:${topVideos.length ? '16px' : '0'}">
-        <div><div style="font-size:26px;font-weight:700;font-family:'Syne',sans-serif">${videoPosts.length}</div><div style="font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px">Videos Posted</div></div>
-        <div><div style="font-size:26px;font-weight:700;font-family:'Syne',sans-serif">${totalPlays >= 1000 ? (totalPlays / 1000).toFixed(1) + 'k' : totalPlays}</div><div style="font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px">Total Plays</div></div>
-        <div><div style="font-size:26px;font-weight:700;font-family:'Syne',sans-serif">${avgWatch !== null ? avgWatch + 's' : '—'}</div><div style="font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px">Avg Watch Time</div></div>
+      <div style="font-size:13px;font-weight:500;margin-bottom:12px">🎬 Video / Reels Performance</div>
+      <div style="display:flex;gap:24px;flex-wrap:wrap;margin-bottom:${topVideos.length ? '14px' : '0'}">
+        <div><div style="font-size:21px;font-weight:700;font-family:'Syne',sans-serif">${videoPosts.length}</div><div style="font-size:10.5px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px">Videos</div></div>
+        <div><div style="font-size:21px;font-weight:700;font-family:'Syne',sans-serif">${totalPlays >= 1000 ? (totalPlays / 1000).toFixed(1) + 'k' : totalPlays}</div><div style="font-size:10.5px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px">Total Plays</div></div>
+        <div><div style="font-size:21px;font-weight:700;font-family:'Syne',sans-serif">${avgWatch !== null ? avgWatch + 's' : '—'}</div><div style="font-size:10.5px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px">Avg Watch</div></div>
+        <div><div style="font-size:21px;font-weight:700;font-family:'Syne',sans-serif;color:var(--accent2)">${avgVideoEngagement}</div><div style="font-size:10.5px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px">Avg Engagement</div></div>
       </div>
-      ${topVideos.length ? `<div style="border-top:1px solid var(--border);padding-top:12px">
-        <div style="font-size:11px;color:var(--text3);margin-bottom:8px">Top videos by plays</div>
-        ${topVideos.map(p => `<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;font-size:12px">
-          <span style="color:var(--text2)">${p.company.toUpperCase()} · ${p.pillar}</span>
-          <span style="font-weight:600">${p.performance.reach || 0} plays${p.performance.avgWatchSeconds ? ' · ' + p.performance.avgWatchSeconds + 's avg' : ''}</span>
-        </div>`).join('')}
+      ${topVideos.length ? `<div style="border-top:1px solid var(--border);padding-top:10px">
+        <div style="font-size:10.5px;color:var(--text3);margin-bottom:4px">Top videos by plays</div>
+        ${miniBarList(topVideos.map(p => ({
+          label: `${p.company.toUpperCase()} · ${p.pillar}`,
+          value: p.performance.reach || 0,
+          display: `${p.performance.reach || 0}${p.performance.avgWatchSeconds ? ' · ' + p.performance.avgWatchSeconds + 's' : ''}`,
+          color: 'var(--accent)'
+        })), { labelWidth: 150 })}
       </div>` : ''}
     </div>`;
   }
@@ -5748,7 +5791,9 @@ function renderPerformance() {
   // Business Suite shows prominently. Only meaningful once reach data exists —
   // small/new pages often show 0 reach until Facebook's own Insights populate,
   // so this card is honest about that rather than showing a misleading 0% or ∞.
-  const totalEngagementForRate = filtered.reduce((s, p) => {
+  // Scoped to photo/text posts only, same as Total Reach above — video plays aren't
+  // reach, and video posts have their own Avg Engagement number in the card above.
+  const totalEngagementForRate = nonVideoFiltered.reduce((s, p) => {
     const perf = p.performance || {};
     return s + (perf.reactions || 0) + (perf.comments || 0) + (perf.shares || 0) + (perf.clicks || 0);
   }, 0);
@@ -5756,7 +5801,7 @@ function renderPerformance() {
 
   html += `<div class="card" style="margin-bottom:20px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px">
     <div>
-      <div style="font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px">Engagement Rate</div>
+      <div style="font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px">Engagement Rate ${videoPosts.length ? '<span style="text-transform:none;font-weight:400">(photo/text)</span>' : ''}</div>
       <div style="font-size:11px;color:var(--text3)">Reactions + comments + shares + clicks, as a share of total reach — the same core metric Facebook's own Business Suite leads with.</div>
     </div>
     <div style="font-size:28px;font-weight:700;font-family:'Syne',sans-serif;flex-shrink:0">
@@ -5796,7 +5841,7 @@ function renderPerformance() {
   // (e.g. reach flat while engagement rises means the same people are engaging
   // more, not that new people are seeing the posts).
   html += `<div class="card" style="margin-bottom:20px">
-    <div style="font-size:13px;font-weight:500;margin-bottom:14px">Reach Trend <span style="font-size:11px;color:var(--text3);font-weight:400">(weekly total reach)</span></div>
+    <div style="font-size:13px;font-weight:500;margin-bottom:14px">Reach Trend <span style="font-size:11px;color:var(--text3);font-weight:400">(weekly total reach${videoPosts.length ? ', photo/text only' : ''})</span></div>
     ${reachTrend.some(w => w.score > 0) ? trendLine(reachTrend) : '<div style="font-size:12px;color:var(--text3);padding:10px 0">No reach data yet — fills in automatically as Facebook Insights reports reach for your posts.</div>'}
   </div>`;
 
@@ -5818,33 +5863,32 @@ function renderPerformance() {
 
   // Top posts
   html += `<div class="card" style="margin-bottom:20px">
-    <div style="font-size:13px;font-weight:500;margin-bottom:14px">Top Posts by Engagement</div>`;
+    <div style="font-size:13px;font-weight:500;margin-bottom:10px">Top Posts by Engagement</div>`;
   topPosts.forEach(p => {
-    const score = engagementScore(p.performance);
-    html += `<div style="display:flex;align-items:center;gap:12px;padding:12px 0;border-top:1px solid var(--border)">
-      ${p.photo ? `<img src="${p.photo}" style="width:52px;height:52px;object-fit:cover;border-radius:var(--radius);flex-shrink:0" alt="">` : `<div style="width:52px;height:52px;border-radius:var(--radius);background:var(--bg4);flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:18px">${p.mediaType==='video'?'🎬':'📝'}</div>`}
+    html += `<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-top:1px solid var(--border)">
+      ${p.photo ? `<img src="${p.photo}" style="width:38px;height:38px;object-fit:cover;border-radius:var(--radius);flex-shrink:0" alt="">` : `<div style="width:38px;height:38px;border-radius:var(--radius);background:var(--bg4);flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:15px">${p.mediaType==='video'?'🎬':'📝'}</div>`}
       <div style="flex:1;min-width:0">
-        <div style="display:flex;align-items:center;gap:8px;margin-bottom:3px">
+        <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
           <span class="post-company-badge badge-${p.company}">${p.company.toUpperCase()}</span>
-          <span style="font-size:12px;color:var(--text2)">${p.pillar} · ${p.audience}</span>
+          <span style="font-size:11.5px;color:var(--text2)">${p.pillar} · ${p.audience}</span>
+          <span style="font-size:10.5px;color:var(--text3)">${p.publishedAt ? new Date(p.publishedAt).toLocaleDateString('en-PH',{month:'short',day:'numeric'}) : ''}</span>
         </div>
-        <div style="font-size:11px;color:var(--text3)">${p.publishedAt ? new Date(p.publishedAt).toLocaleDateString('en-PH',{month:'short',day:'numeric'}) : ''}</div>
         ${p.insightsError ? `<div style="font-size:10px;color:var(--amber);margin-top:2px">⚠️ ${p.insightsError}</div>` : ''}
       </div>
-      <div style="display:flex;gap:14px;flex-shrink:0">
-        <div style="text-align:center"><div style="font-size:14px;font-weight:600">${p.performance.reach||0}</div><div style="font-size:10px;color:var(--text3)">${p.mediaType === 'video' ? 'Plays' : 'Views'}</div></div>
+      <div style="display:flex;gap:11px;flex-shrink:0">
+        <div style="text-align:center"><div style="font-size:13px;font-weight:600">${p.performance.reach||0}</div><div style="font-size:9.5px;color:var(--text3)">${p.mediaType === 'video' ? 'Plays' : 'Views'}</div></div>
         ${p.mediaType === 'video'
-          ? `<div style="text-align:center"><div style="font-size:14px;font-weight:600">${p.performance.avgWatchSeconds ? p.performance.avgWatchSeconds + 's' : '—'}</div><div style="font-size:10px;color:var(--text3)">Avg Watch</div></div>
-             <div style="text-align:center"><div style="font-size:14px;font-weight:600">${p.performance.likes||0}</div><div style="font-size:10px;color:var(--text3)">Likes</div></div>`
-          : `<div style="text-align:center"><div style="font-size:14px;font-weight:600">${p.performance.reactions||0}</div><div style="font-size:10px;color:var(--text3)">React</div></div>`
+          ? `<div style="text-align:center"><div style="font-size:13px;font-weight:600">${p.performance.avgWatchSeconds ? p.performance.avgWatchSeconds + 's' : '—'}</div><div style="font-size:9.5px;color:var(--text3)">Watch</div></div>
+             <div style="text-align:center"><div style="font-size:13px;font-weight:600">${p.performance.likes||0}</div><div style="font-size:9.5px;color:var(--text3)">Likes</div></div>`
+          : `<div style="text-align:center"><div style="font-size:13px;font-weight:600">${p.performance.reactions||0}</div><div style="font-size:9.5px;color:var(--text3)">React</div></div>`
         }
-        <div style="text-align:center"><div style="font-size:14px;font-weight:600">${p.performance.comments||0}</div><div style="font-size:10px;color:var(--text3)">Comments</div></div>
-        <div style="text-align:center"><div style="font-size:14px;font-weight:600;color:var(--accent2)">${p.performance.inquiries||0}</div><div style="font-size:10px;color:var(--text3)">Inquiries</div></div>
+        <div style="text-align:center"><div style="font-size:13px;font-weight:600">${p.performance.comments||0}</div><div style="font-size:9.5px;color:var(--text3)">Comm.</div></div>
+        <div style="text-align:center"><div style="font-size:13px;font-weight:600;color:var(--accent2)">${p.performance.inquiries||0}</div><div style="font-size:9.5px;color:var(--text3)">Inq.</div></div>
         <button class="btn btn-ghost btn-sm" style="font-size:11px" onclick="openPerformanceLogModal('${p.id}')">Edit</button>
       </div>
     </div>`;
   });
-  html += `<button class="btn btn-ghost btn-sm" style="margin-top:12px;width:100%" onclick="showAllPosts()">View all ${filtered.length} posts →</button>`;
+  html += `<button class="btn btn-ghost btn-sm" style="margin-top:10px;width:100%" onclick="showAllPosts()">View all ${filtered.length} posts →</button>`;
   html += '</div>';
 
   // Hashtag performance — which hashtags actually correlate with engagement/reach,
@@ -5910,28 +5954,31 @@ function buildHashtagPerformanceCard(posts) {
 
   let html = `<div class="card" style="margin-bottom:20px">
     <div style="font-size:13px;font-weight:500;margin-bottom:4px">Hashtag Performance</div>
-    <div style="font-size:11.5px;color:var(--text3);margin-bottom:14px">Ranked by average engagement score per use. Only hashtags used ${HASHTAG_MIN_USES}+ times are shown — a single post isn't enough to call a tag a winner.</div>
-    <div style="font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px">Top performers</div>`;
+    <div style="font-size:11.5px;color:var(--text3);margin-bottom:12px">Ranked by average engagement score per use (bar length = score, relative to the top tag). Only hashtags used ${HASHTAG_MIN_USES}+ times are shown.</div>
+    <div style="font-size:10.5px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:2px">Top performers</div>`;
 
-  top5.forEach(t => {
-    html += `<div style="display:flex;align-items:center;gap:10px;padding:7px 0;border-top:1px solid var(--border)">
-      <span style="flex:1;font-size:12.5px;color:var(--accent2)">${t.tag}</span>
-      <span style="font-size:11px;color:var(--text3)">${t.uses}× used</span>
-      <span style="font-size:11px;color:var(--text3)">${Math.round(t.avgReach)} avg reach</span>
-      <span style="font-size:13px;font-weight:600;min-width:36px;text-align:right">${Math.round(t.avgScore)}</span>
-    </div>`;
-  });
+  html += miniBarList(top5.map(t => ({
+    label: t.tag,
+    value: Math.round(t.avgScore),
+    display: `${Math.round(t.avgScore)} · ${t.uses}×`,
+    color: 'var(--green)'
+  })), { labelWidth: 130 });
 
   if (bottom5.length) {
-    html += `<div style="font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px;margin-top:16px;margin-bottom:8px">Lowest performers</div>`;
-    bottom5.forEach(t => {
-      html += `<div style="display:flex;align-items:center;gap:10px;padding:7px 0;border-top:1px solid var(--border)">
-        <span style="flex:1;font-size:12.5px;color:var(--text3)">${t.tag}</span>
-        <span style="font-size:11px;color:var(--text3)">${t.uses}× used</span>
-        <span style="font-size:11px;color:var(--text3)">${Math.round(t.avgReach)} avg reach</span>
-        <span style="font-size:13px;font-weight:600;min-width:36px;text-align:right;color:var(--text3)">${Math.round(t.avgScore)}</span>
+    const maxTop = Math.max(...top5.map(t => Math.round(t.avgScore)), 1);
+    html += `<div style="font-size:10.5px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px;margin-top:12px;margin-bottom:2px">Lowest performers</div>`;
+    // Scaled against the top performers' max, not their own group, so a "low" bar
+    // actually reads as short rather than falsely maxing out the bar width.
+    html += bottom5.map(t => {
+      const pct = Math.max(Math.round((Math.round(t.avgScore) / maxTop) * 100), 4);
+      return `<div style="display:flex;align-items:center;gap:10px;padding:5px 0">
+        <div style="width:130px;flex-shrink:0;font-size:11.5px;color:var(--text3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${t.tag}">${t.tag}</div>
+        <div style="flex:1;height:12px;background:var(--bg4);border-radius:3px;overflow:hidden">
+          <div style="width:${pct}%;height:100%;background:var(--red);opacity:0.55;border-radius:3px"></div>
+        </div>
+        <div style="flex-shrink:0;text-align:right;font-size:11px;font-weight:600;color:var(--text3);white-space:nowrap;min-width:70px">${Math.round(t.avgScore)} · ${t.uses}×</div>
       </div>`;
-    });
+    }).join('');
   }
 
   html += '</div>';
