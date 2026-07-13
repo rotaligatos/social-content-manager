@@ -1910,7 +1910,7 @@ function showScreen(id) {
   if (id === 'review') { repairMissingScheduledDates(); updateReviewQueue(); }
   if (id === 'dashboard') updateDashboard();
   if (id === 'create') renderHolidayBanner();
-  if (id === 'performance') { renderPerformance(); fetchAllInsights(); setTimeout(() => fetchFacebookInsights(), 1500); }
+  if (id === 'performance') { renderPerformance(); fetchAllInsights(); }
   if (id === 'competitors') loadCompetitorsScreen();
   if (id === 'changelog') renderChangelog();
   if (id === 'settings') {
@@ -5716,6 +5716,33 @@ function renderPerformance() {
       <div style="font-size:11px;color:var(--text3);margin-top:2px">${totalReactions} reactions</div>
     </div>
   </div>`;
+
+  // Video / Reels rollup — plays and avg watch time come from a completely different
+  // Facebook API surface than reach/reactions (see fetchReelVideoInsights), so they get
+  // their own dedicated card instead of being buried inside the general numbers above.
+  const videoPosts = filtered.filter(p => p.mediaType === 'video');
+  if (videoPosts.length) {
+    const totalPlays = videoPosts.reduce((s, p) => s + (p.performance.reach || 0), 0);
+    const watchTimes = videoPosts.filter(p => p.performance.avgWatchSeconds).map(p => p.performance.avgWatchSeconds);
+    const avgWatch = watchTimes.length ? Math.round(watchTimes.reduce((s, v) => s + v, 0) / watchTimes.length) : null;
+    const topVideos = [...videoPosts].sort((a, b) => (b.performance.reach || 0) - (a.performance.reach || 0)).slice(0, 3);
+
+    html += `<div class="card" style="margin-bottom:20px">
+      <div style="font-size:13px;font-weight:500;margin-bottom:14px">🎬 Video / Reels Performance</div>
+      <div style="display:flex;gap:28px;flex-wrap:wrap;margin-bottom:${topVideos.length ? '16px' : '0'}">
+        <div><div style="font-size:26px;font-weight:700;font-family:'Syne',sans-serif">${videoPosts.length}</div><div style="font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px">Videos Posted</div></div>
+        <div><div style="font-size:26px;font-weight:700;font-family:'Syne',sans-serif">${totalPlays >= 1000 ? (totalPlays / 1000).toFixed(1) + 'k' : totalPlays}</div><div style="font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px">Total Plays</div></div>
+        <div><div style="font-size:26px;font-weight:700;font-family:'Syne',sans-serif">${avgWatch !== null ? avgWatch + 's' : '—'}</div><div style="font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px">Avg Watch Time</div></div>
+      </div>
+      ${topVideos.length ? `<div style="border-top:1px solid var(--border);padding-top:12px">
+        <div style="font-size:11px;color:var(--text3);margin-bottom:8px">Top videos by plays</div>
+        ${topVideos.map(p => `<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;font-size:12px">
+          <span style="color:var(--text2)">${p.company.toUpperCase()} · ${p.pillar}</span>
+          <span style="font-weight:600">${p.performance.reach || 0} plays${p.performance.avgWatchSeconds ? ' · ' + p.performance.avgWatchSeconds + 's avg' : ''}</span>
+        </div>`).join('')}
+      </div>` : ''}
+    </div>`;
+  }
 
   // Engagement Rate — a standard metric (engagement / reach) that Facebook's own
   // Business Suite shows prominently. Only meaningful once reach data exists —
@@ -10421,7 +10448,6 @@ async function onLoginSuccess() {
   await pullFromSupabase();
   await syncFromCloud();
   updateUserBadge();
-  setTimeout(() => fetchFacebookInsights(), 2000);
 }
 
 function applyRoleAccess() {
