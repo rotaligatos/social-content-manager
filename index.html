@@ -5339,21 +5339,69 @@ function switchPerfTab(tab, el) {
 // Fetches reach, reactions, comments, shares for all published posts
 // that don't yet have auto-fetched data. Runs on Performance screen open.
 
+// Facebook silently converts page video uploads into Reels, which use a completely
+// different Insights surface than regular posts. Confirmed live against real published
+// posts on 2026-07-14:
+//   - likes.summary(true) / comments.summary(true) DO work on the Reel's video object
+//   - reactions.summary(true) and shares do NOT exist on video objects (#100 error)
+//   - real play count / watch time lives at /{video-id}/video_insights, which requires
+//     the read_insights permission (confirmed via live 403 "read_insights permission
+//     missing") in addition to the pages_manage_engagement scope this app already has.
+// See Settings → Facebook Pages for how to add read_insights to your Page token.
+async function fetchReelVideoInsights(fbPostId, token) {
+  const metrics = 'blue_reels_play_count,post_video_avg_time_watched,post_video_view_time,post_video_social_actions';
+  try {
+    const res = await fetch(`https://graph.facebook.com/v21.0/${fbPostId}/video_insights?metric=${metrics}&access_token=${token}`);
+    const data = await res.json();
+    if (data.error) return { error: data.error.message, code: data.error.code };
+    const byName = {};
+    (data.data || []).forEach(m => { byName[m.name] = m.values?.[0]?.value; });
+    return {
+      plays: typeof byName.blue_reels_play_count === 'number' ? byName.blue_reels_play_count : null,
+      avgWatchMs: typeof byName.post_video_avg_time_watched === 'number' ? byName.post_video_avg_time_watched : null,
+      totalWatchMs: typeof byName.post_video_view_time === 'number' ? byName.post_video_view_time : null,
+    };
+  } catch (e) {
+    return { error: e.message };
+  }
+}
+
 async function fetchInsightsForPost(post) {
   if (!post.fbPostId) return false;
   const pageData = resolveFbPageData(post);
   if (!pageData || !pageData.token) return false;
 
   if (post.mediaType === 'video') {
-    // Facebook silently converts page video uploads into Reels. Confirmed live against
-    // a real published post: Reels return error #12 "singular statuses API is deprecated"
-    // on the classic likes/comments/reactions Page-Post fields — they need a dedicated
-    // Video/Reel Insights API with different metrics, which isn't implemented yet.
-    // Mark it so Refresh Insights stops erroring on every video post every time.
-    post.insightsUnavailable = true;
-    post.insightsError = 'This published as a Facebook Reel. Reels use a different Insights API than regular posts, which this app doesn\'t support yet — check engagement directly on Facebook for now.';
+    const perf = post.performance || {};
+    try {
+      const engRes = await fetch(`https://graph.facebook.com/v21.0/${post.fbPostId}?fields=likes.summary(true),comments.summary(true)&access_token=${pageData.token}`);
+      const eng = await engRes.json();
+      if (!eng.error) {
+        perf.likes = eng.likes?.summary?.total_count ?? perf.likes ?? 0;
+        perf.comments = eng.comments?.summary?.total_count ?? perf.comments ?? 0;
+      }
+    } catch (_e) { /* likes/comments unavailable this run — don't block the rest */ }
+
+    const vi = await fetchReelVideoInsights(post.fbPostId, pageData.token);
+    if (vi.error) {
+      const isPermissionGap = vi.code === 200 || /read_insights/i.test(vi.error);
+      post.insightsError = isPermissionGap
+        ? 'Play count and watch time need the "read_insights" permission added to your Facebook Page token — see Settings → Facebook Pages to reconnect. Likes/comments still update normally.'
+        : 'Facebook Reel insights error: ' + vi.error;
+    } else {
+      if (vi.plays !== null) perf.reach = vi.plays; // reuses the existing "Views" stat slot
+      if (vi.avgWatchMs !== null) perf.avgWatchSeconds = Math.round(vi.avgWatchMs / 1000);
+      if (vi.totalWatchMs !== null) perf.totalWatchSeconds = Math.round(vi.totalWatchMs / 1000);
+      delete post.insightsError;
+    }
+
+    perf.autoFetched = true;
+    perf.fetchedAt = new Date().toISOString();
+    if (!perf.inquiries) perf.inquiries = 0;
+    post.performance = perf;
+    post.insightsUnavailable = false; // permission gap is fixable, so keep retrying on future refreshes
     if (typeof upsertPost === 'function') upsertPost(post);
-    return false;
+    return true;
   }
 
   try {
@@ -5754,11 +5802,15 @@ function renderPerformance() {
           <span style="font-size:12px;color:var(--text2)">${p.pillar} · ${p.audience}</span>
         </div>
         <div style="font-size:11px;color:var(--text3)">${p.publishedAt ? new Date(p.publishedAt).toLocaleDateString('en-PH',{month:'short',day:'numeric'}) : ''}</div>
+        ${p.insightsError ? `<div style="font-size:10px;color:var(--amber);margin-top:2px">⚠️ ${p.insightsError}</div>` : ''}
       </div>
       <div style="display:flex;gap:14px;flex-shrink:0">
-        <div style="text-align:center"><div style="font-size:14px;font-weight:600">${p.performance.reach||0}</div><div style="font-size:10px;color:var(--text3)">Views</div></div>
-        ${p.mediaType === 'video' ? `<div style="text-align:center"><div style="font-size:14px;font-weight:600">${p.performance.videoViews||0}</div><div style="font-size:10px;color:var(--text3)">Video Views</div></div>` : ''}
-        <div style="text-align:center"><div style="font-size:14px;font-weight:600">${p.performance.reactions||0}</div><div style="font-size:10px;color:var(--text3)">React</div></div>
+        <div style="text-align:center"><div style="font-size:14px;font-weight:600">${p.performance.reach||0}</div><div style="font-size:10px;color:var(--text3)">${p.mediaType === 'video' ? 'Plays' : 'Views'}</div></div>
+        ${p.mediaType === 'video'
+          ? `<div style="text-align:center"><div style="font-size:14px;font-weight:600">${p.performance.avgWatchSeconds ? p.performance.avgWatchSeconds + 's' : '—'}</div><div style="font-size:10px;color:var(--text3)">Avg Watch</div></div>
+             <div style="text-align:center"><div style="font-size:14px;font-weight:600">${p.performance.likes||0}</div><div style="font-size:10px;color:var(--text3)">Likes</div></div>`
+          : `<div style="text-align:center"><div style="font-size:14px;font-weight:600">${p.performance.reactions||0}</div><div style="font-size:10px;color:var(--text3)">React</div></div>`
+        }
         <div style="text-align:center"><div style="font-size:14px;font-weight:600">${p.performance.comments||0}</div><div style="font-size:10px;color:var(--text3)">Comments</div></div>
         <div style="text-align:center"><div style="font-size:14px;font-weight:600;color:var(--accent2)">${p.performance.inquiries||0}</div><div style="font-size:10px;color:var(--text3)">Inquiries</div></div>
         <button class="btn btn-ghost btn-sm" style="font-size:11px" onclick="openPerformanceLogModal('${p.id}')">Edit</button>
