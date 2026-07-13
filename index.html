@@ -5345,33 +5345,42 @@ async function fetchInsightsForPost(post) {
   if (!pageData || !pageData.token) return false;
 
   try {
-    // Fetch post-level insights: impressions + reactions + comments + shares
-    const fields = 'insights.metric(post_impressions_unique,post_reactions_like_total,post_clicks),comments.summary(true),shares';
-    const res = await fetch(
-      `https://graph.facebook.com/v19.0/${post.fbPostId}?fields=${fields}&access_token=${pageData.token}`
-    );
-    const data = await res.json();
-    if (data.error) return false;
-
     const perf = post.performance || {};
 
-    // Reach (unique impressions)
-    const impressions = data.insights?.data?.find(d => d.name === 'post_impressions_unique');
-    if (impressions) perf.reach = impressions.values?.[0]?.value || 0;
+    // Engagement (likes/comments/reactions) — isolated from views/shares/clicks
+    // so one field failing can never take down the whole fetch.
+    const engFields = 'likes.summary(true),comments.summary(true),reactions.summary(true)';
+    const engRes = await fetch(
+      `https://graph.facebook.com/v19.0/${post.fbPostId}?fields=${engFields}&access_token=${pageData.token}`
+    );
+    const eng = await engRes.json();
+    if (eng.error) return false; // core engagement failed — treat whole fetch as failed, same as before
 
-    // Reactions
-    const reactions = data.insights?.data?.find(d => d.name === 'post_reactions_like_total');
-    if (reactions) perf.reactions = reactions.values?.[0]?.value || 0;
+    perf.likes = eng.likes?.summary?.total_count ?? perf.likes ?? 0;
+    perf.comments = eng.comments?.summary?.total_count ?? perf.comments ?? 0;
+    perf.reactions = eng.reactions?.summary?.total_count ?? perf.reactions ?? 0;
 
-    // Comments
-    perf.comments = data.comments?.summary?.total_count || perf.comments || 0;
+    // Shares — isolated; commonly absent/erroring on posts with 0 shares.
+    try {
+      const sharesRes = await fetch(`https://graph.facebook.com/v19.0/${post.fbPostId}?fields=shares&access_token=${pageData.token}`);
+      const sharesData = await sharesRes.json();
+      perf.shares = sharesData.shares?.count ?? perf.shares ?? 0;
+    } catch (_e) { /* no shares yet — not a failure */ }
 
-    // Shares
-    perf.shares = data.shares?.count || perf.shares || 0;
+    // Clicks — isolated, confirmed-valid metric (verified live in Graph API Explorer).
+    try {
+      const clicksRes = await fetch(`https://graph.facebook.com/v19.0/${post.fbPostId}?fields=insights.metric(post_clicks)&access_token=${pageData.token}`);
+      const clicksData = await clicksRes.json();
+      const clicksMetric = clicksData.insights?.data?.find(d => d.name === 'post_clicks');
+      if (clicksMetric) perf.clicks = clicksMetric.values?.[0]?.value ?? perf.clicks ?? 0;
+    } catch (_e) { /* clicks unavailable — not a failure */ }
 
-    // Clicks
-    const clicks = data.insights?.data?.find(d => d.name === 'post_clicks');
-    if (clicks) perf.clicks = clicks.values?.[0]?.value || 0;
+    // Views / video views — replaces the deprecated post_impressions_unique metric
+    // Meta removed on 2026-06-15 (was crashing this entire combined request before).
+    // Reuses the same confirmed-valid metrics as fetchPostViewMetrics() below.
+    const viewMetrics = await fetchPostViewMetrics(post.fbPostId, pageData.token);
+    if (viewMetrics.views !== null) perf.reach = viewMetrics.views;
+    if (viewMetrics.videoViews !== null) perf.videoViews = viewMetrics.videoViews;
 
     perf.autoFetched = true;
     perf.fetchedAt = new Date().toISOString();
