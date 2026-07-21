@@ -315,6 +315,10 @@ select:focus{border-color:var(--accent-border);}
       <svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="6" cy="6" r="3"/><circle cx="12" cy="11" r="2.2"/><path d="M8.5 7.8L10 9.8"/></svg>
       Competitors
     </button>
+    <button class="nav-item" onclick="checkUnsavedBeforeNav('reports')">
+      <svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 1.5h7L13 4.5v10H3z"/><path d="M9.5 1.5V5H13M5.5 8h5M5.5 11h5"/></svg>
+      Reports
+    </button>
   </div>
   <div class="sidebar-section">
     <div class="sidebar-label">Config</div>
@@ -735,6 +739,19 @@ select:focus{border-color:var(--accent-border);}
     </div>
   </div>
   <div class="content" id="competitors-content"></div>
+</div>
+
+<!-- REPORTS -->
+<div id="screen-reports" class="screen">
+  <div class="topbar">
+    <div class="topbar-left"><h1>Reports</h1><p>Everything consolidated in one place — findings, charts, and exports</p></div>
+    <div class="topbar-actions">
+      <button class="btn btn-secondary btn-sm" onclick="renderReportsScreen()">Refresh</button>
+      <button class="btn btn-secondary btn-sm" onclick="exportMarketPDF(this)">Export PDF</button>
+      <button class="btn btn-primary btn-sm" onclick="exportMarketPPTX(this)">Export PowerPoint</button>
+    </div>
+  </div>
+  <div class="content" id="reports-content"></div>
 </div>
 
 <!-- AUTO-GENERATE WEEK -->
@@ -1905,7 +1922,7 @@ function showScreen(id) {
   document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
   document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
   document.getElementById('screen-' + id).classList.add('active');
-  const map = { dashboard:0, create:1, review:2, calendar:3, autogen:4, library:5, performance:6, competitors:7, brands:8, settings:9, changelog:10 };
+  const map = { dashboard:0, create:1, review:2, calendar:3, autogen:4, library:5, performance:6, competitors:7, reports:8, brands:9, settings:10, changelog:11 };
   const items = document.querySelectorAll('.nav-item');
   if (map[id] !== undefined && items[map[id]]) items[map[id]].classList.add('active');
   if (id === 'calendar') renderCalendar();
@@ -1914,6 +1931,7 @@ function showScreen(id) {
   if (id === 'create') renderHolidayBanner();
   if (id === 'performance') { renderPerformance(); fetchAllInsights(); }
   if (id === 'competitors') loadCompetitorsScreen();
+  if (id === 'reports') renderReportsScreen();
   if (id === 'changelog') renderChangelog();
   if (id === 'settings') {
     const firstBtn = document.querySelector('.settings-nav-item');
@@ -11536,6 +11554,31 @@ function getCompetitorWebsite(c) {
   return any?.url || '';
 }
 
+// What we make boards on, and what we can claim about them. Stored in settings so
+// you can correct it without a code change - the defaults below are only a starting
+// point and should be checked against what WCLI/CWLI actually supply.
+const DEFAULT_SUBSTRATES = ['MDF', 'Particle board (PB)', 'Plywood', 'Marine plywood'];
+const DEFAULT_CERTIFICATIONS = ['E1'];
+
+function getOurSubstrates() {
+  try {
+    const v = JSON.parse(localStorage.getItem('scm_our_substrates') || 'null');
+    if (Array.isArray(v) && v.length) return v;
+  } catch (_e) {}
+  return DEFAULT_SUBSTRATES;
+}
+function getOurCertifications() {
+  try {
+    const v = JSON.parse(localStorage.getItem('scm_our_certifications') || 'null');
+    if (Array.isArray(v) && v.length) return v;
+  } catch (_e) {}
+  return DEFAULT_CERTIFICATIONS;
+}
+function saveOurCapabilities(subs, certs) {
+  localStorage.setItem('scm_our_substrates', JSON.stringify(subs));
+  localStorage.setItem('scm_our_certifications', JSON.stringify(certs));
+}
+
 // Everything we sell, so the function can diff their catalogue against ours.
 function getOurColorNames() {
   const out = [];
@@ -11569,7 +11612,16 @@ async function researchCompetitorNow(competitorId, btnEl) {
           name: c.name,
           website: getCompetitorWebsite(c),
           competitorId: c.id,
+          myBrand: (function () {
+            const co = ((c.competes_with || [])[0] || '').toLowerCase();
+            return co === 'mssi' ? 'Module Systems'
+                 : co === 'cwli' ? 'Cebu World Laminate'
+                 : 'World Class Laminate';
+          })(),
+          myFinishes: getOurColorNames(),
           ourColors: getOurColorNames(),
+          ourSubstrates: getOurSubstrates(),
+          ourCertifications: getOurCertifications(),
         }),
       });
       if (res.ok) data = await res.json();
@@ -11615,7 +11667,12 @@ function showCompetitorIntel(competitorId) {
   if (!d) { showToast('Run Research Now first', 'error'); return; }
 
   // Share of search — the only real head-to-head scoreboard that exists.
-  const sos = (d.share_of_search || []).filter(r => (r.top || []).length);
+  const OUR_HOSTS = ['worldclasslaminate', 'cebuworldlaminate', 'modulesystems'];
+  const sos = (d.share_of_search || []).filter(r => (r.top || []).length).map(r => {
+    const mine = (r.top || []).filter(t => OUR_HOSTS.some(h => String(t.host || '').includes(h)));
+    const best = mine.reduce((lo, t) => (lo === null || t.pos < lo ? t.pos : lo), null);
+    return { ...r, ourRank: r.ourRank || best };
+  });
   const sosHtml = sos.length ? `
     <div style="margin-bottom:18px">
       <div style="font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--text3);margin-bottom:8px">Share of search — who ranks when a buyer searches</div>
@@ -11643,10 +11700,30 @@ function showCompetitorIntel(competitorId) {
     </div>` : '';
 
   const gap = d.gap_vs_us || {};
-  const gapHtml = (gap.theyHaveWeDont || []).length || (gap.weHaveTheyDont || []).length ? `
-    <div style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:16px">
-      <div style="flex:1;min-width:200px">${_intelList('They have / you don\'t', gap.theyHaveWeDont, { color: 'var(--amber)' }) || '<div style="font-size:11.5px;color:var(--text3)">Nothing found they carry that you don\'t.</div>'}</div>
-      <div style="flex:1;min-width:200px">${_intelList('You have / they don\'t', gap.weHaveTheyDont, { color: 'var(--green)' })}</div>
+  const anyGap = ['colorsTheyHaveWeDont', 'texturesTheyHaveWeDont', 'colorsWeHaveTheyDont', 'texturesWeHaveTheyDont', 'theyHaveWeDont', 'weHaveTheyDont']
+    .some(k => (gap[k] || []).length);
+  const hasSplit = (gap.colorsTheyHaveWeDont || gap.texturesTheyHaveWeDont);
+  const gapHtml = anyGap ? `
+    <div style="margin-bottom:16px">
+      <div style="font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--text3);margin-bottom:8px">Catalogue gap</div>
+      ${hasSplit ? `
+        <div style="display:flex;gap:14px;flex-wrap:wrap">
+          <div style="flex:1;min-width:210px">
+            ${_intelList('Colours they have / you don\'t', gap.colorsTheyHaveWeDont, { color: 'var(--amber)' })}
+            ${_intelList('Textures they have / you don\'t', gap.texturesTheyHaveWeDont, { color: 'var(--red)' })}
+          </div>
+          <div style="flex:1;min-width:210px">
+            ${_intelList('Colours you have / they don\'t', gap.colorsWeHaveTheyDont, { color: 'var(--green)' })}
+            ${_intelList('Textures you have / they don\'t', gap.texturesWeHaveTheyDont, { color: 'var(--green)' })}
+          </div>
+        </div>
+        <div style="font-size:10.5px;color:var(--text3)">A missing texture is the more serious gap — it cannot be substituted with another colour.</div>
+      ` : `
+        <div style="display:flex;gap:14px;flex-wrap:wrap">
+          <div style="flex:1;min-width:200px">${_intelList('They have / you don\'t', gap.theyHaveWeDont, { color: 'var(--amber)' })}</div>
+          <div style="flex:1;min-width:200px">${_intelList('You have / they don\'t', gap.weHaveTheyDont, { color: 'var(--green)' })}</div>
+        </div>
+        <div style="font-size:10.5px;color:var(--amber)">From an older run — re-run to split colours from textures.</div>`}
     </div>` : '';
 
   const changes = (d.changes || []);
@@ -11684,7 +11761,53 @@ function showCompetitorIntel(competitorId) {
       ${isBaseline ? `<div style="font-size:11.5px;color:var(--text3);margin-bottom:14px">First run — this becomes the baseline. Run again next month to see what changed.</div>` : ''}
 
       ${_intelList('Products', d.products)}
-      ${_intelList('Finishes / colours found', d.finishes)}
+      ${_intelList('Colours (shades) found', d.colors && d.colors.length ? d.colors : (d.finishes || []))}
+      ${_intelList('Textures (surface finishes) found', d.textures)}
+      ${_intelList('Substrates (board cores) found', d.substrates)}
+      ${(() => {
+        const pr = d.prices || [];
+        if (!pr.length) return d.pricing_notes
+          ? `<div style="margin-bottom:16px"><div style="font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--text3);margin-bottom:6px">Pricing</div><div style="font-size:12px;color:var(--text2);line-height:1.6">${d.pricing_notes}</div></div>` : '';
+        return `<div style="margin-bottom:16px">
+          <div style="font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--text3);margin-bottom:6px">Published prices (retail, not trade)</div>
+          <table style="width:100%;border-collapse:collapse;font-size:12px">
+            ${pr.map(p => `<tr style="border-top:1px solid var(--border)">
+              <td style="padding:6px 0">${p.item}${p.size ? ` <span style="color:var(--text3)">${p.size}</span>` : ''}</td>
+              <td style="text-align:right;padding:6px 8px;font-weight:600;white-space:nowrap">${p.currency || 'PHP'} ${p.price}</td>
+              <td style="padding:6px 0;color:var(--text3);font-size:11px">${p.unit || ''}</td>
+              <td style="padding:6px 0">${p.source ? `<a href="${p.source}" target="_blank" rel="noopener" style="font-size:10.5px;color:var(--accent2);text-decoration:none">source</a>` : ''}</td>
+            </tr>`).join('')}
+          </table>
+          ${d.pricing_notes ? `<div style="font-size:11.5px;color:var(--text2);margin-top:6px;line-height:1.55">${d.pricing_notes}</div>` : ''}
+          <div style="font-size:10.5px;color:var(--amber);margin-top:5px">Published retail figures. Do not treat as their trade or dealer price.</div>
+        </div>`;
+      })()}
+      ${(() => {
+        const certs = d.certifications || [];
+        if (!certs.length) return '';
+        return `<div style="margin-bottom:16px">
+          <div style="font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--text3);margin-bottom:6px">Certifications & emission classes they claim</div>
+          ${certs.map(c => `<div style="padding:7px 0;border-top:1px solid var(--border)">
+            <div style="font-size:12.5px;font-weight:600">${c.name || c}</div>
+            ${c.claim ? `<div style="font-size:11.5px;color:var(--text2);margin-top:2px;line-height:1.55">"${c.claim}"</div>` : ''}
+            ${c.product ? `<div style="font-size:10.5px;color:var(--text3);margin-top:2px">Applies to: ${c.product}</div>` : ''}
+          </div>`).join('')}
+          <div style="font-size:10.5px;color:var(--text3);margin-top:6px">Claims as published by them — verify before relying on them in a tender.</div>
+        </div>`;
+      })()}
+      ${(() => {
+        const imgs = (d.finish_images || d.finishImages || []).slice(0, 12);
+        if (!imgs.length) return '';
+        return `<div style="margin-bottom:16px">
+          <div style="font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--text3);margin-bottom:6px">Their colours & textures</div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            ${imgs.map(i => `<div style="border:1px solid var(--border);border-radius:7px;overflow:hidden;width:96px">
+              <img src="${i.url}" referrerpolicy="no-referrer" loading="lazy" style="width:100%;height:50px;object-fit:cover;display:block;background:var(--bg4)" alt="${i.name}" onerror="this.parentNode.style.display='none'">
+              <div style="padding:5px 6px;font-size:9.5px;line-height:1.3">${i.name}</div>
+            </div>`).join('')}
+          </div>
+        </div>`;
+      })()}
       ${_intelList('Promos running', d.promos)}
       ${_intelList('Branches & dealers', d.dealers)}
       ${gapHtml}
@@ -11776,7 +11899,16 @@ async function fetchIntelFor(c) {
       name: c.name,
       website: getCompetitorWebsite(c),
       competitorId: c.id,
+      myBrand: (function () {
+        const co = ((c.competes_with || [])[0] || '').toLowerCase();
+        return co === 'mssi' ? 'Module Systems'
+             : co === 'cwli' ? 'Cebu World Laminate'
+             : 'World Class Laminate';
+      })(),
+      myFinishes: getOurColorNames(),
       ourColors: getOurColorNames(),
+      ourSubstrates: getOurSubstrates(),
+      ourCertifications: getOurCertifications(),
     }),
   });
   if (!res.ok) throw new Error('HTTP ' + res.status);
@@ -11832,8 +11964,25 @@ function buildMarketAnalysis() {
     .map(c => ({ competitor: c, rec: store[c.id] }))
     .filter(r => r.rec && r.rec.data);
 
-  const ourHosts = ['worldclasslaminate.com.ph', 'modulesystems.com.ph', 'cebuworldlaminate.com'];
-  const isOurs = (h) => ourHosts.some(o => String(h || '').includes(o.split('.')[0]));
+  // Which of our three businesses each of our own domains belongs to, so every
+  // finding can name the company it actually concerns instead of saying "you".
+  const OUR_SITES = [
+    { host: 'worldclasslaminate', company: 'wcli' },
+    { host: 'cebuworldlaminate', company: 'cwli' },
+    { host: 'modulesystems', company: 'mssi' },
+    { host: 'moduleystems', company: 'mssi' },
+  ];
+  const COMPANY_LABEL = { mssi: 'MSSI', wcli: 'WCLI', cwli: 'CWLI' };
+  // Search terms map to the business that sells against them.
+  const queryCompany = (q) => {
+    const t = String(q || '').toLowerCase();
+    if (/cabinet|kitchen|wardrobe|closet|vanity|modular|partition|cladding/.test(t)) return 'mssi';
+    return 'wcli'; // board/laminate/HPL terms - WCLI nationally, CWLI regionally
+  };
+  const siteCompany = (h) => (OUR_SITES.find(o => String(h || '').includes(o.host)) || {}).company || null;
+
+  const ourHosts = OUR_SITES.map(o => o.host);
+  const isOurs = (h) => ourHosts.some(o => String(h || '').includes(o));
 
   // --- Share of search, merged across every competitor's run.
   const byQuery = {};
@@ -11846,8 +11995,20 @@ function buildMarketAnalysis() {
     });
   });
   const search = Object.values(byQuery).map(q => {
-    const oursInTop = (q.top || []).filter(t => isOurs(t.host)).length;
-    return { ...q, oursInTop, totalTop: (q.top || []).length };
+    const mine = (q.top || []).filter(t => isOurs(t.host));
+    // Work out our own rank from the domains in the result list. The function can
+    // only match a single brand name, which silently missed MSSI and CWLI.
+    const best = mine.reduce((lo, t) => (lo === null || t.pos < lo ? t.pos : lo), null);
+    if (best !== null) q.ourRank = best;
+    const companies = [...new Set(mine.map(t => siteCompany(t.host)).filter(Boolean))];
+    return {
+      ...q,
+      oursInTop: mine.length,
+      totalTop: (q.top || []).length,
+      company: queryCompany(q.query),
+      companyLabel: COMPANY_LABEL[queryCompany(q.query)],
+      rankingSites: companies.map(c => COMPANY_LABEL[c]),
+    };
   });
 
   // --- Domain dominance: which sites appear most across all your buying searches.
@@ -11858,19 +12019,74 @@ function buildMarketAnalysis() {
     hostCount[h] = (hostCount[h] || 0) + 1;
   }));
   const dominance = Object.entries(hostCount)
-    .map(([host, count]) => ({ host, count, ours: isOurs(host) }))
+    .map(([host, count]) => ({ host, count, ours: isOurs(host), companyLabel: COMPANY_LABEL[siteCompany(host)] || null }))
     .sort((a, b) => b.count - a.count)
     .slice(0, 10);
 
-  // --- Finishes the market carries that we don't, ranked by how many rivals have them.
-  const finishCount = {};
-  rows.forEach(({ rec }) => ((rec.data.gap_vs_us || {}).theyHaveWeDont || []).forEach(f => {
-    const k = String(f).trim(); if (!k) return;
-    finishCount[k] = (finishCount[k] || 0) + 1;
+  // --- What the market carries that we don't. Colour and texture are counted
+  // separately: a rival matching your shade is a different problem from one
+  // offering a surface finish you can't supply at all.
+  const tally = (pick) => {
+    const count = {};
+    rows.forEach(({ rec }) => ((rec.data.gap_vs_us || {})[pick] || []).forEach(f => {
+      const k = String(f).trim(); if (!k) return;
+      count[k] = (count[k] || 0) + 1;
+    }));
+    return Object.entries(count).map(([name, n]) => ({ finish: name, name, competitors: n }))
+      .sort((a, b) => b.competitors - a.competitors);
+  };
+  // Substrate and certification are tallied from their own gap objects.
+  const tallyFrom = (key, sub) => {
+    const count = {};
+    rows.forEach(({ rec }) => (((rec.data || {})[key] || {})[sub] || []).forEach(f => {
+      const k = String(f).trim(); if (!k) return;
+      count[k] = (count[k] || 0) + 1;
+    }));
+    return Object.entries(count).map(([name, n]) => ({ name, competitors: n }))
+      .sort((a, b) => b.competitors - a.competitors);
+  };
+  const substrateGaps = tallyFrom('substrate_gap', 'theyHaveWeDont');
+  const certGaps = tallyFrom('certification_gap', 'theyHaveWeDont');
+
+  // Published prices, gathered across competitors. Retail figures only - the app
+  // says so everywhere it shows them, because quoting them as trade prices would
+  // be wrong and expensive.
+  const priceRows = [];
+  rows.forEach(({ competitor, rec }) => ((rec.data || {}).prices || []).forEach(p => {
+    const n = parseFloat(String(p.price).replace(/[^0-9.]/g, ''));
+    priceRows.push({
+      competitor: competitor.name,
+      item: p.item, price: p.price, numeric: isFinite(n) ? n : null,
+      currency: p.currency || 'PHP', unit: p.unit || '', size: p.size || '',
+      channel: p.channel || '', source: p.source || '',
+    });
   }));
-  const marketGaps = Object.entries(finishCount)
-    .map(([finish, n]) => ({ finish, competitors: n }))
-    .sort((a, b) => b.competitors - a.competitors);
+  priceRows.sort((a, b) => (a.numeric ?? 1e12) - (b.numeric ?? 1e12));
+
+  const pricingPosture = rows.map(({ competitor, rec }) => ({
+    competitor: competitor.name,
+    publishes: ((rec.data || {}).prices || []).length,
+    notes: (rec.data || {}).pricing_notes || '',
+  }));
+
+  // Price changes surfaced by the function's own diff.
+  const priceChanges = [];
+  rows.forEach(({ competitor, rec }) => ((rec.data || {}).changes || [])
+    .filter(c => /^price /i.test(c) || /^New published price/i.test(c))
+    .forEach(c => priceChanges.push({ competitor: competitor.name, text: c })));
+
+  // Every certification claim we saw, with who made it and what they said.
+  const certClaims = [];
+  rows.forEach(({ competitor, rec }) => ((rec.data || {}).certifications || []).forEach(c => {
+    if (c && c.name) certClaims.push({ competitor: competitor.name, ...c });
+  }));
+
+  const colorGaps = tally('colorsTheyHaveWeDont');
+  const textureGaps = tally('texturesTheyHaveWeDont');
+  // Older saved runs only have the combined list; fall back to it so nothing disappears.
+  const marketGaps = (colorGaps.length || textureGaps.length)
+    ? [...colorGaps, ...textureGaps]
+    : tally('theyHaveWeDont');
 
   // --- Recurring complaints & weaknesses across rivals: where the market is weak.
   const complaints = [];
@@ -11888,12 +12104,17 @@ function buildMarketAnalysis() {
   const themes = THEMES.map(([label, re]) => {
     const hits = complaints.filter(c => re.test(c.text));
     const names = [...new Set(hits.map(h => h.competitor))];
-    return { theme: label, mentions: hits.length, competitors: names, examples: hits.slice(0, 3).map(h => h.text) };
+    const affected = [...new Set(hits.flatMap(h => {
+      const c = list.find(x => x.name === h.competitor);
+      return (c?.competes_with || []).map(v => COMPANY_LABEL[String(v).toLowerCase()] || String(v).toUpperCase());
+    }).filter(Boolean))];
+    return { theme: label, mentions: hits.length, competitors: names, affected, examples: hits.slice(0, 3).map(h => h.text) };
   }).filter(t => t.mentions > 0).sort((a, b) => b.mentions - a.mentions);
 
   // --- Promo & product activity, so you can see how busy the market is.
   const activity = rows.map(({ competitor, rec }) => ({
     name: competitor.name,
+    competesWith: (competitor.competes_with || []).map(x => String(x).toUpperCase()).join(', ') || '—',
     promos: (rec.data.promos || []).length,
     products: (rec.data.products || []).length,
     finishes: (rec.data.finishes || []).length,
@@ -11902,35 +12123,263 @@ function buildMarketAnalysis() {
     ageDays: Math.floor((Date.now() - rec.capturedAt) / 86400000),
   })).sort((a, b) => b.promos - a.promos);
 
-  // --- Headline findings, written in plain language.
+  // --- Headline findings. Every line names the company it concerns, so a reader
+  // who manages three businesses knows immediately which one to act on.
   const highlights = [];
-  const strongest = search.filter(q => q.ourRank === 1);
-  const bestDom = dominance.find(d => d.ours);
+  const bestDom = dominance.filter(d => d.ours).sort((a, b) => b.count - a.count)[0];
   if (bestDom && bestDom.count > 1) {
     const q = search.find(x => (x.top || []).filter(t => isOurs(t.host)).length === bestDom.count);
     highlights.push({
       tone: 'good',
-      text: `${bestDom.host} holds ${bestDom.count} of the top 10 results${q ? ` for "${q.query}"` : ''} — the strongest single presence in these searches.`,
+      company: bestDom.companyLabel,
+      text: `${bestDom.companyLabel || 'Your site'} (${bestDom.host}) holds ${bestDom.count} of the top 10 results${q ? ` for "${q.query}"` : ''} — the strongest single presence of any company in these searches.`,
     });
   }
-  strongest.forEach(q => highlights.push({ tone: 'good', text: `You rank #1 for "${q.query}".` }));
+  search.filter(q => q.ourRank === 1).forEach(q => highlights.push({
+    tone: 'good', company: q.companyLabel,
+    text: `${q.companyLabel} ranks #1 for "${q.query}".`,
+  }));
+  search.filter(q => q.ourRank && q.ourRank > 1 && q.ourRank <= 5).forEach(q => highlights.push({
+    tone: 'warn', company: q.companyLabel,
+    text: `${q.companyLabel} ranks #${q.ourRank} for "${q.query}" — close to the top, worth pushing.`,
+  }));
   search.filter(q => !q.ourRank).forEach(q => {
     const who = (q.top && q.top[0]) ? q.top[0].host : 'someone else';
-    highlights.push({ tone: 'bad', text: `You do not appear in the top 10 for "${q.query}" — ${who} holds #1. This is a search your buyers make.` });
+    highlights.push({
+      tone: 'bad', company: q.companyLabel,
+      text: `${q.companyLabel} does not appear in the top 10 for "${q.query}" — ${who} holds #1. This is a search ${q.companyLabel}'s buyers make.`,
+    });
   });
-  if (marketGaps.length) {
-    const top = marketGaps.slice(0, 3).map(g => g.finish).join(', ');
-    highlights.push({ tone: 'warn', text: `${marketGaps.length} finish${marketGaps.length === 1 ? '' : 'es'} found across rivals that you don't carry — most common: ${top}.` });
+  if (colorGaps.length) {
+    highlights.push({
+      tone: 'warn', company: 'WCLI / CWLI',
+      text: `${colorGaps.length} colour${colorGaps.length === 1 ? '' : 's'} found in rivals' ranges that WCLI/CWLI don't carry — most common: ${colorGaps.slice(0, 3).map(g => g.name).join(', ')}. Each is a shade a customer may already have been shown elsewhere.`,
+    });
+  }
+  if (textureGaps.length) {
+    highlights.push({
+      tone: 'bad', company: 'WCLI / CWLI',
+      text: `${textureGaps.length} texture${textureGaps.length === 1 ? '' : 's'} offered by rivals that you don't list — ${textureGaps.slice(0, 3).map(g => g.name).join(', ')}. A missing surface finish loses the whole enquiry, because it can't be substituted with a different colour.`,
+    });
+  }
+  if (!colorGaps.length && !textureGaps.length && marketGaps.length) {
+    highlights.push({
+      tone: 'warn', company: 'WCLI / CWLI',
+      text: `${marketGaps.length} finish${marketGaps.length === 1 ? '' : 'es'} found across rivals not in your range — most common: ${marketGaps.slice(0, 3).map(g => g.name).join(', ')}.`,
+    });
+  }
+  if (priceChanges.length) {
+    highlights.push({
+      tone: 'warn', company: 'WCLI / CWLI',
+      text: `${priceChanges.length} published price change${priceChanges.length === 1 ? '' : 's'} detected since the last run — ${priceChanges.slice(0, 2).map(p => p.competitor).join(', ')}. Movement in published pricing usually precedes movement in trade pricing.`,
+    });
+  }
+  const publishers = pricingPosture.filter(p => p.publishes > 0);
+  if (publishers.length) {
+    highlights.push({
+      tone: 'warn', company: 'WCLI / CWLI',
+      text: `${publishers.map(p => p.competitor).join(', ')} publish${publishers.length === 1 ? 'es' : ''} prices openly (${priceRows.length} figure${priceRows.length === 1 ? '' : 's'} captured). Buyers can price-anchor against them before ever contacting you — worth knowing what number they arrive with.`,
+    });
+  }
+  if (substrateGaps.length) {
+    highlights.push({
+      tone: 'bad', company: 'WCLI / CWLI',
+      text: `Rivals supply ${substrateGaps.length} board core${substrateGaps.length === 1 ? '' : 's'} you don't: ${substrateGaps.slice(0, 4).map(g => g.name).join(', ')}. A missing substrate closes off whole applications — worktops, wet areas, marine — regardless of how good your colour range is.`,
+    });
+  }
+  if (certGaps.length) {
+    highlights.push({
+      tone: 'bad', company: 'WCLI / CWLI',
+      text: `Competitors claim ${certGaps.length} certification${certGaps.length === 1 ? '' : 's'} or emission class${certGaps.length === 1 ? '' : 'es'} you don't: ${certGaps.slice(0, 4).map(g => g.name).join(', ')}. These are increasingly written into commercial specifications — without them you may not be eligible to quote, no matter the price.`,
+    });
+  }
+  if (certClaims.length) {
+    const green = certClaims.filter(c => /e0|carb|tsca|naf|ulef|greenguard|leed|well|voc|formaldehyde.?free|fsc|pefc/i.test(c.name));
+    if (green.length) {
+      const who = [...new Set(green.map(c => c.competitor))];
+      highlights.push({
+        tone: 'warn', company: 'WCLI / CWLI',
+        text: `${who.join(', ')} ${who.length === 1 ? 'is' : 'are'} actively marketing low-emission or certified product (${[...new Set(green.map(c => c.name))].slice(0, 4).join(', ')}). This is the direction the specification market is moving — worth watching closely even if you don't match it yet.`,
+      });
+    }
   }
   if (themes.length) {
-    highlights.push({ tone: 'good', text: `"${themes[0].theme}" is the most common weakness across ${themes[0].competitors.length} competitor${themes[0].competitors.length === 1 ? '' : 's'} — the clearest opening for your messaging.` });
+    const t = themes[0];
+    highlights.push({
+      tone: 'good', company: (t.affected || []).join(', ') || null,
+      text: `"${t.theme}" is the most common weakness across ${t.competitors.length} competitor${t.competitors.length === 1 ? '' : 's'} (${t.competitors.join(', ')}) — the clearest opening for ${(t.affected || []).join(' and ') || 'your'} messaging.`,
+    });
   }
   const notResearched = list.length - rows.length;
   if (notResearched > 0) {
-    highlights.push({ tone: 'warn', text: `${notResearched} competitor${notResearched === 1 ? '' : 's'} not yet researched — findings below cover ${rows.length} of ${list.length}.` });
+    highlights.push({ tone: 'warn', company: null, text: `${notResearched} competitor${notResearched === 1 ? '' : 's'} not yet researched — findings below cover ${rows.length} of ${list.length}.` });
   }
 
-  return { rows, search, dominance, marketGaps, themes, activity, highlights, coverage: { analysed: rows.length, total: list.length } };
+  // --- Bottom line: what this all adds up to, and what to do next.
+  const conclusion = (() => {
+    const strong = search.filter(q => q.ourRank === 1);
+    const absent = search.filter(q => !q.ourRank);
+    const parts = [];
+
+    if (strong.length) {
+      const cos = [...new Set(strong.map(q => q.companyLabel))].join(' and ');
+      parts.push(`${cos} ${strong.length === 1 ? 'is' : 'are'} winning where it matters — ranked #1 for ${strong.map(q => `"${q.query}"`).join(', ')}. That is a defensible position and a claim you can make to dealers factually.`);
+    }
+    if (absent.length) {
+      const cos = [...new Set(absent.map(q => q.companyLabel))].join(' and ');
+      parts.push(`${cos} ${absent.length === 1 ? 'is' : 'are'} invisible for ${absent.map(q => `"${q.query}"`).join(', ')} — the single biggest gap in this report, because these are searches with buying intent.`);
+    }
+    if (themes.length) {
+      parts.push(`Across the competitors researched, "${themes[0].theme.toLowerCase()}" is the weakness raised most often. Content that speaks directly to it will land against more than one rival at once.`);
+    }
+    if (marketGaps.length) {
+      const bits = [];
+      if (colorGaps.length) bits.push(`${colorGaps.length} colour${colorGaps.length === 1 ? '' : 's'}`);
+      if (textureGaps.length) bits.push(`${textureGaps.length} texture${textureGaps.length === 1 ? '' : 's'}`);
+      parts.push(`${bits.join(' and ') || marketGaps.length + ' finishes'} appear in rivals' ranges that yours does not. Treat the texture gaps as the urgent ones — a colour can often be substituted, a surface finish cannot.`);
+    }
+    if (substrateGaps.length || certGaps.length) {
+      const g = [];
+      if (substrateGaps.length) g.push(`${substrateGaps.length} board core${substrateGaps.length === 1 ? '' : 's'}`);
+      if (certGaps.length) g.push(`${certGaps.length} certification${certGaps.length === 1 ? '' : 's'}`);
+      parts.push(`More strategically, rivals hold ${g.join(' and ')} that you do not. These sit above colour and texture in importance: a substrate gap closes off entire applications, and a certification gap can disqualify you from specified commercial work before price is ever discussed. If you act on one thing in this report, make it this.`);
+    }
+
+    // Recommendations carry the reasoning and the concrete steps, not just a verb.
+    // Effort/impact are stated so you can pick what to do first.
+    const actions = [];
+
+    absent.forEach(q => actions.push({
+      company: q.companyLabel,
+      action: `Get ${q.companyLabel} onto page one for "${q.query}"`,
+      why: `This is a high-intent search — someone typing it is shopping, not browsing. Right now ${(q.top && q.top[0]) ? q.top[0].host : 'a competitor'} takes that traffic. ${(q.top || []).some(t => /facebook\.com/.test(t.host || '')) ? 'Notably a Facebook page already ranks in this top 10, which means a well-set-up page can rank here without a website rebuild.' : ''}`,
+      how: [
+        `Use the exact phrase "${q.query}" in your Facebook page title, About section and website page titles — search engines match phrasing literally.`,
+        `Publish 3–4 posts over the next month built around that phrase, in captions and not only hashtags.`,
+        `Study the pages currently at #1–#3 (${(q.top || []).slice(0, 3).map(t => t.host).join(', ')}) — note what they name their pages and match that specificity.`,
+        `Add a page on your website targeting the phrase directly, with photos of finished work and a clear enquiry button.`,
+      ],
+      effort: 'Medium', impact: 'High',
+      pillar: /cabinet|kitchen|wardrobe|modular/.test(q.query) ? 'Sales Push + Aspiration' : 'Trade Partner + Education',
+    }));
+
+    search.filter(q => q.ourRank && q.ourRank > 1 && q.ourRank <= 5).forEach(q => actions.push({
+      company: q.companyLabel,
+      action: `Move ${q.companyLabel} from #${q.ourRank} to #1 for "${q.query}"`,
+      why: `You are already visible, so this is a much cheaper win than starting from nothing. The gap between #${q.ourRank} and #1 is usually a large difference in clicks — most people never scroll.`,
+      how: [
+        `${q.oursInTop > 1 ? `You already hold ${q.oursInTop} of the top 10 for this — strengthen the single best page rather than spreading effort.` : 'Pick your one strongest page for this term and build on it.'}`,
+        `Make sure that page's title leads with the exact phrase.`,
+        `Link to it from your Facebook page and from other pages on your site.`,
+        `Add proof — finished project photos, specifications, dealer list — since thin pages rarely hold #1.`,
+      ],
+      effort: 'Low', impact: 'Medium',
+      pillar: 'Education + Social Proof',
+    }));
+
+    themes.slice(0, 2).forEach((t, idx) => actions.push({
+      company: (t.affected || []).join(', ') || 'All',
+      action: `Build a content pillar around "${t.theme.toLowerCase()}"`,
+      why: `Raised about ${t.competitors.length} competitor${t.competitors.length === 1 ? '' : 's'} (${t.competitors.join(', ')}) — ${t.mentions} separate observation${t.mentions === 1 ? '' : 's'}. ${idx === 0 ? 'This is the most common weakness found in the market, so content addressing it counters several rivals at once.' : 'A secondary but repeated theme worth a monthly post.'}`,
+      how: [
+        `Write posts that demonstrate the opposite of this weakness — show it, don't claim it.`,
+        `${/stock|supply/i.test(t.theme) ? 'Post warehouse and delivery photos with real dates: "delivered in 3 days, Cebu."' : ''}`,
+        `${/pricing/i.test(t.theme) ? 'Publish indicative price ranges or a "what affects the price" explainer — transparency is rare in this market.' : ''}`,
+        `${/special|depth/i.test(t.theme) ? 'Run "Behind the Material" posts on board types, thickness and durability to establish specialist authority.' : ''}`,
+        `${/service|support/i.test(t.theme) ? 'Show response times and named staff — put a human face against a faceless big-box experience.' : ''}`,
+        `${/dealer|trade/i.test(t.theme) ? 'Publish clear trade terms and a dealer spotlight series.' : ''}`,
+        `${/technical/i.test(t.theme) ? 'Publish downloadable specs and finish datasheets — a low-effort trust builder.' : ''}`,
+        `Tag these posts to the ${(t.affected || []).join(' and ') || 'relevant'} page so the messaging stays with the right audience.`,
+      ].filter(Boolean),
+      effort: 'Low', impact: 'High',
+      pillar: 'Education + Trade Partner',
+    }));
+
+    if (certGaps.length) {
+      actions.push({
+        company: 'WCLI / CWLI',
+        action: `Decide your position on ${certGaps.slice(0, 3).map(g => g.name).join(', ')}${certGaps.length > 3 ? ` and ${certGaps.length - 3} more` : ''}`,
+        why: `Emission classes and green certifications are becoming entry requirements rather than selling points. Architects, fit-out contractors and hotel groups increasingly write E0, CARB P2 or FSC into the specification — if a project calls for it and you cannot evidence it, you are excluded before price is discussed. Competitors are already claiming these publicly, which means the expectation is being set in your market now.`,
+        how: [
+          `Ask your board supplier what emission class your current stock actually certifies to, and get the certificate — many mills already meet E1 or better without it being marketed.`,
+          `If you already qualify, say so: put the class on your product pages, spec sheets and quotations. An unclaimed certification is worth nothing commercially.`,
+          `Price the step up to a lower-emission grade on your best-selling lines, even as a special order — it lets you answer a specification without recertifying your whole range.`,
+          `For projects, prepare a one-page compliance sheet listing what you can evidence. Specifiers ask for paperwork, not reassurance.`,
+          `Where a competitor's claim looks thin, verify it — an unverifiable claim in a tender is a competitive opening, not a threat.`,
+        ],
+        effort: 'Medium', impact: 'High',
+        pillar: 'Trade Partner + Education',
+      });
+    }
+
+    if (substrateGaps.length) {
+      actions.push({
+        company: 'WCLI / CWLI',
+        action: `Review ${substrateGaps.length} board core${substrateGaps.length === 1 ? '' : 's'} rivals supply that you don't: ${substrateGaps.slice(0, 4).map(g => g.name).join(', ')}`,
+        why: `The substrate decides where a board can be used. Compact laminate and CDF go where MDF cannot — worktops, wet areas, lockers, toilet partitions. Bamboo answers a sustainability brief no finish can. Each missing core is a set of projects you cannot quote, which is a larger loss than any single colour.`,
+        how: [
+          `Map each missing core to the work it unlocks: ${substrateGaps.slice(0, 4).map(g => g.name).join(', ')} — then judge whether that work is worth pursuing.`,
+          `Compact laminate and CDF are the usual priorities for MSSI's toilet-partition and commercial lines — check whether you are already buying these in for projects rather than stocking them.`,
+          `Where you don't intend to stock one, agree a trade source so an enquiry can still be answered rather than declined.`,
+          `Publish what each core is for. Most fabricators choose by habit, and "when to use CDF instead of MDF" is content only a specialist writes.`,
+        ],
+        effort: 'High', impact: 'High',
+        pillar: 'Education + Product Showcase',
+      });
+    }
+
+    if (textureGaps.length) {
+      actions.push({
+        company: 'WCLI / CWLI',
+        action: `Close ${textureGaps.length} texture gap${textureGaps.length === 1 ? '' : 's'}: ${textureGaps.slice(0, 4).map(g => g.name).join(', ')}`,
+        why: `Texture is the surface finish — stipple, matte, crosscut and so on — and it is not interchangeable with colour. If a fabricator needs a crosscut surface and you only stock smooth, offering a different shade does not save the sale. This is the more damaging of the two gaps.`,
+        how: [
+          `Confirm with your supplier which of these surfaces you can actually source: ${textureGaps.map(g => g.name).join(', ')}.`,
+          `Where you already produce a surface under a different name, rename it to match how the market asks for it — buyers search by the common term, not your internal one.`,
+          `Where you cannot supply one, brief staff on the nearest surface you do carry so the enquiry converts instead of walking.`,
+          `Show your textures properly in posts — a close, raking-light photograph reads the surface far better than a flat swatch.`,
+        ],
+        effort: 'Medium', impact: 'High',
+        pillar: 'Product Showcase + Education',
+      });
+    }
+
+    if (colorGaps.length) {
+      const top5 = colorGaps.slice(0, 5);
+      actions.push({
+        company: 'WCLI / CWLI',
+        action: `Review ${colorGaps.length} colour${colorGaps.length === 1 ? '' : 's'} rivals carry that you don't`,
+        why: `These are shades, not surfaces. Each is a colour a fabricator may already have been shown elsewhere. ${top5[0] ? `"${top5[0].name}" appears at ${top5[0].competitors} rival${top5[0].competitors === 1 ? '' : 's'}` : ''} — the higher that count, the more likely it is being requested by name. Colour gaps are usually easier to answer than texture gaps, because a near shade is often an acceptable substitute.`,
+        how: [
+          `Start with the most widely stocked: ${top5.map(g => `${g.name} (${g.competitors})`).join(', ')}.`,
+          `Check whether these are available under a different name — the same decor paper is often sold as a different colour name by each brand.`,
+          `Where you decline to stock one, prepare a substitution answer so staff can offer the nearest match instead of losing the enquiry.`,
+          `Where you already have an equivalent, make the name match how the market says it so you appear in the comparison.`,
+        ],
+        effort: 'Medium', impact: 'Medium',
+        pillar: 'Product Showcase',
+      });
+    }
+
+    if (strong.length) {
+      actions.push({
+        company: [...new Set(strong.map(q => q.companyLabel))].join(' / '),
+        action: 'Turn your #1 ranking into a sales claim',
+        why: `Ranking first for ${strong.map(q => `"${q.query}"`).join(', ')} is verifiable and independent — unlike a follower count, a dealer can check it in seconds.`,
+        how: [
+          `Use it in trade conversations: "search for laminated board suppliers and we come up first."`,
+          `Add it to dealer decks and quotation cover pages.`,
+          `Protect it — the pages holding that rank should not be renamed or removed without care.`,
+        ],
+        effort: 'Low', impact: 'Medium',
+        pillar: 'Social Proof + Trade Partner',
+      });
+    }
+
+    return { narrative: parts, actions };
+  })();
+
+  return { rows, search, dominance, marketGaps, colorGaps, textureGaps, substrateGaps, certGaps, certClaims, priceRows, pricingPosture, priceChanges, themes, activity, highlights, conclusion, coverage: { analysed: rows.length, total: list.length } };
 }
 
 // ── Market Analysis view ─────────────────────────────────────
@@ -12070,16 +12519,46 @@ function showMarketAnalysis() {
 // doesn't pay for a library most sessions never touch.
 function loadPptxLib() {
   if (window.PptxGenJS) return Promise.resolve();
-  return new Promise((resolve, reject) => {
+  if (APP._pptxLoading) return APP._pptxLoading;
+
+  // Try several CDNs in turn. One bad path or a blocked host shouldn't be able to
+  // kill the export - this was the "check your connection" failure.
+  const SOURCES = [
+    'https://cdn.jsdelivr.net/npm/pptxgenjs@3.12.0/dist/pptxgen.bundle.js',
+    'https://unpkg.com/pptxgenjs@3.12.0/dist/pptxgen.bundle.js',
+    'https://cdnjs.cloudflare.com/ajax/libs/pptxgenjs/3.12.0/pptxgen.bundle.js',
+    'https://cdn.jsdelivr.net/npm/pptxgenjs/dist/pptxgen.bundle.js',
+  ];
+
+  const tryOne = (url) => new Promise((resolve, reject) => {
     const el = document.createElement('script');
-    el.src = 'https://cdnjs.cloudflare.com/ajax/libs/pptxgenjs/3.12.0/pptxgen.bundle.js';
-    el.onload = resolve;
-    el.onerror = () => reject(new Error('Could not load PowerPoint library — check your connection'));
+    el.src = url;
+    let settled = false;
+    const done = (ok) => {
+      if (settled) return;
+      settled = true;
+      ok && window.PptxGenJS ? resolve() : reject(new Error('failed: ' + url));
+    };
+    el.onload = () => done(true);
+    el.onerror = () => done(false);
+    setTimeout(() => done(false), 12000); // some hosts hang rather than error
     document.head.appendChild(el);
   });
+
+  APP._pptxLoading = (async () => {
+    const tried = [];
+    for (const url of SOURCES) {
+      try { await tryOne(url); if (window.PptxGenJS) return; }
+      catch (_e) { tried.push(url.split('/')[2]); }
+    }
+    APP._pptxLoading = null;
+    throw new Error('PowerPoint library could not be loaded from any source (tried ' + tried.join(', ') + '). If you are on a restricted network, use Export PDF instead.');
+  })();
+
+  return APP._pptxLoading;
 }
 
-function exportMarketPDF(btnEl) {
+async function exportMarketPDF(btnEl) {
   const a = buildMarketAnalysis();
   const original = btnEl ? btnEl.textContent : '';
   if (btnEl) { btnEl.disabled = true; btnEl.textContent = 'Building…'; }
@@ -12120,12 +12599,45 @@ function exportMarketPDF(btnEl) {
       y += 8;
     }
 
+    // Charts, lifted straight from the Reports screen so the document shows exactly
+    // what was on screen. Rendered off-screen if the user exported without visiting it.
+    const charts = await ensureChartImages(a);
+    const placeChart = (key, w, h, caption) => {
+      if (!charts[key]) return;
+      ensure(h + (caption ? 26 : 14));
+      doc.addImage(charts[key], 'PNG', margin, y, w, h);
+      y += h + 6;
+      if (caption) {
+        doc.setFontSize(8.5); doc.setTextColor(140);
+        doc.text(doc.splitTextToSize(caption, pageW - margin * 2), margin, y);
+        y += 16; doc.setTextColor(30);
+      }
+      y += 8;
+    };
+
+    if (a.conclusion && (a.conclusion.narrative || []).length) {
+      heading('Bottom line');
+      doc.setFontSize(10.5);
+      a.conclusion.narrative.forEach(t => {
+        const lines = doc.splitTextToSize(t, pageW - margin * 2);
+        ensure(lines.length * 13 + 8);
+        doc.text(lines, margin, y); y += lines.length * 13 + 10;
+      });
+      y += 6;
+    }
+
+    const chartW = pageW - margin * 2;
+    placeChart('search', chartW, 190, 'How many of the top 10 results are yours, per search term. Red means you are invisible for that term.');
+    placeChart('dominance', chartW, 170, 'Which sites appear most across all of your buying searches. Green is you.');
+    placeChart('themes', chartW, 150, 'How often each weakness was observed across the competitors researched.');
+
     if (a.search.length) {
       heading('Share of search');
       doc.autoTable({
         startY: y, margin: { left: margin, right: margin },
-        head: [['Search term', 'Your best', 'Your slots', 'Competitors ranking']],
+        head: [['Company', 'Search term', 'Your best', 'Your slots', 'Competitors ranking']],
         body: a.search.map(q => [
+          q.companyLabel || '',
           q.query,
           q.ourRank ? '#' + q.ourRank : 'not top 10',
           `${q.oursInTop}/${q.totalTop}`,
@@ -12161,16 +12673,85 @@ function exportMarketPDF(btnEl) {
       afterTable();
     }
 
-    if (a.marketGaps.length) {
-      heading("Finishes the market carries that you don't");
+    const gapTable = (title, items, note) => {
+      if (!items || !items.length) return;
+      heading(title);
+      if (note) {
+        doc.setFontSize(8.5); doc.setTextColor(120);
+        const n = doc.splitTextToSize(note, pageW - margin * 2);
+        ensure(n.length * 11 + 6); doc.text(n, margin, y); y += n.length * 11 + 6;
+        doc.setTextColor(30);
+      }
       doc.autoTable({
         startY: y, margin: { left: margin, right: margin },
-        head: [['Finish', 'Rivals carrying it']],
-        body: a.marketGaps.slice(0, 25).map(g => [g.finish, String(g.competitors)]),
+        head: [[title.includes('Texture') ? 'Texture' : title.includes('Colour') ? 'Colour' : 'Finish', 'Rivals carrying it']],
+        body: items.slice(0, 25).map(g => [g.name || g.finish, String(g.competitors)]),
         styles: { fontSize: 9, cellPadding: 4 },
         headStyles: { fillColor: [40, 40, 45] },
       });
       afterTable();
+    };
+
+    if ((a.colorGaps || []).length || (a.textureGaps || []).length || (a.substrateGaps || []).length || (a.certGaps || []).length) {
+      heading('The four axes — and what each gap costs you');
+      doc.setFontSize(9.5); doc.setTextColor(60);
+      const expl = doc.splitTextToSize(
+        'Colour (shade) is the colour name - Classic Oak, Arctic, Emperado - and is usually substitutable with a near match. Texture (surface finish) is how the surface reads - stipple, matte, supermatte, high gloss, crosscut, woodgrain - and cannot be substituted by offering a different colour. Substrate (board core) is what the board is made of - MDF, HDF, CDF, particle board, plywood, marine ply, bamboo, compact laminate - and decides where the board can be used at all. Certification covers emission class and green credentials - E0, E1, CARB P2, FSC, GREENGUARD, LEED/WELL - and decides whether you are eligible to quote specified work. Ranked by consequence: a colour gap loses a preference, a texture gap loses an enquiry, a substrate gap loses an application, a certification gap loses a project.',
+        pageW - margin * 2);
+      ensure(expl.length * 12 + 10); doc.text(expl, margin, y); y += expl.length * 12 + 16;
+      doc.setTextColor(30);
+    }
+
+    if ((a.priceRows || []).length) {
+      heading('Published pricing');
+      doc.setFontSize(8.5); doc.setTextColor(150, 110, 40);
+      const warn = doc.splitTextToSize('These are retail prices as published by each competitor, not trade prices. Use them to understand what a buyer sees before contacting you, and to track movement - never as a basis for your own dealer pricing.', pageW - margin * 2);
+      ensure(warn.length * 11 + 8); doc.text(warn, margin, y); y += warn.length * 11 + 8; doc.setTextColor(30);
+      doc.autoTable({
+        startY: y, margin: { left: margin, right: margin },
+        head: [['Competitor', 'Item', 'Price', 'Basis']],
+        body: a.priceRows.slice(0, 30).map(p => [
+          p.competitor, `${p.item}${p.size ? ' (' + p.size + ')' : ''}`,
+          `${p.currency} ${p.price}`, `${p.unit}${p.channel ? ' · ' + p.channel : ''}`,
+        ]),
+        styles: { fontSize: 9, cellPadding: 4 },
+        headStyles: { fillColor: [40, 40, 45] },
+      });
+      afterTable();
+    }
+    if ((a.priceChanges || []).length) {
+      heading('Price movement since last run');
+      doc.autoTable({
+        startY: y, margin: { left: margin, right: margin },
+        head: [['Competitor', 'Change']],
+        body: a.priceChanges.map(c => [c.competitor, c.text]),
+        styles: { fontSize: 9, cellPadding: 4 },
+        headStyles: { fillColor: [40, 40, 45] },
+      });
+      afterTable();
+    }
+
+    if ((a.certGaps || []).length) {
+      gapTable("Certifications & emission classes you don't claim", a.certGaps,
+        'Highest-consequence gap: these are written into commercial specifications, so a missing one can exclude you from a project before price is discussed.');
+      if ((a.certClaims || []).length) {
+        doc.autoTable({
+          startY: y, margin: { left: margin, right: margin },
+          head: [['Competitor', 'Standard', 'What they claim']],
+          body: a.certClaims.slice(0, 20).map(c => [c.competitor, c.name, (c.claim || '').slice(0, 120)]),
+          styles: { fontSize: 8.5, cellPadding: 4 },
+          headStyles: { fillColor: [40, 40, 45] },
+          columnStyles: { 2: { cellWidth: 260 } },
+        });
+        afterTable();
+      }
+    }
+    gapTable("Board cores (substrates) rivals supply that you don't", a.substrateGaps,
+      'The substrate decides where a board can be used at all — each missing core is a category of work you cannot quote.');
+    gapTable("Colours rivals carry that you don't", a.colorGaps, 'Shade names only.');
+    gapTable("Textures rivals offer that you don't", a.textureGaps, 'Surface finishes only — the more urgent gap.');
+    if (!(a.colorGaps || []).length && !(a.textureGaps || []).length) {
+      gapTable("Finishes the market carries that you don't", a.marketGaps, 'From an older run, before colour and texture were tracked separately.');
     }
 
     if (a.activity.length) {
@@ -12183,6 +12764,35 @@ function exportMarketPDF(btnEl) {
         headStyles: { fillColor: [40, 40, 45] },
       });
       afterTable();
+    }
+
+    if (a.conclusion && (a.conclusion.actions || []).length) {
+      doc.addPage(); y = margin;
+      heading('Recommendations');
+      a.conclusion.actions.forEach((x, i) => {
+        ensure(70);
+        doc.setFontSize(11); doc.setTextColor(20);
+        const title = doc.splitTextToSize(`${i + 1}. ${x.action}`, pageW - margin * 2);
+        doc.text(title, margin, y); y += title.length * 14 + 2;
+        doc.setFontSize(8.5); doc.setTextColor(110);
+        doc.text(`${x.company}   ·   ${x.impact || ''} impact   ·   ${x.effort || ''} effort`, margin, y); y += 13;
+        if (x.why) {
+          doc.setFontSize(9.5); doc.setTextColor(60);
+          const why = doc.splitTextToSize('Why: ' + x.why, pageW - margin * 2);
+          ensure(why.length * 12 + 6); doc.text(why, margin, y); y += why.length * 12 + 5;
+        }
+        (x.how || []).forEach(h => {
+          doc.setFontSize(9.5); doc.setTextColor(60);
+          const lines = doc.splitTextToSize('•  ' + h, pageW - margin * 2 - 10);
+          ensure(lines.length * 12 + 3);
+          doc.text(lines, margin + 10, y); y += lines.length * 12 + 3;
+        });
+        if (x.pillar) {
+          doc.setFontSize(8.5); doc.setTextColor(120);
+          ensure(16); doc.text('Suggested content pillars: ' + x.pillar, margin + 10, y); y += 14;
+        }
+        y += 10; doc.setTextColor(30);
+      });
     }
 
     ensure(40);
@@ -12235,15 +12845,43 @@ async function exportMarketPPTX(btnEl) {
       })), { x: 0.6, y: 1.1, w: 8.8, h: 4 });
     }
 
+    const charts = await ensureChartImages(a);
+
+    if (a.conclusion && (a.conclusion.narrative || []).length) {
+      const s = section('Bottom line');
+      s.addText(a.conclusion.narrative.map(t => ({ text: t, options: { bullet: true, fontSize: 13, breakLine: true } })),
+        { x: 0.6, y: 1.1, w: 8.8, h: 4, color: '333333' });
+    }
+
+    if (charts.search) {
+      const s = section('Search standings by company');
+      s.addImage({ data: charts.search, x: 0.5, y: 1.05, w: 9, h: 3.6 });
+      s.addText('Bars show how many of the top 10 results are yours. Red means invisible for that term.',
+        { x: 0.5, y: 4.75, w: 9, fontSize: 11, color: GREY });
+    }
+    if (charts.dominance) {
+      const s = section('Who owns these searches');
+      s.addImage({ data: charts.dominance, x: 0.5, y: 1.05, w: 9, h: 3.6 });
+      s.addText('Green is you. Counts every appearance across all buying searches.',
+        { x: 0.5, y: 4.75, w: 9, fontSize: 11, color: GREY });
+    }
+    if (charts.themes) {
+      const s = section('Weaknesses across the market');
+      s.addImage({ data: charts.themes, x: 0.5, y: 1.05, w: 9, h: 3.4 });
+      s.addText('The tallest bar is your strongest message — it counters more than one competitor.',
+        { x: 0.5, y: 4.6, w: 9, fontSize: 11, color: GREY });
+    }
+
     if (a.search.length) {
       const s = section('Share of search — terms your buyers type');
-      table(s, ['Search term', 'Your best', 'Your slots', 'Competitors'],
+      table(s, ['Company', 'Search term', 'Your best', 'Your slots', 'Competitors'],
         a.search.map(q => [
+          { text: q.companyLabel || '', options: { bold: true } },
           q.query,
           { text: q.ourRank ? '#' + q.ourRank : 'not top 10', options: { color: q.ourRank ? GREEN : RED, bold: true } },
           `${q.oursInTop}/${q.totalTop}`,
           Object.entries(q.rivals || {}).map(([n, r]) => `${n} #${r}`).join(', ') || '—',
-        ]), { colW: [3.6, 1.2, 1.2, 3] });
+        ]), { colW: [0.9, 3.1, 1.2, 1.2, 2.6] });
     }
 
     if (a.dominance.length) {
@@ -12261,10 +12899,70 @@ async function exportMarketPPTX(btnEl) {
         a.themes.map(t => [t.theme, String(t.mentions), t.competitors.join(', ')]), { colW: [3, 1.2, 4.8] });
     }
 
-    if (a.marketGaps.length) {
+    if ((a.colorGaps || []).length || (a.textureGaps || []).length || (a.substrateGaps || []).length || (a.certGaps || []).length) {
+      const s = section('The four axes — and what each gap costs you');
+      s.addText([
+        { text: 'Colour (shade)', options: { bold: true, breakLine: false } },
+        { text: ' — Classic Oak, Arctic, Emperado. Usually substitutable with a near match. Loses a preference.', options: { breakLine: true } },
+        { text: 'Texture (surface finish)', options: { bold: true, breakLine: false } },
+        { text: ' — stipple, matte, supermatte, gloss, crosscut, woodgrain. Not substitutable by colour. Loses the enquiry.', options: { breakLine: true } },
+        { text: 'Substrate (board core)', options: { bold: true, breakLine: false } },
+        { text: ' — MDF, HDF, CDF, PB, plywood, marine ply, bamboo, compact laminate. Loses the application.', options: { breakLine: true } },
+        { text: 'Certification', options: { bold: true, breakLine: false } },
+        { text: ' — E0, E1, CARB P2, FSC, GREENGUARD, LEED/WELL. Loses the project.', options: { breakLine: true } },
+      ], { x: 0.6, y: 1.2, w: 8.8, h: 3.4, fontSize: 13, color: '333333' });
+    }
+    if ((a.priceRows || []).length) {
+      const s = section('Published pricing');
+      table(s, ['Competitor', 'Item', 'Price', 'Basis'],
+        a.priceRows.slice(0, 16).map(p => [
+          p.competitor, `${p.item}${p.size ? ' (' + p.size + ')' : ''}`,
+          { text: `${p.currency} ${p.price}`, options: { bold: true } },
+          `${p.unit}${p.channel ? ' · ' + p.channel : ''}`,
+        ]), { colW: [2.2, 3.4, 1.6, 1.8], fontSize: 10 });
+      s.addText('Retail prices as published — not trade prices. For positioning and tracking movement only.',
+        { x: 0.5, y: 5.05, w: 9, fontSize: 10.5, color: AMBER, italic: true });
+    }
+    if ((a.priceChanges || []).length) {
+      const s = section('Price movement since last run');
+      s.addText(a.priceChanges.map(c => ({ text: `${c.competitor} — ${c.text}`, options: { bullet: true, breakLine: true } })),
+        { x: 0.6, y: 1.2, w: 8.8, h: 3.5, fontSize: 13, color: '444444' });
+    }
+
+    if ((a.certGaps || []).length) {
+      const s = section("Certifications & emission classes you don't claim");
+      table(s, ['Standard', 'Rivals claiming it'],
+        a.certGaps.slice(0, 15).map(g => [{ text: g.name, options: { bold: true } }, String(g.competitors)]), { colW: [6.5, 2.5] });
+      s.addText('Written into commercial specifications — a missing one can exclude you before price is discussed.',
+        { x: 0.5, y: 5.0, w: 9, fontSize: 10.5, color: GREY, italic: true });
+    }
+    if ((a.certClaims || []).length) {
+      const s = section('What competitors claim');
+      table(s, ['Competitor', 'Standard', 'Claim'],
+        a.certClaims.slice(0, 14).map(c => [c.competitor, c.name, (c.claim || '').slice(0, 110)]),
+        { colW: [2.2, 1.8, 5.0], fontSize: 10 });
+    }
+    if ((a.substrateGaps || []).length) {
+      const s = section("Board cores (substrates) rivals supply that you don't");
+      table(s, ['Substrate', 'Rivals supplying it'],
+        a.substrateGaps.slice(0, 15).map(g => [g.name, String(g.competitors)]), { colW: [6.5, 2.5] });
+      s.addText('The substrate decides where a board can be used — each gap is a category of work you cannot quote.',
+        { x: 0.5, y: 5.0, w: 9, fontSize: 10.5, color: GREY, italic: true });
+    }
+    if ((a.colorGaps || []).length) {
+      const s = section("Colours rivals carry that you don't");
+      table(s, ['Colour', 'Rivals carrying it'],
+        a.colorGaps.slice(0, 20).map(g => [g.name, String(g.competitors)]), { colW: [6.5, 2.5] });
+    }
+    if ((a.textureGaps || []).length) {
+      const s = section("Textures rivals offer that you don't");
+      table(s, ['Texture', 'Rivals offering it'],
+        a.textureGaps.slice(0, 20).map(g => [g.name, String(g.competitors)]), { colW: [6.5, 2.5] });
+    }
+    if (!(a.colorGaps || []).length && !(a.textureGaps || []).length && a.marketGaps.length) {
       const s = section("Finishes the market carries that you don't");
       table(s, ['Finish', 'Rivals carrying it'],
-        a.marketGaps.slice(0, 20).map(g => [g.finish, String(g.competitors)]), { colW: [6.5, 2.5] });
+        a.marketGaps.slice(0, 20).map(g => [g.name || g.finish, String(g.competitors)]), { colW: [6.5, 2.5] });
     }
 
     if (a.activity.length) {
@@ -12273,6 +12971,25 @@ async function exportMarketPPTX(btnEl) {
         a.activity.map(x => [x.name, String(x.promos), String(x.products), String(x.finishes), String(x.changes || '—'), x.ageDays + 'd ago']),
         { colW: [3, 1.1, 1.2, 1.2, 1.2, 1.3] });
     }
+
+    (a.conclusion?.actions || []).forEach((x, i) => {
+      const s = section(`Recommendation ${i + 1}`);
+      s.addText(x.action, { x: 0.5, y: 0.95, w: 9, fontSize: 17, bold: true, color: DARK });
+      s.addText(`${x.company}   ·   ${x.impact || ''} impact   ·   ${x.effort || ''} effort`,
+        { x: 0.5, y: 1.5, w: 9, fontSize: 11, color: x.impact === 'High' ? GREEN : AMBER });
+      let y = 1.9;
+      if (x.why) {
+        s.addText([{ text: 'Why: ', options: { bold: true } }, { text: x.why }],
+          { x: 0.5, y, w: 9, h: 0.9, fontSize: 12, color: '444444' });
+        y += 1.0;
+      }
+      if ((x.how || []).length) {
+        s.addText(x.how.map(h => ({ text: h, options: { bullet: true, breakLine: true } })),
+          { x: 0.6, y, w: 8.8, h: 2.3, fontSize: 11.5, color: '444444' });
+      }
+      if (x.pillar) s.addText('Suggested content pillars: ' + x.pillar,
+        { x: 0.5, y: 4.9, w: 9, fontSize: 10.5, color: GREY, italic: true });
+    });
 
     const last = pptx.addSlide();
     last.addText('Method & limits', { x: 0.5, y: 0.35, w: 9, fontSize: 22, bold: true, color: DARK });
@@ -12289,6 +13006,419 @@ async function exportMarketPPTX(btnEl) {
   } finally {
     if (btnEl) { btnEl.disabled = false; btnEl.textContent = original; }
   }
+}
+
+// ============================================================
+//  REPORTS SCREEN
+//  One place where competitor intel, your own colour library and the search
+//  standings are consolidated, explained, and exported. Charts are drawn with
+//  Chart.js (already loaded) so the same canvases can be reused as images in
+//  both the PDF and the PowerPoint - no second charting dependency.
+// ============================================================
+
+const TONE = {
+  good: { color: 'var(--green)', label: 'Strength', meaning: 'You are ahead here. Defend it and say so publicly.' },
+  warn: { color: 'var(--amber)', label: 'Watch',    meaning: 'Close or uncertain. Small effort could change the outcome.' },
+  bad:  { color: 'var(--red)',   label: 'Gap',      meaning: 'You are absent or behind. This is where to act first.' },
+};
+
+// Their actual swatch photographs, harvested from their own colour pages.
+function getCompetitorSwatches(limitPer) {
+  const store = loadIntelStore();
+  const list = APP._competitorsCache || [];
+  const out = [];
+  list.forEach(c => {
+    const d = store[c.id]?.data;
+    const imgs = (d && (d.finish_images || d.finishImages)) || [];
+    imgs.slice(0, limitPer || 10).forEach(i => out.push({ ...i, competitor: c.name }));
+  });
+  return out;
+}
+
+function findColorByName(name) {
+  const target = String(name || '').toLowerCase().trim();
+  for (const co of ['wcli', 'cwli', 'mssi']) {
+    const hit = (getColors(co) || []).find(c => String(c.name || '').toLowerCase().trim() === target);
+    if (hit) return { ...hit, company: co.toUpperCase() };
+  }
+  return null;
+}
+
+function renderReportsScreen() {
+  const el = document.getElementById('reports-content');
+  if (!el) return;
+  hydrateIntelCache();
+
+  const list = APP._competitorsCache || [];
+  if (!list.length) {
+    el.innerHTML = `<div class="empty-state">
+      <div class="empty-icon">📄</div>
+      <div class="empty-title">Nothing to report on yet</div>
+      <div class="empty-sub">Add competitors on the Competitors page and run Analyze All. This page consolidates everything that comes back.</div>
+    </div>`;
+    return;
+  }
+
+  const a = buildMarketAnalysis();
+  if (!a.rows.length) {
+    el.innerHTML = `<div class="empty-state">
+      <div class="empty-icon">🔍</div>
+      <div class="empty-title">No research saved yet</div>
+      <div class="empty-sub">Go to Competitors and press "✦ Analyze All". Findings, charts and exports all appear here once there's data.</div>
+    </div>`;
+    return;
+  }
+  APP._lastAnalysis = a;
+
+  // ── Findings, each labelled with what its colour means and which company it's about
+  const findings = a.highlights.map(h => {
+    const t = TONE[h.tone] || TONE.warn;
+    return `<div style="display:flex;gap:11px;padding:11px 0;border-bottom:1px solid var(--border)">
+      <div style="width:4px;border-radius:2px;background:${t.color};flex-shrink:0"></div>
+      <div style="flex:1">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:3px;flex-wrap:wrap">
+          <span style="font-size:9.5px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;color:${t.color};border:1px solid ${t.color};border-radius:3px;padding:1px 5px">${t.label}</span>
+          ${h.company ? `<span style="font-size:10.5px;color:var(--text2);font-weight:600">${h.company}</span>` : ''}
+        </div>
+        <div style="font-size:12.5px;line-height:1.6">${h.text}</div>
+      </div>
+    </div>`;
+  }).join('');
+
+  const legend = Object.values(TONE).map(t =>
+    `<div style="display:flex;align-items:center;gap:7px;font-size:11px;color:var(--text2)">
+       <span style="width:9px;height:9px;border-radius:2px;background:${t.color};flex-shrink:0"></span>
+       <b style="color:var(--text)">${t.label}</b> — ${t.meaning}
+     </div>`).join('');
+
+  // ── Conclusion
+  const conc = a.conclusion || { narrative: [], actions: [] };
+  const conclusionHtml = `
+    <div class="card" style="border-left:3px solid var(--accent2)">
+      <div style="font-size:13px;font-weight:600;margin-bottom:10px">Bottom line</div>
+      ${conc.narrative.map(p => `<div style="font-size:12.5px;line-height:1.75;margin-bottom:10px">${p}</div>`).join('')}
+      ${conc.actions.length ? `
+        <div style="font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--text3);margin:16px 0 8px">What to do next</div>
+        ${conc.actions.map((x, i) => {
+          const badge = (t, c) => `<span style="font-size:9px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;color:${c};border:1px solid ${c};border-radius:3px;padding:1px 5px">${t}</span>`;
+          const impactColor = x.impact === 'High' ? 'var(--green)' : 'var(--amber)';
+          const effortColor = x.effort === 'Low' ? 'var(--green)' : x.effort === 'High' ? 'var(--red)' : 'var(--amber)';
+          return `<div style="padding:14px 0;border-top:1px solid var(--border)">
+            <div style="display:flex;gap:10px">
+              <div style="font-size:12px;color:var(--text3);width:18px;flex-shrink:0;padding-top:1px">${i + 1}.</div>
+              <div style="flex:1">
+                <div style="display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-bottom:5px">
+                  <span style="font-size:10.5px;font-weight:700;color:var(--accent2)">${x.company}</span>
+                  ${x.impact ? badge(x.impact + ' impact', impactColor) : ''}
+                  ${x.effort ? badge(x.effort + ' effort', effortColor) : ''}
+                </div>
+                <div style="font-size:13px;font-weight:600;line-height:1.5;margin-bottom:6px">${x.action}</div>
+                ${x.why ? `<div style="font-size:12px;line-height:1.65;color:var(--text2);margin-bottom:8px"><b style="color:var(--text)">Why:</b> ${x.why}</div>` : ''}
+                ${(x.how || []).length ? `<div style="font-size:11px;text-transform:uppercase;letter-spacing:.4px;color:var(--text3);margin-bottom:4px">How</div>
+                  <ul style="margin:0 0 8px;padding-left:16px;font-size:12px;line-height:1.7;color:var(--text2)">
+                    ${x.how.map(h => `<li>${h}</li>`).join('')}
+                  </ul>` : ''}
+                ${x.pillar ? `<div style="font-size:11px;color:var(--text3)">Suggested content pillars: <b style="color:var(--text2)">${x.pillar}</b></div>` : ''}
+              </div>
+            </div>
+          </div>`;
+        }).join('')}` : ''}
+    </div>`;
+
+  // ── Gaps, split by axis. A card builder shared by both sections.
+  const gapCards = (items) => items.slice(0, 24).map(g => {
+    const known = findColorByName(g.name);
+    const img = known && known.swatchUrl
+      ? `<img src="${known.swatchUrl}" crossorigin="anonymous" style="width:100%;height:56px;object-fit:cover;display:block" alt="${g.name}">`
+      : `<div style="height:56px;display:flex;align-items:center;justify-content:center;background:var(--bg4);color:var(--text3);font-size:9.5px;text-align:center;padding:4px">not in<br>your range</div>`;
+    return `<div style="border:1px solid var(--border);border-radius:8px;overflow:hidden;width:110px">
+      ${img}
+      <div style="padding:6px 7px">
+        <div style="font-size:10.5px;font-weight:500;line-height:1.35">${g.name}</div>
+        <div style="font-size:9.5px;color:var(--amber);margin-top:2px">${g.competitors} rival${g.competitors === 1 ? '' : 's'}</div>
+      </div>
+    </div>`;
+  }).join('');
+
+  const colorGapHtml = gapCards(a.colorGaps || []);
+  const textureGapHtml = gapCards(a.textureGaps || []);
+  const legacyGapHtml = (!(a.colorGaps || []).length && !(a.textureGaps || []).length) ? gapCards(a.marketGaps || []) : '';
+
+  // ── Your own library, shown so the report has your product in it, not just theirs
+  const ourSwatches = ['wcli', 'cwli'].flatMap(co =>
+    (getColors(co) || []).filter(c => c.swatchUrl && c.featurePriority === 'featured').slice(0, 8)
+      .map(c => ({ ...c, company: co.toUpperCase() }))
+  ).slice(0, 12);
+  const ourSwatchHtml = ourSwatches.map(c =>
+    `<div style="border:1px solid var(--border);border-radius:8px;overflow:hidden;width:110px">
+      <img src="${c.swatchUrl}" crossorigin="anonymous" style="width:100%;height:56px;object-fit:cover;display:block" alt="${c.name}">
+      <div style="padding:6px 7px">
+        <div style="font-size:10.5px;font-weight:500;line-height:1.35">${c.name}</div>
+        <div style="font-size:9.5px;color:var(--text3);margin-top:2px">${c.company}${c.colorFamily ? ' · ' + c.colorFamily : ''}</div>
+      </div>
+    </div>`).join('');
+
+  const sect = (title, inner, note) => inner ? `<div class="card" style="margin-bottom:14px">
+      <div style="font-size:13px;font-weight:600;margin-bottom:${note ? '4px' : '12px'}">${title}</div>
+      ${note ? `<div style="font-size:11px;color:var(--text3);margin-bottom:12px;line-height:1.55">${note}</div>` : ''}
+      ${inner}
+    </div>` : '';
+
+  el.innerHTML = `
+    <div class="card" style="margin-bottom:14px">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;margin-bottom:14px">
+        <div>
+          <div style="font-size:14px;font-weight:600">What matters most</div>
+          <div style="font-size:11px;color:var(--text3);margin-top:2px">${a.coverage.analysed} of ${a.coverage.total} competitors researched · ${new Date().toLocaleDateString()}</div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:5px">${legend}</div>
+      </div>
+      ${findings}
+    </div>
+
+    ${conclusionHtml}
+
+    <div class="card" style="margin:14px 0">
+      <div style="font-size:13px;font-weight:600;margin-bottom:12px">Search standings by company</div>
+      <div style="height:260px"><canvas id="chart-search"></canvas></div>
+      <div style="font-size:11px;color:var(--text3);margin-top:8px">Bars show how many of the top 10 results each search returns for you. Zero means you are invisible for that term.</div>
+    </div>
+
+    <div style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:14px">
+      <div class="card" style="flex:1;min-width:300px">
+        <div style="font-size:13px;font-weight:600;margin-bottom:12px">Who owns these searches</div>
+        <div style="height:240px"><canvas id="chart-dominance"></canvas></div>
+      </div>
+      <div class="card" style="flex:1;min-width:300px">
+        <div style="font-size:13px;font-weight:600;margin-bottom:12px">Weaknesses across the market</div>
+        <div style="height:240px"><canvas id="chart-themes"></canvas></div>
+      </div>
+    </div>
+
+    <div class="card" style="margin-bottom:14px">
+      <div style="font-size:13px;font-weight:600;margin-bottom:6px">Colour and texture — what the difference means here</div>
+      <div style="display:flex;gap:16px;flex-wrap:wrap;font-size:11.5px;line-height:1.65;color:var(--text2)">
+        <div style="flex:1;min-width:230px"><b style="color:var(--text)">Colour (shade)</b> — the colour name: Classic Oak, Arctic, Emperado, Amber Ash. Usually substitutable with a near match.</div>
+        <div style="flex:1;min-width:230px"><b style="color:var(--text)">Texture (surface finish)</b> — how the surface reads: stipple, matte, supermatte, high gloss, crosscut, woodgrain, embossed. Not substitutable by colour.</div>
+        <div style="flex:1;min-width:230px"><b style="color:var(--text)">Substrate (board core)</b> — what the board is made of: MDF, HDF, CDF, particle board, plywood, marine ply, bamboo, compact laminate. Decides where the board can be used at all.</div>
+        <div style="flex:1;min-width:230px"><b style="color:var(--text)">Certification</b> — emission class and green credentials: E0, E1, CARB P2, FSC, GREENGUARD, LEED/WELL contribution. Decides whether you are eligible to quote specified work.</div>
+      </div>
+      <div style="font-size:11px;color:var(--text3);margin-top:10px;line-height:1.6">Ranked by consequence: a colour gap loses a preference, a texture gap loses an enquiry, a substrate gap loses an application, a certification gap loses a project.</div>
+    </div>
+
+    ${(() => {
+      const pr = a.priceRows || [];
+      const posture = a.pricingPosture || [];
+      if (!pr.length && !posture.some(p => p.notes)) return '';
+      const rows = pr.slice(0, 30).map(p => `<tr style="border-top:1px solid var(--border)">
+          <td style="padding:6px 0">${p.competitor}</td>
+          <td style="padding:6px 0">${p.item}${p.size ? ` <span style="color:var(--text3)">${p.size}</span>` : ''}</td>
+          <td style="text-align:right;padding:6px 8px;white-space:nowrap;font-weight:600">${p.currency} ${p.price}</td>
+          <td style="padding:6px 0;color:var(--text3);font-size:11px">${p.unit}${p.channel ? ' · ' + p.channel : ''}</td>
+          <td style="padding:6px 0">${p.source ? `<a href="${p.source}" target="_blank" rel="noopener" style="font-size:10.5px;color:var(--accent2);text-decoration:none">source</a>` : ''}</td>
+        </tr>`).join('');
+      const postureHtml = posture.filter(p => p.notes).map(p =>
+        `<div style="font-size:11.5px;line-height:1.6;padding:6px 0;border-top:1px solid var(--border)"><b>${p.competitor}:</b> ${p.notes}</div>`).join('');
+      const changes = (a.priceChanges || []).map(c =>
+        `<div style="font-size:12px;line-height:1.6;padding:5px 0"><b style="color:var(--amber)">${c.competitor}</b> — ${c.text}</div>`).join('');
+      const inner = `
+        ${changes ? `<div style="background:var(--bg2);border-left:3px solid var(--amber);border-radius:6px;padding:9px 12px;margin-bottom:12px">
+          <div style="font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--text3);margin-bottom:4px">Price movement since last run</div>${changes}</div>` : ''}
+        ${rows ? `<table style="width:100%;border-collapse:collapse;font-size:12px">
+          <tr style="color:var(--text3);font-size:10.5px;text-transform:uppercase">
+            <th style="text-align:left;padding:4px 0">Competitor</th>
+            <th style="text-align:left;padding:4px 0">Item</th>
+            <th style="text-align:right;padding:4px 8px">Price</th>
+            <th style="text-align:left;padding:4px 0">Basis</th>
+            <th style="text-align:left;padding:4px 0"></th>
+          </tr>${rows}
+        </table>` : '<div style="font-size:12px;color:var(--text3)">No published prices found.</div>'}
+        ${postureHtml ? `<div style="margin-top:12px"><div style="font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--text3);margin-bottom:2px">How each one presents price</div>${postureHtml}</div>` : ''}`;
+      return sect('Published pricing', inner,
+        '<b style="color:var(--amber)">These are retail prices as published, not trade prices.</b> Use them to understand what number a buyer sees before they call you, and to spot movement over time — never as a basis for setting your own dealer pricing. Every figure links to the page it came from, and nothing here is estimated: if a price was not published, it is not shown.');
+    })()}
+
+    ${(() => {
+      const items = a.certGaps || [];
+      if (!items.length) return '';
+      const claims = (a.certClaims || []).filter(c => items.some(i => i.name === c.name));
+      const rows = items.map(g => {
+        const said = claims.filter(c => c.name === g.name);
+        return `<div style="padding:9px 0;border-top:1px solid var(--border)">
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+            <span style="font-size:12.5px;font-weight:600">${g.name}</span>
+            <span style="font-size:10px;color:var(--red);border:1px solid var(--red);border-radius:3px;padding:1px 5px">${g.competitors} rival${g.competitors === 1 ? '' : 's'} claim it</span>
+          </div>
+          ${said.map(c => `<div style="font-size:11.5px;color:var(--text2);margin-top:4px;line-height:1.55"><b>${c.competitor}:</b> "${c.claim || c.name}"${c.product ? ` <span style="color:var(--text3)">— ${c.product}</span>` : ''}</div>`).join('')}
+        </div>`;
+      }).join('');
+      return sect('Certifications & emission classes you don\'t claim', rows,
+        'The highest-consequence gap on this page. These are written into commercial specifications — without them you may be excluded from a project before price is discussed. Verify any claim before treating it as fact.');
+    })()}
+
+    ${(() => {
+      const items = a.substrateGaps || [];
+      if (!items.length) return '';
+      const USE = {
+        'compact laminate': 'worktops, lockers, toilet partitions, wet areas',
+        'cdf': 'high-moisture and heavy-duty applications',
+        'hdf': 'thin panels, door skins, high-density needs',
+        'bamboo': 'sustainability-led briefs and visible timber surfaces',
+        'marine plywood': 'humid and water-exposed installations',
+        'plywood': 'structural and screw-holding applications',
+        'wpc': 'fully waterproof cabinetry',
+        'mdf': 'general cabinetry and painted finishes',
+        'osb': 'structural and industrial uses',
+      };
+      const rows = items.map(g => {
+        const key = Object.keys(USE).find(k => g.name.toLowerCase().includes(k));
+        return `<div style="display:flex;justify-content:space-between;gap:12px;padding:8px 0;border-top:1px solid var(--border)">
+          <div style="flex:1">
+            <div style="font-size:12.5px;font-weight:500">${g.name}</div>
+            ${key ? `<div style="font-size:11px;color:var(--text3);margin-top:2px">Typically used for ${USE[key]}</div>` : ''}
+          </div>
+          <div style="font-size:11.5px;color:var(--amber);white-space:nowrap">${g.competitors} rival${g.competitors === 1 ? '' : 's'}</div>
+        </div>`;
+      }).join('');
+      return sect('Board cores (substrates) rivals supply that you don\'t', rows,
+        'The substrate decides where a board can be used. Each missing core is a category of work you cannot quote — a bigger loss than any single colour.');
+    })()}
+
+    ${sect('Colours rivals carry that you don\'t', colorGapHtml ? `<div style="display:flex;gap:10px;flex-wrap:wrap">${colorGapHtml}</div>` : '',
+      'Shade names only. A swatch shows where the name matches something in your library; "not in your range" means it is genuinely absent.')}
+
+    ${sect('Textures rivals offer that you don\'t', textureGapHtml ? `<div style="display:flex;gap:10px;flex-wrap:wrap">${textureGapHtml}</div>` : '',
+      'Surface finishes only. Treat these as the more urgent gap — a fabricator who needs crosscut will not accept a different colour instead.')}
+
+    ${legacyGapHtml ? sect('Finishes rivals carry that you don\'t', `<div style="display:flex;gap:10px;flex-wrap:wrap">${legacyGapHtml}</div>`,
+      'From an older run before colour and texture were tracked separately. Re-run Analyze All to split these properly.') : ''}
+
+    ${(() => {
+      const theirs = getCompetitorSwatches(8);
+      if (!theirs.length) return sect('Competitor finishes & textures', '',
+        '');
+      const byComp = {};
+      theirs.forEach(t => { (byComp[t.competitor] = byComp[t.competitor] || []).push(t); });
+      const kindLabel = { color: 'Colours', texture: 'Textures' };
+      const inner = Object.entries(byComp).map(([comp, items]) => `
+        <div style="margin-bottom:14px">
+          <div style="font-size:11px;font-weight:600;color:var(--text2);margin-bottom:7px">${comp}</div>
+          ${['color', 'texture'].map(kind => {
+            const group = items.filter(i => (i.kind || 'color') === kind);
+            if (!group.length) return '';
+            return `<div style="margin-bottom:9px">
+              <div style="font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:var(--text3);margin-bottom:5px">${kindLabel[kind]}</div>
+              <div style="display:flex;gap:10px;flex-wrap:wrap">
+                ${group.map(i => `<div style="border:1px solid var(--border);border-radius:8px;overflow:hidden;width:110px">
+                  <img src="${i.url}" referrerpolicy="no-referrer" loading="lazy" style="width:100%;height:56px;object-fit:cover;display:block;background:var(--bg4)" alt="${i.name}" onerror="this.parentNode.style.display='none'">
+                  <div style="padding:6px 7px"><div style="font-size:10.5px;line-height:1.35">${i.name}</div></div>
+                </div>`).join('')}
+              </div>
+            </div>`;
+          }).join('')}
+        </div>`).join('');
+      return sect('Competitor finishes & textures', inner,
+        'Pulled from the competitors\' own colour pages, split into colours (shades) and textures (surface finishes). Names come from their image labels, so they read exactly as that company markets them.');
+    })()}
+
+    ${sect('Your featured finishes', ourSwatchHtml ? `<div style="display:flex;gap:10px;flex-wrap:wrap">${ourSwatchHtml}</div>` : '',
+      'Pulled from your colour library. These are what you lead with when countering a rival\'s range.')}
+
+    <div class="card">
+      <div style="font-size:11px;color:var(--text3);line-height:1.7">
+        Built only from evidence gathered on public websites and search results. No follower, reach or engagement figures are shown for competitors, because no legitimate source for those exists. Empty fields mean the evidence did not support a claim — not that the competitor lacks it.
+      </div>
+    </div>`;
+
+  setTimeout(() => drawReportCharts(a), 30);
+}
+
+// Charts are kept on APP so the export path can lift them straight out as images.
+function drawReportCharts(a) {
+  if (!window.Chart) return;
+  APP._reportCharts = APP._reportCharts || {};
+  Object.values(APP._reportCharts).forEach(c => { try { c.destroy(); } catch (_e) {} });
+  APP._reportCharts = {};
+
+  const GREEN = '#22a05a', RED = '#c83c3c', AMBER = '#c8963c', BLUE = '#4a7dd6', GREY = '#9a9aa2';
+  const common = {
+    responsive: true, maintainAspectRatio: false, animation: { duration: 0 },
+    plugins: { legend: { display: false } },
+    scales: { y: { beginAtZero: true, ticks: { precision: 0 } } },
+  };
+
+  const c1 = document.getElementById('chart-search');
+  if (c1 && a.search.length) {
+    APP._reportCharts.search = new Chart(c1, {
+      type: 'bar',
+      data: {
+        labels: a.search.map(q => `${q.companyLabel}: ${q.query.length > 30 ? q.query.slice(0, 30) + '…' : q.query}`),
+        datasets: [{
+          label: 'Your results in top 10',
+          data: a.search.map(q => q.oursInTop),
+          backgroundColor: a.search.map(q => q.oursInTop === 0 ? RED : q.ourRank === 1 ? GREEN : AMBER),
+        }],
+      },
+      options: { ...common, scales: { ...common.scales, y: { ...common.scales.y, max: 10 } } },
+    });
+  }
+
+  const c2 = document.getElementById('chart-dominance');
+  if (c2 && a.dominance.length) {
+    const d = a.dominance.slice(0, 8);
+    APP._reportCharts.dominance = new Chart(c2, {
+      type: 'bar',
+      data: {
+        labels: d.map(x => x.host.replace(/^www\./, '').slice(0, 26)),
+        datasets: [{ data: d.map(x => x.count), backgroundColor: d.map(x => x.ours ? GREEN : GREY) }],
+      },
+      options: { ...common, indexAxis: 'y', scales: { x: { beginAtZero: true, ticks: { precision: 0 } } } },
+    });
+  }
+
+  const c3 = document.getElementById('chart-themes');
+  if (c3 && a.themes.length) {
+    APP._reportCharts.themes = new Chart(c3, {
+      type: 'bar',
+      data: {
+        labels: a.themes.map(t => t.theme),
+        datasets: [{ data: a.themes.map(t => t.mentions), backgroundColor: BLUE }],
+      },
+      options: { ...common, indexAxis: 'y', scales: { x: { beginAtZero: true, ticks: { precision: 0 } } } },
+    });
+  }
+}
+
+// Returns { key: dataURL } for whatever charts are currently drawn, so exports can
+// embed the identical visuals the user is looking at.
+// Exports can be triggered from the Competitors page, where no charts exist yet.
+// This renders them into a hidden container so a PDF or deck always has visuals.
+async function ensureChartImages(a) {
+  const have = getReportChartImages();
+  if (Object.keys(have).length) return have;
+  if (!window.Chart) return {};
+
+  const holder = document.createElement('div');
+  holder.style.cssText = 'position:fixed;left:-10000px;top:0;width:900px';
+  holder.innerHTML = `<div style="height:300px"><canvas id="chart-search"></canvas></div>
+    <div style="height:280px"><canvas id="chart-dominance"></canvas></div>
+    <div style="height:260px"><canvas id="chart-themes"></canvas></div>`;
+  document.body.appendChild(holder);
+  drawReportCharts(a);
+  await new Promise(r => setTimeout(r, 120));   // let Chart.js paint
+  const imgs = getReportChartImages();
+  Object.values(APP._reportCharts || {}).forEach(c => { try { c.destroy(); } catch (_e) {} });
+  APP._reportCharts = {};
+  holder.remove();
+  return imgs;
+}
+
+function getReportChartImages() {
+  const out = {};
+  Object.entries(APP._reportCharts || {}).forEach(([k, c]) => {
+    try { out[k] = c.toBase64Image('image/png', 1); } catch (_e) {}
+  });
+  return out;
 }
 
 // Opens a manual snapshot form — a fallback for when Research Now isn't available
