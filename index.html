@@ -3665,6 +3665,54 @@ async function generateImageViaProxy(prompt, opts, postId) {
 // Shared by both image and video generation so the media relates to the caption.
 // Pillar-specific photography direction injected into the visual description prompt,
 // so outputs stop feeling generic and repetitive across post types.
+// Where the laminate is shown. Rotated per post so scenes stop defaulting to kitchens and
+// bedrooms — the products go into whole homes AND commercial fit-outs, so both pools exist and
+// the audience decides the lean.
+const SPACE_POOLS = {
+  residential: [
+    'a modern Filipino living room with a built-in TV and media wall unit',
+    'an open-plan living and dining area with built-in storage',
+    'a dining area with a built-in buffet and crockery cabinet',
+    'a master bedroom with floor-to-ceiling fitted wardrobes',
+    'a walk-in closet with open hanging modules and drawer banks',
+    'a modern kitchen with an island and tall pantry units',
+    'a home office nook with a built-in desk and shelving',
+    'an entryway and foyer with a shoe and coat cabinet',
+    'a bathroom with a floating vanity cabinet',
+    'a laundry and utility area with overhead cabinets',
+    'a childrens bedroom with a study desk and wardrobe',
+    'a compact condominium unit with space-saving built-ins'
+  ],
+  commercial: [
+    'a corporate office floor with workstations and storage credenzas',
+    'an office reception and lobby with a laminated reception desk',
+    'a meeting and conference room with built-in AV cabinetry',
+    'a retail showroom with display shelving and service counters',
+    'a hotel guest room with a fitted wardrobe and headboard panelling',
+    'a hotel lobby with a reception counter and wall cladding',
+    'a restaurant or cafe with counter fronts and banquette panelling',
+    'a staff pantry and breakroom with overhead and base cabinets',
+    'a locker room with laminated locker units',
+    'a clinic or dental office with built-in cabinetry',
+    'a school or university library with study carrels and shelving',
+    'a co-working space with lockers and phone booths',
+    'a bank or corporate service counter area'
+  ]
+};
+function pickSpaceSetting(company, audience) {
+  const a = String(audience || '').toLowerCase();
+  const res = SPACE_POOLS.residential, com = SPACE_POOLS.commercial;
+  let pool;
+  if (/homeowner|home owner|b2c/.test(a)) pool = res;
+  else if (/commercial|developer|hotel|corporate|office|institution/.test(a)) pool = com;
+  else pool = res.concat(com); // designers, architects, contractors, fabricators, dealers: either
+  return pool[Math.floor(Math.random() * pool.length)];
+}
+function buildSpaceHint(company, audience) {
+  const space = pickSpaceSetting(company, audience);
+  return { space: space, hint: ' SETTING: place this scene in ' + space + ' (Philippine context). Vary the setting between posts - do not default to a kitchen or bedroom unless the setting above says so.' };
+}
+
 const PILLAR_PHOTO_DIRECTION = {
   'Product Showcase':    'Clean product hero shot — the item is the undisputed star, beautifully lit, against a simple complementary background. No clutter.',
   'Education':           'Informative and approachable — show a close-up detail, a process step, or a "before and after" that teaches something visual. Clear and honest.',
@@ -3677,7 +3725,7 @@ const PILLAR_PHOTO_DIRECTION = {
   'Holiday':             'Warm, celebratory scene tied naturally to the product or space — festive but tasteful. Feels like a real Philippine holiday moment.'
 };
 
-async function captionToVisualDescription(apiKey, caption, forVideo, company, pillar, colorId) {
+async function captionToVisualDescription(apiKey, caption, forVideo, company, pillar, colorId, audience) {
   const { body } = splitCaptionTags(caption);
   const medium = forVideo ? 'an 8-second marketing video' : 'a photorealistic marketing image';
   const motionNote = forVideo ? ' Describe gentle, realistic motion or camera movement suitable for a short clip.' : '';
@@ -3690,6 +3738,10 @@ async function captionToVisualDescription(apiKey, caption, forVideo, company, pi
   const bp = APP.brandProfiles && company && APP.brandProfiles[company];
   const visualStyle = (bp && bp.visualStyle) ? (' Brand visual style: ' + bp.visualStyle) : '';
 
+  // Rotate the room/space so scenes vary across the whole home and commercial fit-outs
+  const sp = buildSpaceHint(company, audience);
+  const spaceHint = sp.hint;
+
   // Build rich color application context from actual color record
   const resolvedColorId = colorId || APP.currentColorId || '';
   let colorApplicationHint = '';
@@ -3699,13 +3751,13 @@ async function captionToVisualDescription(apiKey, caption, forVideo, company, pi
     if (c) {
       // Best furniture/space application per pattern
       const applicationMap = {
-        'Woodgrain': 'kitchen cabinet doors, wardrobe panels, or office desk surfaces',
-        'Solid': 'modern minimalist cabinet faces, bedroom furniture, or office shelving',
-        'Marble': 'kitchen island panels, bathroom vanity, or feature wall cladding',
-        'Fabric': 'headboard panels, accent wall cladding, or wardrobe doors',
-        'Stone': 'feature wall panels, reception desk cladding, or kitchen backsplash',
-        'Cement': 'industrial-style office furniture, TV cabinet, or feature wall',
-        'HPL': 'high-traffic countertop, commercial desk surface, or kitchen worktop',
+        'Woodgrain': 'cabinet doors, wardrobe panels, office desks, reception counters or locker fronts',
+        'Solid': 'minimalist cabinet faces, office shelving, retail display units or locker banks',
+        'Marble': 'island panels, vanity counters, reception desks or feature wall cladding',
+        'Fabric': 'headboard panels, accent wall cladding, wardrobe doors or acoustic office panels',
+        'Stone': 'feature wall panels, reception desk cladding, counter fronts or lobby walls',
+        'Cement': 'industrial-style office furniture, media cabinets, workshop counters or feature walls',
+        'HPL': 'high-traffic countertops, commercial desks, school or clinic cabinetry and worktops',
       };
       const bestUse = applicationMap[c.pattern] || 'cabinet doors or furniture surfaces';
 
@@ -3734,11 +3786,11 @@ async function captionToVisualDescription(apiKey, caption, forVideo, company, pi
       };
       const colorAccuracyNote = colorAccuracyMap[(c.colorFamily || '').toLowerCase()] || '';
 
-      colorApplicationHint = ` IMPORTANT: The featured laminate color is "${c.name}" — a ${c.colorFamily || ''} ${c.pattern || 'laminate'} finish${primaryFinish ? ' with ' + primaryFinish.toLowerCase() + ' surface' : ''}. Show this color APPLIED to ${bestUse} within a realistic interior scene. The image must be a FULL ROOM OR SPACE — a Philippine home, kitchen, office, or living area — with the ${c.colorFamily || ''} ${c.pattern ? c.pattern.toLowerCase() : 'laminate'} surface visible on the furniture. DO NOT generate a close-up texture shot or material swatch — the scene must show the color in context, applied to actual furniture in a real space. ${colorAccuracyNote}${lightingNote ? ' Lighting: ' + lightingNote + '.' : ''}`;
+      colorApplicationHint = ` IMPORTANT: The featured laminate color is "${c.name}" — a ${c.colorFamily || ''} ${c.pattern || 'laminate'} finish${primaryFinish ? ' with ' + primaryFinish.toLowerCase() + ' surface' : ''}. Show this color APPLIED to ${bestUse} within a realistic interior scene. The image must be a FULL ROOM OR SPACE — ${sp.space} (Philippine context) — with the ${c.colorFamily || ''} ${c.pattern ? c.pattern.toLowerCase() : 'laminate'} surface visible on the furniture. DO NOT generate a close-up texture shot or material swatch — the scene must show the color in context, applied to actual furniture in a real space. ${colorAccuracyNote}${lightingNote ? ' Lighting: ' + lightingNote + '.' : ''}`;
     }
   }
 
-  const descPrompt = `Based on this Facebook post caption for a Philippine furniture/laminate company, write a single scene description (one sentence, under 50 words) for ${medium} that would pair well with it. Describe the visual scene — product, setting, mood, and how the featured laminate color is applied.${motionNote}${pillarHint}${visualStyle}${colorApplicationHint} No text, words, logos, or watermarks in the image. Output ONLY the scene description.\n\nCaption:\n${body}`;
+  const descPrompt = `Based on this Facebook post caption for a Philippine furniture/laminate company, write a single scene description (one sentence, under 50 words) for ${medium} that would pair well with it. Describe the visual scene — product, setting, mood, and how the featured laminate color is applied.${motionNote}${pillarHint}${visualStyle}${spaceHint}${colorApplicationHint} No text, words, logos, or watermarks in the image. Output ONLY the scene description.\n\nCaption:\n${body}`;
   const desc = await callClaude(apiKey, descPrompt, 250);
   return desc.trim();
 }
@@ -3799,9 +3851,10 @@ function buildImagePrompt(co, audience, pillar, notes) {
   const products = (bp && bp.products) ? bp.products : (co === 'mssi'
     ? 'modular kitchen cabinets, wardrobes, and built-in furniture'
     : 'stacked laminated melamine boards in various wood-grain and solid finishes');
+  const space = pickSpaceSetting(co, audience);
   const subject = co === 'mssi'
-    ? `a beautifully finished interior featuring ${products}`
-    : `${products} shown in a clean professional setting that conveys material quality and finish`;
+    ? `${space}, beautifully finished, featuring ${products}`
+    : `${products} shown in ${space}, conveying material quality and finish`;
   const notesPart = notes ? ` Incorporate this context where natural: ${notes}.` : '';
   return `Professional, photorealistic marketing photograph for a Facebook post by a Philippine furniture/laminate company. Subject: ${subject}. Content theme: ${pillar}. Bright, clean, high-quality commercial photography style with natural lighting and sharp focus. No text, no words, no logos, no watermarks in the image.${notesPart}`;
 }
@@ -3926,7 +3979,7 @@ async function generateImageFromCaption() {
 
   try {
     const visualDesc = await captionToVisualDescription(
-      apiKey, APP.currentCaption, false, APP.currentCompany, APP.currentPillar
+      apiKey, APP.currentCaption, false, APP.currentCompany, APP.currentPillar, APP.currentColorId, APP.currentAudience
     );
     showVisualDescriptionModal(visualDesc);
   } catch (err) {
@@ -10152,7 +10205,7 @@ async function runAutoGenerate() {
         let fullText = '';
         let prebuiltImageDesc = '';
         if (isImagePost && genImages) {
-          const imageContext = getColorImageContext(co, colorId);
+          const imageContext = getColorImageContext(co, colorId) + buildSpaceHint(co, audience).hint;
           const combined = await callClaudeCombined(apiKey, captionPrompt, imageContext);
           fullText = combined.caption;
           prebuiltImageDesc = combined.imageDesc;
@@ -10196,7 +10249,7 @@ async function runAutoGenerate() {
         if (isVideoPost && genVideo) {
           if (row) row.innerHTML = baseRowHtml + `<span style="font-size:11px;color:var(--text3)">🎬 video…</span>`;
           try {
-            const visualDesc = await captionToVisualDescription(apiKey, fullText, true, co, pillar);
+            const visualDesc = await captionToVisualDescription(apiKey, fullText, true, co, pillar, colorId, audience);
             const vidPrompt = `Professional 8-second marketing video for a Philippine furniture/laminate company. ${visualDesc} Cinematic, bright, high-quality commercial style with natural lighting. No text, words, logos, or watermarks.`;
             const vid = await generateVideoHeadless(vidPrompt, '16:9');
             // Store the generated video on the post. Note: object URLs don't survive a page reload —
@@ -10214,7 +10267,7 @@ async function runAutoGenerate() {
           if (row) row.innerHTML = baseRowHtml + `<span style="font-size:11px;color:var(--text3)">🖼 image…</span>`;
           try {
             // Use prebuilt image description from combined call — no extra API call needed
-            const visualDesc = prebuiltImageDesc || await captionToVisualDescription(apiKey, fullText, false, co, pillar, colorId);
+            const visualDesc = prebuiltImageDesc || await captionToVisualDescription(apiKey, fullText, false, co, pillar, colorId, audience);
             const colorAccuracyNote = getColorAccuracyNote(co, colorId);
             const imgPrompt = `Professional, photorealistic marketing photograph. ${visualDesc} Bright, clean, high-quality commercial photography with natural lighting and sharp focus.${colorAccuracyNote} Absolutely no text, words, logos, or watermarks in the image.`;
             let imageUrl = await generateImageViaProxy(imgPrompt, buildImageGenOpts(co, colorId));
@@ -11776,7 +11829,7 @@ async function generateImageForPreview(postId) {
     const apiKey = APP.apiKeys.anthropic || localStorage.getItem('scm_anthropic_key');
     if (!apiKey) throw new Error('Add your Anthropic API key in Settings first');
     const visualDesc = post.visualDescription || await captionToVisualDescription(
-      apiKey, post.caption || '', false, post.company, post.pillar, post.swatchColorId
+      apiKey, post.caption || '', false, post.company, post.pillar, post.swatchColorId, post.audience
     );
     post.visualDescription = visualDesc; // save so later Regen Image stays on the same subject
     const colorAccuracyNote = getColorAccuracyNote(post.company, post.swatchColorId);
@@ -11856,7 +11909,7 @@ async function previewRegenImage(postId) {
       const apiKey = APP.apiKeys.anthropic || localStorage.getItem('scm_anthropic_key');
       if (!apiKey) throw new Error('Add your Anthropic API key in Settings first');
       visualDesc = await captionToVisualDescription(
-        apiKey, post.caption || '', false, post.company, post.pillar, post.swatchColorId
+        apiKey, post.caption || '', false, post.company, post.pillar, post.swatchColorId, post.audience
       );
       // Save it so every subsequent regen on this post reuses the same scene, rather
       // than drifting to a new one every click.
