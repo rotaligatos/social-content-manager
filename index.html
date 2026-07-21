@@ -729,6 +729,8 @@ select:focus{border-color:var(--accent-border);}
         <div class="filter-pill" id="comp-tab-wcli" onclick="switchCompTab('wcli',this)" style="color:var(--wcli)">WCLI</div>
         <div class="filter-pill" id="comp-tab-cwli" onclick="switchCompTab('cwli',this)" style="color:var(--cwli)">CWLI</div>
       </div>
+      <button class="btn btn-secondary btn-sm" id="btn-analyze-all" onclick="analyzeAllCompetitors(this)">✦ Analyze All</button>
+      <button class="btn btn-secondary btn-sm" onclick="showMarketAnalysis()">Market Analysis</button>
       <button class="btn btn-primary btn-sm" onclick="openCompetitorForm()">+ Add Competitor</button>
     </div>
   </div>
@@ -6257,6 +6259,114 @@ Write in plain, direct English. No fluff. This is for a busy business owner who 
   }
 }
 
+// Performance report as editable slides. Takes the exact same data the PDF path
+// gathers, so the two can never drift apart.
+async function buildPerformancePPTX(d) {
+  await loadPptxLib();
+  const pptx = new PptxGenJS();
+  pptx.layout = 'LAYOUT_16x9';
+  const DARK = '1E1E23', GREY = '888888';
+  const CO = { mssi: 'MSSI', wcli: 'WCLI', cwli: 'CWLI' };
+  const fmt = (n) => Number(n || 0).toLocaleString();
+  const range = `${d.fromDate.toLocaleDateString()} – ${d.toDate.toLocaleDateString()}`;
+
+  const section = (t) => {
+    const s = pptx.addSlide();
+    s.addText(t, { x: 0.5, y: 0.35, w: 9, fontSize: 22, bold: true, color: DARK });
+    return s;
+  };
+  const table = (s, head, body, opts) => {
+    s.addTable([head.map(h => ({ text: h, options: { bold: true, color: 'FFFFFF', fill: DARK } }))].concat(body),
+      Object.assign({ x: 0.5, y: 1.05, w: 9, fontSize: 11, border: { pt: 0.5, color: 'DDDDDD' }, autoPage: true }, opts || {}));
+  };
+
+  const cover = pptx.addSlide();
+  cover.background = { color: DARK };
+  cover.addText('Performance Report', { x: 0.6, y: 2.0, w: 8.8, fontSize: 40, bold: true, color: 'FFFFFF' });
+  cover.addText(`${range}${d.companyFilter ? '  ·  ' + (CO[d.companyFilter] || d.companyFilter) : '  ·  All companies'}`,
+    { x: 0.6, y: 3.05, w: 8.8, fontSize: 15, color: 'AAAAAA' });
+
+  if (d.incSummary) {
+    const s = section('Summary');
+    const cards = [
+      ['Posts published', fmt((d.posts || []).length)],
+      ['Likes', fmt(d.totalLikes)],
+      ['Comments', fmt(d.totalComments)],
+      ['Shares', fmt(d.totalShares)],
+    ];
+    cards.forEach((c, i) => {
+      const x = 0.5 + i * 2.25;
+      s.addShape(pptx.ShapeType.roundRect, { x, y: 1.2, w: 2.0, h: 1.3, fill: { color: 'F4F4F6' }, line: { color: 'E2E2E6' } });
+      s.addText(c[1], { x, y: 1.35, w: 2.0, align: 'center', fontSize: 26, bold: true, color: DARK });
+      s.addText(c[0], { x, y: 2.0, w: 2.0, align: 'center', fontSize: 11, color: GREY });
+    });
+
+    const byCo = {};
+    (d.posts || []).forEach(p => {
+      byCo[p.company] = byCo[p.company] || { posts: 0, score: 0 };
+      byCo[p.company].posts++; byCo[p.company].score += (p._score || 0);
+    });
+    const rows = Object.entries(byCo).map(([k, v]) => [CO[k] || k, fmt(v.posts), fmt(Math.round(v.score))]);
+    if (rows.length) table(s, ['Company', 'Posts', 'Engagement score'], rows, { y: 2.9, colW: [3, 3, 3] });
+  }
+
+  if (d.incTopPosts && (d.posts || []).length) {
+    const s = section('Top performing posts');
+    const top = [...d.posts].sort((a, b) => (b._score || 0) - (a._score || 0)).slice(0, 10);
+    table(s, ['Date', 'Company', 'Caption', 'Likes', 'Comments', 'Shares'],
+      top.map(p => [
+        new Date(p.publishedAt).toLocaleDateString(),
+        CO[p.company] || p.company || '',
+        String(p.caption || '').replace(/\s+/g, ' ').slice(0, 70),
+        fmt((p.performance || {}).likes), fmt((p.performance || {}).comments), fmt((p.performance || {}).shares),
+      ]), { colW: [1.1, 0.9, 4.0, 0.9, 1.1, 1.0], fontSize: 10 });
+  }
+
+  if (d.incLeads) {
+    const s = section('Leads & inquiries captured');
+    s.addText(fmt(d.leadsCount), { x: 0.5, y: 1.2, w: 3, fontSize: 44, bold: true, color: DARK });
+    s.addText('total in period', { x: 0.5, y: 2.1, w: 3, fontSize: 12, color: GREY });
+    const rows = Object.entries(d.leadsByCompany || {}).map(([k, v]) => [CO[k] || k, fmt(v)]);
+    if (rows.length) table(s, ['Company', 'Leads'], rows, { x: 4.2, y: 1.2, w: 5.3, colW: [3.3, 2.0] });
+  }
+
+  if (d.incResponse && d.responseStats) {
+    const s = section('Staff response time to inquiries');
+    const r = d.responseStats;
+    table(s, ['Metric', 'Value'], [
+      ['Average response time', r.avgMinutes != null ? `${r.avgMinutes} min` : '—'],
+      ['Median', r.medianMinutes != null ? `${r.medianMinutes} min` : '—'],
+      ['Answered', fmt(r.answered)],
+      ['Unanswered', fmt(r.unanswered)],
+    ], { colW: [5, 4] });
+  }
+
+  if (d.incCompetitors) {
+    const s = section('Competitor snapshots');
+    const rows = (d.competitorData || []).map(c => [
+      c.name,
+      fmt(c.snapshot?.follower_count),
+      c.snapshot?.posting_frequency || '—',
+      (c.snapshot?.content_themes || '').slice(0, 60),
+    ]);
+    if (rows.length) table(s, ['Competitor', 'Followers', 'Posting frequency', 'Themes'], rows, { colW: [2.6, 1.4, 2.0, 3.0] });
+    else s.addText('No competitor snapshots recorded in this period.', { x: 0.5, y: 1.2, w: 9, fontSize: 13, color: GREY });
+  }
+
+  if (d.incCost && d.costSummary) {
+    const s = section('API cost (estimated)');
+    const items = d.costSummary.items || d.costSummary.breakdown || [];
+    const rows = Array.isArray(items)
+      ? items.map(i => [i.label || i.service || '—', '$' + Number(i.cost || i.amount || 0).toFixed(2)])
+      : Object.entries(items).map(([k, v]) => [k, '$' + Number(v).toFixed(2)]);
+    if (rows.length) table(s, ['Service', 'Estimated cost'], rows, { colW: [6, 3] });
+    s.addText('Estimates based on published pricing, not billing records. Check each provider for actual charges.',
+      { x: 0.5, y: 5.0, w: 9, fontSize: 10, color: GREY, italic: true });
+  }
+
+  await pptx.writeFile({ fileName: `performance-report-${new Date().toISOString().slice(0, 10)}.pptx` });
+}
+
 // ── MONTHLY / WEEKLY REPORT (client-side PDF via jsPDF, no server round-trip) ──
 // A real button, real data already in the app, real choices — generated instantly
 // in the browser rather than requiring a chat session each time.
@@ -6306,7 +6416,10 @@ function openReportBuilder() {
         <label style="display:flex;align-items:center;gap:8px;font-size:12.5px;padding:5px 0;cursor:pointer"><input type="checkbox" id="rep-inc-competitors" checked> Competitor snapshots</label>
         <label style="display:flex;align-items:center;gap:8px;font-size:12.5px;padding:5px 0;cursor:pointer"><input type="checkbox" id="rep-inc-cost" checked> API cost (estimated)</label>
 
-        <button class="btn btn-primary" style="width:100%;margin-top:16px" onclick="generateReportPDF()">Generate PDF</button>
+        <div style="display:flex;gap:8px;margin-top:16px">
+          <button class="btn btn-primary" style="flex:1" onclick="generateReportPDF('pdf')">Generate PDF</button>
+          <button class="btn btn-secondary" style="flex:1" onclick="generateReportPDF('pptx')">PowerPoint</button>
+        </div>
         <div id="report-gen-status" style="font-size:11.5px;color:var(--text3);margin-top:8px;text-align:center;display:none"></div>
       </div>
     </div>
@@ -6340,7 +6453,8 @@ function applyReportPeriodPreset() {
   // 'custom' leaves the fields as-is for manual entry
 }
 
-async function generateReportPDF() {
+async function generateReportPDF(format) {
+  format = format || 'pdf';
   const statusEl = document.getElementById('report-gen-status');
   const btn = document.querySelector('#report-builder-overlay .btn-primary');
   if (btn) { btn.disabled = true; btn.textContent = 'Generating…'; }
@@ -6417,6 +6531,20 @@ async function generateReportPDF() {
       try {
         costSummary = await syncRequest({ operation: 'get_cost_summary', from: fromDate.toISOString(), to: toDate.toISOString() });
       } catch (_e) {}
+    }
+
+    if (format === 'pptx') {
+      if (statusEl) statusEl.textContent = 'Building PowerPoint…';
+      await buildPerformancePPTX({
+        fromDate, toDate, companyFilter,
+        incSummary, incTopPosts, incHashtags, incResponse, incLeads, incCompetitors, incCost,
+        posts, totalScore, totalLikes, totalShares, totalComments,
+        leadsCount, leadsByCompany, responseStats, competitorData, costSummary,
+      });
+      if (statusEl) statusEl.style.display = 'none';
+      if (btn) { btn.disabled = false; btn.textContent = 'Generate PDF'; }
+      showToast('PowerPoint downloaded', 'success');
+      return;
     }
 
     if (statusEl) statusEl.textContent = 'Building PDF…';
@@ -11244,6 +11372,7 @@ async function loadCompetitorsScreen() {
     const res = await syncRequest({ operation: 'list_competitors', company: company || undefined });
     const list = res?.competitors || [];
     APP._competitorsCache = list; // used by the edit form to prefill
+    hydrateIntelCache();           // restores saved intel so View Intel survives a reload
 
     if (!list.length) {
       el.innerHTML = `<div class="empty-state">
@@ -11275,7 +11404,7 @@ async function loadCompetitorsScreen() {
           <div style="display:flex;gap:6px;flex-shrink:0">
             <button class="btn btn-secondary btn-sm" style="font-size:11px" onclick="viewCompetitorComparison('${c.id}')">View Comparison</button>
             <button class="btn btn-ghost btn-sm" style="font-size:11px;color:var(--accent2)" onclick="researchCompetitorNow('${c.id}', this)">✦ Research Now</button>
-            <button class="btn btn-ghost btn-sm" style="font-size:11px" onclick="showCompetitorIntel('${c.id}')">View Intel</button>
+            <button class="btn btn-ghost btn-sm" style="font-size:11px" onclick="showCompetitorIntel('${c.id}')">View Intel${(() => { const d = intelAgeDays(c.id); return d === null ? '' : ` <span style="color:var(--text3)">· ${d}d</span>`; })()}</button>
             <button class="btn btn-ghost btn-sm" style="font-size:11px" onclick="runCompetitorComparison('${c.id}')">Record Snapshot</button>
             <button class="btn btn-ghost btn-sm" style="font-size:11px" onclick="openCompetitorForm('${c.id}')">Edit</button>
             <button class="btn btn-ghost btn-sm" style="font-size:11px;color:var(--red)" onclick="deleteCompetitor('${c.id}','${c.name.replace(/'/g,"\'")}')">Remove</button>
@@ -11450,8 +11579,7 @@ async function researchCompetitorNow(competitorId, btnEl) {
     if (!data) data = await syncRequest({ operation: 'research_competitor', competitorId });
     if (!data || data.error) throw new Error((data && data.error) || 'Research failed');
 
-    APP._competitorIntel = APP._competitorIntel || {};
-    APP._competitorIntel[competitorId] = data;
+    saveIntelRecord(competitorId, data);
 
     const thin = !data.summary && !(data.products || []).length;
     if (thin && !getCompetitorWebsite(c)) {
@@ -11593,6 +11721,574 @@ function useIntelAngles(competitorId) {
     if (notes) { notes.value = APP._pendingNotes; notes.dispatchEvent(new Event('input')); }
     showToast('Angles copied into your notes', 'success');
   }, 300);
+}
+
+// ============================================================
+//  MARKET ANALYSIS - all competitors in one pass
+//  Runs each competitor through the intel function, stores the results, then
+//  computes cross-competitor metrics that no single profile can show: who owns
+//  the searches your buyers type, which finishes the market carries that you
+//  don't, and which complaints keep recurring across rivals.
+// ============================================================
+
+const INTEL_STORE_KEY = 'scm_competitor_intel';
+const INTEL_STALE_DAYS = 30;
+
+function loadIntelStore() {
+  try { return JSON.parse(localStorage.getItem(INTEL_STORE_KEY) || '{}'); } catch (_e) { return {}; }
+}
+function saveIntelRecord(competitorId, data) {
+  const store = loadIntelStore();
+  store[competitorId] = { capturedAt: Date.now(), data };
+  try { localStorage.setItem(INTEL_STORE_KEY, JSON.stringify(store)); }
+  catch (_e) {
+    // Quota is finite - drop the raw model output (the biggest field) and retry once.
+    Object.values(store).forEach(r => { if (r?.data?.raw) delete r.data.raw; });
+    try { localStorage.setItem(INTEL_STORE_KEY, JSON.stringify(store)); } catch (_e2) {}
+  }
+  APP._competitorIntel = APP._competitorIntel || {};
+  APP._competitorIntel[competitorId] = data;
+}
+function intelAgeDays(competitorId) {
+  const rec = loadIntelStore()[competitorId];
+  if (!rec?.capturedAt) return null;
+  return Math.floor((Date.now() - rec.capturedAt) / 86400000);
+}
+function isIntelStale(competitorId) {
+  const age = intelAgeDays(competitorId);
+  return age === null || age >= INTEL_STALE_DAYS;
+}
+
+// Restore saved intel on page load so View Intel works across sessions.
+function hydrateIntelCache() {
+  const store = loadIntelStore();
+  APP._competitorIntel = APP._competitorIntel || {};
+  Object.keys(store).forEach(id => { if (store[id]?.data) APP._competitorIntel[id] = store[id].data; });
+}
+
+async function fetchIntelFor(c) {
+  const cfg = getSupabaseConfig();
+  if (!cfg) throw new Error('Supabase not configured');
+  const res = await fetch(cfg.url + '/functions/v1/' + INTEL_FN_SLUG, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      name: c.name,
+      website: getCompetitorWebsite(c),
+      competitorId: c.id,
+      ourColors: getOurColorNames(),
+    }),
+  });
+  if (!res.ok) throw new Error('HTTP ' + res.status);
+  const data = await res.json();
+  if (data.error) throw new Error(data.error);
+  return data;
+}
+
+async function analyzeAllCompetitors(btnEl) {
+  if (!_session) { showToast('Please sign in first', 'error'); return; }
+  const list = APP._competitorsCache || [];
+  if (!list.length) { showToast('Add a competitor first', 'error'); return; }
+
+  const stale = list.filter(c => isIntelStale(c.id));
+  const fresh = list.length - stale.length;
+
+  if (!stale.length) {
+    showToast(`All ${list.length} already researched within ${INTEL_STALE_DAYS} days — showing saved results`, 'success');
+    showMarketAnalysis();
+    return;
+  }
+
+  const msg = `Research ${stale.length} competitor${stale.length === 1 ? '' : 's'}?` +
+    (fresh ? `\n\n${fresh} already researched in the last ${INTEL_STALE_DAYS} days will be skipped and their saved results reused.` : '') +
+    `\n\nEach one costs about 6 web searches plus one AI call.`;
+  if (!confirm(msg)) return;
+
+  const original = btnEl ? btnEl.textContent : '';
+  if (btnEl) btnEl.disabled = true;
+
+  let done = 0, failed = 0;
+  for (const c of stale) {
+    if (btnEl) btnEl.textContent = `Researching ${done + 1} of ${stale.length}…`;
+    try {
+      const data = await fetchIntelFor(c);
+      saveIntelRecord(c.id, data);
+      done++;
+    } catch (_e) { failed++; }
+  }
+
+  if (btnEl) { btnEl.disabled = false; btnEl.textContent = original; }
+  showToast(`Researched ${done}${failed ? `, ${failed} failed` : ''}`, failed ? 'error' : 'success');
+  showMarketAnalysis();
+}
+
+// ── Cross-competitor metrics ─────────────────────────────────
+// Everything here is derived from stored intel. Nothing is estimated or invented -
+// if the evidence didn't support it, the metric simply reports fewer competitors.
+function buildMarketAnalysis() {
+  const list = APP._competitorsCache || [];
+  const store = loadIntelStore();
+  const rows = list
+    .map(c => ({ competitor: c, rec: store[c.id] }))
+    .filter(r => r.rec && r.rec.data);
+
+  const ourHosts = ['worldclasslaminate.com.ph', 'modulesystems.com.ph', 'cebuworldlaminate.com'];
+  const isOurs = (h) => ourHosts.some(o => String(h || '').includes(o.split('.')[0]));
+
+  // --- Share of search, merged across every competitor's run.
+  const byQuery = {};
+  rows.forEach(({ competitor, rec }) => {
+    (rec.data.share_of_search || []).forEach(r => {
+      if (!(r.top || []).length) return;
+      byQuery[r.query] = byQuery[r.query] || { query: r.query, top: r.top, ourRank: r.ourRank, rivals: {} };
+      if (r.competitorRank) byQuery[r.query].rivals[competitor.name] = r.competitorRank;
+      if (r.ourRank && !byQuery[r.query].ourRank) byQuery[r.query].ourRank = r.ourRank;
+    });
+  });
+  const search = Object.values(byQuery).map(q => {
+    const oursInTop = (q.top || []).filter(t => isOurs(t.host)).length;
+    return { ...q, oursInTop, totalTop: (q.top || []).length };
+  });
+
+  // --- Domain dominance: which sites appear most across all your buying searches.
+  const hostCount = {};
+  search.forEach(q => (q.top || []).forEach(t => {
+    const h = t.host || '';
+    if (!h) return;
+    hostCount[h] = (hostCount[h] || 0) + 1;
+  }));
+  const dominance = Object.entries(hostCount)
+    .map(([host, count]) => ({ host, count, ours: isOurs(host) }))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 10);
+
+  // --- Finishes the market carries that we don't, ranked by how many rivals have them.
+  const finishCount = {};
+  rows.forEach(({ rec }) => ((rec.data.gap_vs_us || {}).theyHaveWeDont || []).forEach(f => {
+    const k = String(f).trim(); if (!k) return;
+    finishCount[k] = (finishCount[k] || 0) + 1;
+  }));
+  const marketGaps = Object.entries(finishCount)
+    .map(([finish, n]) => ({ finish, competitors: n }))
+    .sort((a, b) => b.competitors - a.competitors);
+
+  // --- Recurring complaints & weaknesses across rivals: where the market is weak.
+  const complaints = [];
+  rows.forEach(({ competitor, rec }) => (rec.data.weaknesses || []).forEach(w => {
+    complaints.push({ competitor: competitor.name, text: String(w) });
+  }));
+  const THEMES = [
+    ['Stock & supply', /stock|supply|availab|shortage|lead ?time|delay/i],
+    ['Pricing transparency', /pric|cost|quote|expensive/i],
+    ['Product depth / specialisation', /special|depth|range|limited|generalist|no dedicated/i],
+    ['Service & support', /service|support|staff|response|after[- ]sales/i],
+    ['Trade / dealer programme', /dealer|trade|distributor|wholesale|bulk/i],
+    ['Technical information', /spec|technical|datasheet|information|detail/i],
+  ];
+  const themes = THEMES.map(([label, re]) => {
+    const hits = complaints.filter(c => re.test(c.text));
+    const names = [...new Set(hits.map(h => h.competitor))];
+    return { theme: label, mentions: hits.length, competitors: names, examples: hits.slice(0, 3).map(h => h.text) };
+  }).filter(t => t.mentions > 0).sort((a, b) => b.mentions - a.mentions);
+
+  // --- Promo & product activity, so you can see how busy the market is.
+  const activity = rows.map(({ competitor, rec }) => ({
+    name: competitor.name,
+    promos: (rec.data.promos || []).length,
+    products: (rec.data.products || []).length,
+    finishes: (rec.data.finishes || []).length,
+    dealers: (rec.data.dealers || []).length,
+    changes: (rec.data.changes || []).filter(x => !/first run/i.test(x)).length,
+    ageDays: Math.floor((Date.now() - rec.capturedAt) / 86400000),
+  })).sort((a, b) => b.promos - a.promos);
+
+  // --- Headline findings, written in plain language.
+  const highlights = [];
+  const strongest = search.filter(q => q.ourRank === 1);
+  const bestDom = dominance.find(d => d.ours);
+  if (bestDom && bestDom.count > 1) {
+    const q = search.find(x => (x.top || []).filter(t => isOurs(t.host)).length === bestDom.count);
+    highlights.push({
+      tone: 'good',
+      text: `${bestDom.host} holds ${bestDom.count} of the top 10 results${q ? ` for "${q.query}"` : ''} — the strongest single presence in these searches.`,
+    });
+  }
+  strongest.forEach(q => highlights.push({ tone: 'good', text: `You rank #1 for "${q.query}".` }));
+  search.filter(q => !q.ourRank).forEach(q => {
+    const who = (q.top && q.top[0]) ? q.top[0].host : 'someone else';
+    highlights.push({ tone: 'bad', text: `You do not appear in the top 10 for "${q.query}" — ${who} holds #1. This is a search your buyers make.` });
+  });
+  if (marketGaps.length) {
+    const top = marketGaps.slice(0, 3).map(g => g.finish).join(', ');
+    highlights.push({ tone: 'warn', text: `${marketGaps.length} finish${marketGaps.length === 1 ? '' : 'es'} found across rivals that you don't carry — most common: ${top}.` });
+  }
+  if (themes.length) {
+    highlights.push({ tone: 'good', text: `"${themes[0].theme}" is the most common weakness across ${themes[0].competitors.length} competitor${themes[0].competitors.length === 1 ? '' : 's'} — the clearest opening for your messaging.` });
+  }
+  const notResearched = list.length - rows.length;
+  if (notResearched > 0) {
+    highlights.push({ tone: 'warn', text: `${notResearched} competitor${notResearched === 1 ? '' : 's'} not yet researched — findings below cover ${rows.length} of ${list.length}.` });
+  }
+
+  return { rows, search, dominance, marketGaps, themes, activity, highlights, coverage: { analysed: rows.length, total: list.length } };
+}
+
+// ── Market Analysis view ─────────────────────────────────────
+function showMarketAnalysis() {
+  const a = buildMarketAnalysis();
+  if (!a.rows.length) {
+    showToast('No research saved yet — run Analyze All first', 'error');
+    return;
+  }
+
+  const toneColor = { good: 'var(--green)', bad: 'var(--red)', warn: 'var(--amber)' };
+  const highlights = a.highlights.map(h =>
+    `<div style="display:flex;gap:9px;padding:8px 0;border-bottom:1px solid var(--border)">
+       <div style="width:4px;border-radius:2px;background:${toneColor[h.tone]};flex-shrink:0"></div>
+       <div style="font-size:12.5px;line-height:1.6">${h.text}</div>
+     </div>`).join('');
+
+  const searchRows = a.search.map(q => {
+    const you = q.ourRank
+      ? `<span style="color:var(--green);font-weight:600">#${q.ourRank}</span>`
+      : `<span style="color:var(--red)">not top 10</span>`;
+    const rivals = Object.entries(q.rivals || {}).map(([n, r]) => `${n} #${r}`).join(', ') || '—';
+    return `<tr style="border-top:1px solid var(--border)">
+      <td style="padding:7px 0">${q.query}</td>
+      <td style="text-align:center;padding:7px 6px">${you}</td>
+      <td style="text-align:center;padding:7px 6px">${q.oursInTop}/${q.totalTop}</td>
+      <td style="padding:7px 0;color:var(--text2);font-size:11.5px">${rivals}</td>
+    </tr>`;
+  }).join('');
+
+  const domRows = a.dominance.map(d =>
+    `<tr style="border-top:1px solid var(--border)">
+      <td style="padding:6px 0;${d.ours ? 'color:var(--green);font-weight:600' : ''}">${d.host}${d.ours ? ' (you)' : ''}</td>
+      <td style="text-align:right;padding:6px 0">${d.count}</td>
+    </tr>`).join('');
+
+  const themeRows = a.themes.map(t =>
+    `<div style="padding:9px 0;border-top:1px solid var(--border)">
+       <div style="font-size:12.5px;font-weight:500">${t.theme}
+         <span style="font-weight:400;color:var(--text3);font-size:11px"> — ${t.mentions} mention${t.mentions === 1 ? '' : 's'} across ${t.competitors.length} competitor${t.competitors.length === 1 ? '' : 's'}</span>
+       </div>
+       <div style="font-size:11px;color:var(--text3);margin-top:3px">${t.competitors.join(', ')}</div>
+     </div>`).join('');
+
+  const gapRows = a.marketGaps.slice(0, 15).map(g =>
+    `<tr style="border-top:1px solid var(--border)">
+      <td style="padding:6px 0">${g.finish}</td>
+      <td style="text-align:right;padding:6px 0;color:var(--amber)">${g.competitors}</td>
+    </tr>`).join('');
+
+  const actRows = a.activity.map(x =>
+    `<tr style="border-top:1px solid var(--border)">
+      <td style="padding:6px 0">${x.name}</td>
+      <td style="text-align:center;padding:6px">${x.promos}</td>
+      <td style="text-align:center;padding:6px">${x.products}</td>
+      <td style="text-align:center;padding:6px">${x.finishes}</td>
+      <td style="text-align:center;padding:6px">${x.changes || '—'}</td>
+      <td style="text-align:right;padding:6px;color:var(--text3);font-size:11px">${x.ageDays}d ago</td>
+    </tr>`).join('');
+
+  const sect = (title, inner, note) => inner ? `<div style="margin-bottom:22px">
+      <div style="font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--text3);margin-bottom:8px">${title}</div>
+      ${inner}
+      ${note ? `<div style="font-size:10.5px;color:var(--text3);margin-top:6px">${note}</div>` : ''}
+    </div>` : '';
+
+  const html = `<div id="market-overlay" style="position:fixed;inset:0;background:rgba(0,0,0,0.62);z-index:2000;display:flex;align-items:center;justify-content:center;padding:18px" onclick="if(event.target.id==='market-overlay')document.getElementById('market-overlay').remove()">
+    <div class="card" style="max-width:880px;width:100%;max-height:90vh;overflow-y:auto">
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px;margin-bottom:16px">
+        <div>
+          <div style="font-size:16px;font-weight:600">Market Analysis</div>
+          <div style="font-size:11px;color:var(--text3)">${a.coverage.analysed} of ${a.coverage.total} competitors · ${new Date().toLocaleDateString()}</div>
+        </div>
+        <div style="display:flex;gap:6px">
+          <button class="btn btn-secondary btn-sm" style="font-size:11px" onclick="exportMarketPDF(this)">Export PDF</button>
+          <button class="btn btn-secondary btn-sm" style="font-size:11px" onclick="exportMarketPPTX(this)">Export PowerPoint</button>
+          <button class="btn btn-ghost btn-sm" onclick="document.getElementById('market-overlay').remove()">Close</button>
+        </div>
+      </div>
+
+      ${sect('What matters most', `<div>${highlights}</div>`)}
+
+      ${sect('Share of search — who owns the terms your buyers type',
+        `<table style="width:100%;border-collapse:collapse;font-size:12px">
+          <tr style="color:var(--text3);font-size:10.5px;text-transform:uppercase">
+            <th style="text-align:left;padding:4px 0">Search term</th>
+            <th style="text-align:center;padding:4px 6px">Your best</th>
+            <th style="text-align:center;padding:4px 6px">Your slots</th>
+            <th style="text-align:left;padding:4px 0">Competitors ranking</th>
+          </tr>${searchRows}
+        </table>`,
+        '"Your slots" counts how many of the top 10 results are yours — more slots means the page is harder for a rival to take.')}
+
+      ${sect('Domain dominance across all searches',
+        `<table style="width:100%;border-collapse:collapse;font-size:12px">
+          <tr style="color:var(--text3);font-size:10.5px;text-transform:uppercase">
+            <th style="text-align:left;padding:4px 0">Site</th><th style="text-align:right;padding:4px 0">Top-10 appearances</th>
+          </tr>${domRows}
+        </table>`)}
+
+      ${sect('Recurring weaknesses across the market', themeRows,
+        'These are the openings. The theme named most often is usually your strongest message.')}
+
+      ${sect('Finishes the market carries that you don\'t',
+        gapRows ? `<table style="width:100%;border-collapse:collapse;font-size:12px">
+          <tr style="color:var(--text3);font-size:10.5px;text-transform:uppercase">
+            <th style="text-align:left;padding:4px 0">Finish</th><th style="text-align:right;padding:4px 0">Rivals carrying it</th>
+          </tr>${gapRows}
+        </table>` : '',
+        'The higher the count, the more likely a customer has already been offered it elsewhere.')}
+
+      ${sect('Competitor activity',
+        `<table style="width:100%;border-collapse:collapse;font-size:12px">
+          <tr style="color:var(--text3);font-size:10.5px;text-transform:uppercase">
+            <th style="text-align:left;padding:4px 0">Competitor</th>
+            <th style="text-align:center;padding:4px 6px">Promos</th>
+            <th style="text-align:center;padding:4px 6px">Products</th>
+            <th style="text-align:center;padding:4px 6px">Finishes</th>
+            <th style="text-align:center;padding:4px 6px">Changes</th>
+            <th style="text-align:right;padding:4px 6px">Researched</th>
+          </tr>${actRows}
+        </table>`,
+        '"Changes" counts what moved since the previous run — a spike usually means they launched something.')}
+
+      <div style="font-size:10.5px;color:var(--text3);border-top:1px solid var(--border);padding-top:10px;line-height:1.6">
+        Built only from evidence gathered on public websites and search results. No follower counts, reach or engagement figures are shown for competitors, because no legitimate source for those exists.
+      </div>
+    </div>
+  </div>`;
+
+  document.getElementById('market-overlay')?.remove();
+  document.body.insertAdjacentHTML('beforeend', html);
+}
+
+// ── Exports ──────────────────────────────────────────────────
+// PptxGenJS is pulled in on first use rather than at page load, so the app
+// doesn't pay for a library most sessions never touch.
+function loadPptxLib() {
+  if (window.PptxGenJS) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    const el = document.createElement('script');
+    el.src = 'https://cdnjs.cloudflare.com/ajax/libs/pptxgenjs/3.12.0/pptxgen.bundle.js';
+    el.onload = resolve;
+    el.onerror = () => reject(new Error('Could not load PowerPoint library — check your connection'));
+    document.head.appendChild(el);
+  });
+}
+
+function exportMarketPDF(btnEl) {
+  const a = buildMarketAnalysis();
+  const original = btnEl ? btnEl.textContent : '';
+  if (btnEl) { btnEl.disabled = true; btnEl.textContent = 'Building…'; }
+  try {
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF({ unit: 'pt', format: 'letter' });
+    const margin = 44;
+    const pageW = doc.internal.pageSize.getWidth();
+    const pageH = doc.internal.pageSize.getHeight();
+    let y = margin;
+
+    const ensure = (need) => { if (y + need > pageH - margin) { doc.addPage(); y = margin; } };
+    const heading = (t) => {
+      ensure(34);
+      doc.setFontSize(11); doc.setTextColor(120);
+      doc.text(t.toUpperCase(), margin, y); y += 14;
+      doc.setTextColor(30);
+    };
+    const afterTable = () => { y = doc.lastAutoTable.finalY + 22; };
+
+    doc.setFontSize(20); doc.setTextColor(20);
+    doc.text('Market Analysis', margin, y); y += 22;
+    doc.setFontSize(10); doc.setTextColor(120);
+    doc.text(`${a.coverage.analysed} of ${a.coverage.total} competitors  ·  ${new Date().toLocaleDateString()}`, margin, y);
+    y += 26; doc.setTextColor(30);
+
+    if (a.highlights.length) {
+      heading('What matters most');
+      doc.setFontSize(10.5);
+      a.highlights.forEach(h => {
+        const lines = doc.splitTextToSize(h.text, pageW - margin * 2 - 14);
+        ensure(lines.length * 13 + 8);
+        const c = h.tone === 'good' ? [34, 160, 90] : h.tone === 'bad' ? [200, 60, 60] : [200, 150, 40];
+        doc.setFillColor(c[0], c[1], c[2]);
+        doc.rect(margin, y - 8, 3, lines.length * 13, 'F');
+        doc.text(lines, margin + 10, y); y += lines.length * 13 + 8;
+      });
+      y += 8;
+    }
+
+    if (a.search.length) {
+      heading('Share of search');
+      doc.autoTable({
+        startY: y, margin: { left: margin, right: margin },
+        head: [['Search term', 'Your best', 'Your slots', 'Competitors ranking']],
+        body: a.search.map(q => [
+          q.query,
+          q.ourRank ? '#' + q.ourRank : 'not top 10',
+          `${q.oursInTop}/${q.totalTop}`,
+          Object.entries(q.rivals || {}).map(([n, r]) => `${n} #${r}`).join(', ') || '—',
+        ]),
+        styles: { fontSize: 9, cellPadding: 4 },
+        headStyles: { fillColor: [40, 40, 45] },
+      });
+      afterTable();
+    }
+
+    if (a.dominance.length) {
+      heading('Domain dominance');
+      doc.autoTable({
+        startY: y, margin: { left: margin, right: margin },
+        head: [['Site', 'Top-10 appearances']],
+        body: a.dominance.map(d => [d.host + (d.ours ? '  (you)' : ''), String(d.count)]),
+        styles: { fontSize: 9, cellPadding: 4 },
+        headStyles: { fillColor: [40, 40, 45] },
+      });
+      afterTable();
+    }
+
+    if (a.themes.length) {
+      heading('Recurring weaknesses across the market');
+      doc.autoTable({
+        startY: y, margin: { left: margin, right: margin },
+        head: [['Theme', 'Mentions', 'Competitors']],
+        body: a.themes.map(t => [t.theme, String(t.mentions), t.competitors.join(', ')]),
+        styles: { fontSize: 9, cellPadding: 4 },
+        headStyles: { fillColor: [40, 40, 45] },
+      });
+      afterTable();
+    }
+
+    if (a.marketGaps.length) {
+      heading("Finishes the market carries that you don't");
+      doc.autoTable({
+        startY: y, margin: { left: margin, right: margin },
+        head: [['Finish', 'Rivals carrying it']],
+        body: a.marketGaps.slice(0, 25).map(g => [g.finish, String(g.competitors)]),
+        styles: { fontSize: 9, cellPadding: 4 },
+        headStyles: { fillColor: [40, 40, 45] },
+      });
+      afterTable();
+    }
+
+    if (a.activity.length) {
+      heading('Competitor activity');
+      doc.autoTable({
+        startY: y, margin: { left: margin, right: margin },
+        head: [['Competitor', 'Promos', 'Products', 'Finishes', 'Changes', 'Researched']],
+        body: a.activity.map(x => [x.name, String(x.promos), String(x.products), String(x.finishes), String(x.changes || '—'), x.ageDays + 'd ago']),
+        styles: { fontSize: 9, cellPadding: 4 },
+        headStyles: { fillColor: [40, 40, 45] },
+      });
+      afterTable();
+    }
+
+    ensure(40);
+    doc.setFontSize(8); doc.setTextColor(140);
+    doc.text(doc.splitTextToSize('Built only from evidence gathered on public websites and search results. No follower, reach or engagement figures are shown for competitors, because no legitimate source for those exists.', pageW - margin * 2), margin, y);
+
+    doc.save(`market-analysis-${new Date().toISOString().slice(0, 10)}.pdf`);
+    showToast('PDF downloaded', 'success');
+  } catch (e) {
+    showToast('Could not build PDF: ' + e.message, 'error');
+  } finally {
+    if (btnEl) { btnEl.disabled = false; btnEl.textContent = original; }
+  }
+}
+
+async function exportMarketPPTX(btnEl) {
+  const original = btnEl ? btnEl.textContent : '';
+  if (btnEl) { btnEl.disabled = true; btnEl.textContent = 'Building…'; }
+  try {
+    await loadPptxLib();
+    const a = buildMarketAnalysis();
+    const pptx = new PptxGenJS();
+    pptx.layout = 'LAYOUT_16x9';
+
+    const DARK = '1E1E23', GREEN = '22A05A', RED = 'C83C3C', AMBER = 'C8963C', GREY = '888888';
+    const titleSlide = (t, sub) => {
+      const s = pptx.addSlide();
+      s.background = { color: DARK };
+      s.addText(t, { x: 0.6, y: 2.1, w: 8.8, fontSize: 40, bold: true, color: 'FFFFFF' });
+      if (sub) s.addText(sub, { x: 0.6, y: 3.1, w: 8.8, fontSize: 15, color: 'AAAAAA' });
+      return s;
+    };
+    const section = (t) => {
+      const s = pptx.addSlide();
+      s.addText(t, { x: 0.5, y: 0.35, w: 9, fontSize: 22, bold: true, color: DARK });
+      return s;
+    };
+    const table = (s, head, body, opts) => {
+      s.addTable([head.map(h => ({ text: h, options: { bold: true, color: 'FFFFFF', fill: DARK } }))].concat(body),
+        Object.assign({ x: 0.5, y: 1.05, w: 9, fontSize: 11, border: { pt: 0.5, color: 'DDDDDD' }, autoPage: true }, opts || {}));
+    };
+
+    titleSlide('Market Analysis', `${a.coverage.analysed} of ${a.coverage.total} competitors  ·  ${new Date().toLocaleDateString()}`);
+
+    if (a.highlights.length) {
+      const s = section('What matters most');
+      s.addText(a.highlights.map(h => ({
+        text: h.text,
+        options: { bullet: true, fontSize: 14, color: h.tone === 'good' ? GREEN : h.tone === 'bad' ? RED : AMBER, breakLine: true },
+      })), { x: 0.6, y: 1.1, w: 8.8, h: 4 });
+    }
+
+    if (a.search.length) {
+      const s = section('Share of search — terms your buyers type');
+      table(s, ['Search term', 'Your best', 'Your slots', 'Competitors'],
+        a.search.map(q => [
+          q.query,
+          { text: q.ourRank ? '#' + q.ourRank : 'not top 10', options: { color: q.ourRank ? GREEN : RED, bold: true } },
+          `${q.oursInTop}/${q.totalTop}`,
+          Object.entries(q.rivals || {}).map(([n, r]) => `${n} #${r}`).join(', ') || '—',
+        ]), { colW: [3.6, 1.2, 1.2, 3] });
+    }
+
+    if (a.dominance.length) {
+      const s = section('Domain dominance across all searches');
+      table(s, ['Site', 'Top-10 appearances'],
+        a.dominance.map(d => [
+          { text: d.host + (d.ours ? '  (you)' : ''), options: d.ours ? { bold: true, color: GREEN } : {} },
+          String(d.count),
+        ]), { colW: [6.5, 2.5] });
+    }
+
+    if (a.themes.length) {
+      const s = section('Recurring weaknesses across the market');
+      table(s, ['Theme', 'Mentions', 'Competitors'],
+        a.themes.map(t => [t.theme, String(t.mentions), t.competitors.join(', ')]), { colW: [3, 1.2, 4.8] });
+    }
+
+    if (a.marketGaps.length) {
+      const s = section("Finishes the market carries that you don't");
+      table(s, ['Finish', 'Rivals carrying it'],
+        a.marketGaps.slice(0, 20).map(g => [g.finish, String(g.competitors)]), { colW: [6.5, 2.5] });
+    }
+
+    if (a.activity.length) {
+      const s = section('Competitor activity');
+      table(s, ['Competitor', 'Promos', 'Products', 'Finishes', 'Changes', 'Researched'],
+        a.activity.map(x => [x.name, String(x.promos), String(x.products), String(x.finishes), String(x.changes || '—'), x.ageDays + 'd ago']),
+        { colW: [3, 1.1, 1.2, 1.2, 1.2, 1.3] });
+    }
+
+    const last = pptx.addSlide();
+    last.addText('Method & limits', { x: 0.5, y: 0.35, w: 9, fontSize: 22, bold: true, color: DARK });
+    last.addText([
+      { text: 'Built only from evidence on public websites and search results.', options: { bullet: true, breakLine: true } },
+      { text: 'No follower, reach or engagement figures are shown for competitors — no legitimate source for those exists.', options: { bullet: true, breakLine: true } },
+      { text: 'Empty fields mean the evidence did not support a claim, not that the competitor lacks it.', options: { bullet: true, breakLine: true } },
+    ], { x: 0.6, y: 1.2, w: 8.8, fontSize: 13, color: GREY });
+
+    await pptx.writeFile({ fileName: `market-analysis-${new Date().toISOString().slice(0, 10)}.pptx` });
+    showToast('PowerPoint downloaded', 'success');
+  } catch (e) {
+    showToast('Could not build PowerPoint: ' + e.message, 'error');
+  } finally {
+    if (btnEl) { btnEl.disabled = false; btnEl.textContent = original; }
+  }
 }
 
 // Opens a manual snapshot form — a fallback for when Research Now isn't available
