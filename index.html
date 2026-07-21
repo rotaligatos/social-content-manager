@@ -2056,7 +2056,7 @@ function openVideoGenModal() {
   html += '<div style="font-size:11.5px;color:var(--text3);margin-bottom:14px">Tip: describe the subject, what it\'s doing, the camera movement, and the mood. This generates an AI-imagined scene, not your literal product — for showing a specific real project or exact item, use a real photo or uploaded video instead.</div>';
   html += '<div style="display:flex;gap:10px;margin-bottom:14px">';
   html += '<div style="flex:1"><label class="form-label">Aspect Ratio</label><select id="vidgen-aspect"><option value="9:16" selected>Portrait (9:16) — best for Facebook feed/Reels</option><option value="16:9">Landscape (16:9)</option></select></div>';
-  html += '<div style="flex:1"><label class="form-label">Duration</label><select id="vidgen-duration"><option value="4">4 seconds — fastest, cheapest</option><option value="6">6 seconds</option><option value="8" selected>8 seconds — most detail</option></select></div>';
+  html += '<div style="flex:1"><label class="form-label">Total length</label><select id="vidgen-duration"><option value="4">4 seconds — fastest, cheapest</option><option value="6">6 seconds</option><option value="8" selected>8 seconds — single take</option><option value="15">15 seconds — planned as 2 linked takes</option><option value="22">22 seconds — 3 linked takes</option><option value="29">29 seconds — 4 linked takes</option><option value="36">36 seconds — 5 linked takes</option></select><div style="font-size:11px;color:var(--text3);margin-top:4px">Longer clips are planned as one idea up front, then shot in takes that continue from each other. Each extra take adds ~1-3 min.</div></div>';
   html += '</div>';
   html += '<button class="generate-btn" id="vidgen-btn" onclick="runVideoGen()" style="margin-bottom:8px"><svg style="width:16px;height:16px" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 1v3M8 12v3M1 8h3M12 8h3"/><circle cx="8" cy="8" r="3"/></svg> Generate Video</button>';
   html += '<div style="font-size:11px;color:var(--text3);margin-bottom:14px">Takes about 1-3 minutes. You can\'t navigate away while this runs.</div>';
@@ -2077,8 +2077,8 @@ function closeVideoGenModal() {
 function buildVideoPromptSuggestion(co, pillar) {
   const base = {
     mssi: 'A warm, cinematic slow pan across a beautifully finished modular kitchen in a bright Filipino home, golden hour light streaming through a window, cabinet doors gently catching the light. Calm, aspirational mood, soft ambient room tone, no dialogue.',
-    wcli: 'A close, cinematic tracking shot moving slowly across stacked laminated melamine boards in a clean industrial workshop, light raking across the textured surface to show finish quality. Confident, professional mood, quiet ambient workshop sound, no dialogue.',
-    cwli: 'A close, cinematic tracking shot moving slowly across stacked laminated melamine boards in a sunlit workshop, light raking across the textured surface to show finish quality. Warm, confident mood with a sense of local craftsmanship, quiet ambient workshop sound, no dialogue.'
+    wcli: 'A cinematic shot revealing FINISHED cabinetry and built-in furniture made from laminated melamine boards - a striking, well-designed kitchen, wardrobe or reception counter - camera gliding slowly to show the finish quality, edges and detailing, settling on a composed hero angle. Confident, premium, professional mood, quiet ambient sound, no dialogue.',
+    cwli: 'A cinematic shot revealing FINISHED cabinetry and built-in furniture made from laminated melamine boards - a distinctive Cebu-made kitchen, wardrobe or shop fit-out - camera gliding slowly to show finish quality and detailing, settling on a composed hero angle. Warm, confident mood with a sense of local craftsmanship, quiet ambient sound, no dialogue.'
   };
   return base[co] || 'A professional, cinematic product showcase video';
 }
@@ -2094,7 +2094,9 @@ async function runVideoGen() {
   const prompt = document.getElementById('vidgen-prompt').value.trim();
   if (!prompt) { showToast('Describe the video first', 'error'); return; }
   const aspectRatio = document.getElementById('vidgen-aspect').value;
-  const durationSeconds = parseInt(document.getElementById('vidgen-duration')?.value || '8');
+  const totalTarget = parseInt(document.getElementById('vidgen-duration')?.value || '8');
+  const durationSeconds = Math.min(8, totalTarget);
+  const segments = totalTarget > 8 ? Math.round((totalTarget - 8) / 7) + 1 : 1;
 
   const btn = document.getElementById('vidgen-btn');
   const progressEl = document.getElementById('vidgen-progress');
@@ -2106,13 +2108,21 @@ async function runVideoGen() {
   const MODEL = 'veo-3.1-fast-generate-preview'; // Fast tier: built for quick, business-use social content
 
   try {
+    // Plan the full length as one idea first, so later takes actually continue the same shot
+    let openingPrompt = prompt, continuations = [];
+    if (segments > 1) {
+      progressEl.textContent = `Planning a ${totalTarget}s video in ${segments} linked takes...`;
+      const plan = await planVideoSegments(prompt, segments);
+      openingPrompt = plan.opening; continuations = plan.continuations;
+    }
+
     // Step 1: start the long-running generation job
     progressEl.textContent = 'Submitting request to Veo...';
     const startRes = await fetch(`${BASE_URL}/models/${MODEL}:predictLongRunning`, {
       method: 'POST',
       headers: { 'x-goog-api-key': apiKey, 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        instances: [{ prompt: prompt }],
+        instances: [{ prompt: openingPrompt }],
         parameters: { aspectRatio: aspectRatio, durationSeconds: durationSeconds }
       })
     });
@@ -2138,8 +2148,37 @@ async function runVideoGen() {
     if (!done) throw new Error('Video generation timed out. Try again, or try a shorter/simpler prompt.');
     if (statusData.error) throw new Error(statusData.error.message);
 
-    const videoUri = statusData.response?.generateVideoResponse?.generatedSamples?.[0]?.video?.uri;
+    let videoUri = statusData.response?.generateVideoResponse?.generatedSamples?.[0]?.video?.uri;
     if (!videoUri) throw new Error('Video generation completed but no video was returned (it may have been blocked by safety filters).');
+
+    // Step 2b: shoot the remaining planned takes, each continuing from the previous one
+    let totalDuration = durationSeconds;
+    for (let si = 0; si < continuations.length; si++) {
+      const label = `take ${si + 2} of ${continuations.length + 1}`;
+      progressEl.textContent = `Filming ${label}...`;
+      const exRes = await fetch(`${BASE_URL}/models/${MODEL}:predictLongRunning`, {
+        method: 'POST',
+        headers: { 'x-goog-api-key': apiKey, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ instances: [{ prompt: continuations[si], video: { uri: videoUri } }], parameters: { aspectRatio: aspectRatio } })
+      });
+      const exStart = await exRes.json();
+      if (exStart.error) throw new Error(exStart.error.message);
+      if (!exStart.name) throw new Error('No operation returned for ' + label);
+      let exDone = false, exAtt = 0, exStatus = null;
+      while (!exDone && exAtt < 40) {
+        await new Promise(r => setTimeout(r, 10000));
+        exAtt++;
+        progressEl.textContent = `Filming ${label}... (${exAtt * 10}s elapsed)`;
+        const st = await fetch(`${BASE_URL}/${exStart.name}`, { headers: { 'x-goog-api-key': apiKey } });
+        exStatus = await st.json();
+        exDone = exStatus.done === true;
+      }
+      if (!exDone) throw new Error('Timed out on ' + label + '. The earlier takes were fine - try a shorter total length.');
+      if (exStatus.error) throw new Error(exStatus.error.message);
+      const exUri = exStatus.response?.generateVideoResponse?.generatedSamples?.[0]?.video?.uri;
+      if (!exUri) throw new Error('No video returned for ' + label);
+      videoUri = exUri; totalDuration += 7;
+    }
 
     // Step 3: download the actual video bytes
     progressEl.textContent = 'Downloading generated video...';
@@ -2157,7 +2196,7 @@ async function runVideoGen() {
     // googleVideoUri + apiKey kept so the video can be Extended later without re-uploading
     window._pendingGeneratedVideo = {
       file: videoFile, dataUrl: objectUrl, name: videoFile.name, size: videoFile.size,
-      googleVideoUri: videoUri, durationSeconds, aspectRatio,
+      googleVideoUri: videoUri, durationSeconds: totalDuration, aspectRatio,
       generatedAt: Date.now() // Veo keeps videos for 2 days — track this so we can warn if expired
     };
     showToast('Video generated!', 'success');
@@ -3669,6 +3708,7 @@ async function generateImageViaProxy(prompt, opts, postId) {
 // bedrooms — the products go into whole homes AND commercial fit-outs, so both pools exist and
 // the audience decides the lean.
 // Market is the Philippines - any people shown should read as Filipino, not Western.
+const VIDEO_ENDING_NOTE = ' Choreograph the shot so the movement FINISHES cleanly: decelerate through the final two seconds and settle on a held, well-composed closing frame. The clip must never cut off mid-movement.';
 const PEOPLE_NOTE = ' Any people shown must be Filipino (Southeast Asian) - natural, contemporary Filipinos suited to the setting (homeowners, families, office workers, designers, tradespeople). Do not depict Western or Caucasian people.';
 
 const SPACE_POOLS = {
@@ -3731,7 +3771,7 @@ const PILLAR_PHOTO_DIRECTION = {
 async function captionToVisualDescription(apiKey, caption, forVideo, company, pillar, colorId, audience) {
   const { body } = splitCaptionTags(caption);
   const medium = forVideo ? 'an 8-second marketing video' : 'a photorealistic marketing image';
-  const motionNote = forVideo ? ' Describe gentle, realistic motion or camera movement suitable for a short clip.' : '';
+  const motionNote = forVideo ? ' Describe ONE simple, continuous camera move or gentle action that fully completes within a short 8-second clip and comes to rest at the end on a held, composed final shot - never a movement still in progress when the clip ends.' : '';
 
   // Pillar-specific photography direction
   const pillarKey = pillar ? Object.keys(PILLAR_PHOTO_DIRECTION).find(function(k) { return pillar.startsWith(k); }) : null;
@@ -3800,7 +3840,36 @@ async function captionToVisualDescription(apiKey, caption, forVideo, company, pi
 
 // Headless Veo video generation from a prompt — returns { file, dataUrl, name, size } or throws.
 // Same API flow as the manual generator, but with no UI dependencies so the batch can call it.
-async function generateVideoHeadless(prompt, aspectRatio, onProgress) {
+// Plans a longer video as ONE continuous idea, split into linked takes: take 1 is 8s, each
+// later take adds ~7s and must continue seamlessly from the previous take's final frame.
+async function planVideoSegments(basePrompt, segments) {
+  const total = 8 + (segments - 1) * 7;
+  const fallback = {
+    opening: basePrompt,
+    continuations: Array.from({ length: segments - 1 }, (_, i) =>
+      'Continue the same shot naturally from the last frame - same room, subject, style, lighting and camera direction. ' +
+      (i === segments - 2 ? 'Decelerate and settle on a held, composed closing frame.' : 'Keep the move flowing smoothly.'))
+  };
+  const key = (APP.apiKeys && APP.apiKeys.anthropic) || localStorage.getItem('scm_anthropic_key');
+  if (!key || segments < 2) return fallback;
+  try {
+    const p = 'You are directing ONE continuous ' + total + '-second marketing video, shot as ' + segments +
+      ' linked takes. Take 1 is 8 seconds. Every later take adds 7 seconds and MUST continue seamlessly from the ' +
+      'final frame of the previous take - same room, same subject, same style, same lighting, same camera direction.\n\n' +
+      'Brief: ' + basePrompt + '\n\nReturn JSON only, no prose: {"opening":"...","continuations":["..."]} with exactly ' +
+      (segments - 1) + ' continuations. Each is a concise shot description under 40 words. Build one idea across the ' +
+      'whole length (establish, reveal, detail, resolve) rather than repeating the same move. The FINAL continuation ' +
+      'must decelerate and settle on a held, composed closing frame. No text, words or logos in the video.';
+    const raw = await callClaude(key, p, 700);
+    const a = raw.indexOf('{'), b = raw.lastIndexOf('}');
+    if (a < 0 || b <= a) return fallback;
+    const j = JSON.parse(raw.slice(a, b + 1));
+    if (!j.opening || !Array.isArray(j.continuations) || !j.continuations.length) return fallback;
+    return { opening: String(j.opening), continuations: j.continuations.slice(0, segments - 1).map(String) };
+  } catch (_e) { return fallback; }
+}
+
+async function generateVideoHeadless(prompt, aspectRatio, onProgress, durationSeconds) {
   const apiKey = APP.apiKeys.veo || localStorage.getItem('scm_veo_key');
   if (!apiKey) throw new Error('No Google Gemini (Veo) API key configured in Settings');
   const BASE_URL = 'https://generativelanguage.googleapis.com/v1beta';
@@ -3809,7 +3878,7 @@ async function generateVideoHeadless(prompt, aspectRatio, onProgress) {
   const startRes = await fetch(`${BASE_URL}/models/${MODEL}:predictLongRunning`, {
     method: 'POST',
     headers: { 'x-goog-api-key': apiKey, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ instances: [{ prompt: prompt }], parameters: { aspectRatio: aspectRatio || '16:9' } })
+    body: JSON.stringify({ instances: [{ prompt: prompt }], parameters: { aspectRatio: aspectRatio || '16:9', durationSeconds: durationSeconds || 8 } })
   });
   const startData = await startRes.json();
   if (startData.error) throw new Error(startData.error.message);
@@ -3853,7 +3922,7 @@ function buildImagePrompt(co, audience, pillar, notes) {
   const bp = APP.brandProfiles && APP.brandProfiles[co];
   const products = (bp && bp.products) ? bp.products : (co === 'mssi'
     ? 'modular kitchen cabinets, wardrobes, and built-in furniture'
-    : 'stacked laminated melamine boards in various wood-grain and solid finishes');
+    : 'finished cabinetry, wardrobes and built-in furniture crafted from laminated melamine boards, showing distinctive design and finish quality');
   const space = pickSpaceSetting(co, audience);
   const subject = co === 'mssi'
     ? `${space}, beautifully finished, featuring ${products}`
@@ -10253,7 +10322,7 @@ async function runAutoGenerate() {
           if (row) row.innerHTML = baseRowHtml + `<span style="font-size:11px;color:var(--text3)">🎬 video…</span>`;
           try {
             const visualDesc = await captionToVisualDescription(apiKey, fullText, true, co, pillar, colorId, audience);
-            const vidPrompt = `Professional 8-second marketing video for a Philippine furniture/laminate company. ${visualDesc} Cinematic, bright, high-quality commercial style with natural lighting. No text, words, logos, or watermarks.${PEOPLE_NOTE}`;
+            const vidPrompt = `Professional 8-second marketing video for a Philippine furniture/laminate company. ${visualDesc} Cinematic, bright, high-quality commercial style with natural lighting. No text, words, logos, or watermarks.${PEOPLE_NOTE}${VIDEO_ENDING_NOTE}`;
             const vid = await generateVideoHeadless(vidPrompt, '16:9');
             // Store the generated video on the post. Note: object URLs don't survive a page reload —
             // the user should review/publish generated videos in the same session, or regenerate.
