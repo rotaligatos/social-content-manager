@@ -5759,10 +5759,24 @@ function getAiStrategyContext() {
   try {
     const stored = JSON.parse(localStorage.getItem('scm_ai_strategy') || '{}');
     if (!stored.adjustments?.length) return '';
-    const age = stored.generatedAt ? Math.round((Date.now() - new Date(stored.generatedAt)) / 86400000) : 99;
-    if (age > 7) return ''; // stale
+    // Deliberately NOT expired. The strategy stays in force until a new analysis replaces it, so
+    // the content plan stays stable instead of swinging on a few days of noisy engagement.
+    const age = stored.generatedAt ? Math.round((Date.now() - new Date(stored.generatedAt)) / 86400000) : null;
+    const ageNote = (age !== null && age > 0) ? ` (from analysis ${age} day${age === 1 ? '' : 's'} ago)` : '';
     const adj = stored.adjustments.slice(0, 3).map(a => `- ${a.action}`).join('\n');
-    return `\n\nCurrent content strategy adjustments (based on recent FB performance):\n${adj}`;
+    return `\n\nCurrent content strategy adjustments${ageNote}, based on recent FB performance:\n${adj}`;
+  } catch { return ''; }
+}
+
+// Shows which strategy hints are currently steering the AI writing, and how old they are, so a
+// stale strategy is visible rather than silently dropped.
+function getStrategyAgeLabel() {
+  try {
+    const stored = JSON.parse(localStorage.getItem('scm_ai_strategy') || '{}');
+    if (!stored.adjustments?.length) return 'No strategy hints active yet — run Analyze &amp; Recommend to start steering the AI writing.';
+    const age = stored.generatedAt ? Math.round((Date.now() - new Date(stored.generatedAt)) / 86400000) : null;
+    const when = age === null ? 'an unknown date' : (age <= 0 ? 'today' : age + ' day' + (age === 1 ? '' : 's') + ' ago');
+    return '✦ ' + stored.adjustments.length + ' strategy hint' + (stored.adjustments.length === 1 ? '' : 's') + ' active, from ' + when + ' — these keep steering every caption until you re-analyze.';
   } catch { return ''; }
 }
 
@@ -5984,6 +5998,7 @@ function renderPerformance() {
       : `<div style="font-size:13px;color:var(--text3);line-height:1.7">Click <strong>Analyze & Recommend</strong> to get a Claude-powered strategy report — what's working, what's not, best times to post, and specific recommendations per company and audience.<br><br>The more posts you have logged, the sharper the recommendations.</div>
          <div id="ai-analysis-output"></div>`
     }
+    <div style="font-size:11px;color:var(--text3);margin-top:10px;padding-top:10px;border-top:1px solid var(--border)">${getStrategyAgeLabel()}</div>
   </div>`;
 
   // Top posts
@@ -10417,6 +10432,39 @@ function updateSchedulerIndicator(state, msg) {
   label.textContent = msg;
 }
 
+// A stable id per browser/device, so a claim can be attributed in the Supabase logs.
+function getDeviceId() {
+  let d = localStorage.getItem('scm_device_id');
+  if (!d) { d = 'dev-' + Math.random().toString(36).slice(2, 10); localStorage.setItem('scm_device_id', d); }
+  return d;
+}
+
+// Atomically claim a due post before publishing. Only ONE caller (this device, another
+// device, or the server cron) can win, so the same post can never go out twice.
+// Falls back to the old local-only behaviour if the claim-post function isn't deployed yet.
+async function claimPostForPublish(post) {
+  const cfg = getSupabaseConfig();
+  if (!cfg) return true; // no backend configured -> single-device setup
+  try {
+    const res = await fetch(cfg.url + '/functions/v1/claim-post', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: String(post.id), claimedBy: getDeviceId() })
+    });
+    if (res.status === 404) {
+      console.warn('[SCHED] claim-post function not deployed - falling back to local lock (duplicate risk with 2 devices open)');
+      return true;
+    }
+    if (!res.ok) { console.warn('[SCHED] claim check failed, skipping to avoid a double post'); return false; }
+    const data = await res.json();
+    if (!data.claimed) console.warn('[SCHED] post ' + post.id + ' already claimed elsewhere - skipping');
+    return data.claimed === true;
+  } catch (e) {
+    console.warn('[SCHED] claim error, skipping to avoid a double post:', e.message);
+    return false; // fail closed
+  }
+}
+
 async function runSchedulerTick() {
   const now = new Date();
 
@@ -10436,8 +10484,20 @@ async function runSchedulerTick() {
   }
 
   for (const post of due) {
+    // Claim it server-side FIRST. If another device or the cron already owns this post,
+    // we stand down instead of publishing a duplicate.
+    const won = await claimPostForPublish(post);
+    if (!won) {
+      post.status = 'publishing';           // mark locally so we stop retrying it
+      post.publishingAt = new Date().toISOString();
+      saveState();
+      updateSchedulerIndicator('active', 'Skipped ' + post.company.toUpperCase() + ' — being published elsewhere');
+      continue;
+    }
+
     // Lock immediately BEFORE calling Facebook — prevents re-entry on refresh / next tick
     post.status = 'publishing';
+    post.publishingAt = new Date().toISOString();
     saveState(); // persists the lock to localStorage
 
     updateSchedulerIndicator('publishing', 'Publishing ' + post.company.toUpperCase() + '…');
@@ -10479,10 +10539,16 @@ function startScheduler() {
   // a result from Facebook. We reset them to 'scheduled' — syncStatusFromSupabase()
   // will then update any that actually succeeded while we were away.
   let staleCleared = 0;
+  const STALE_LOCK_MS = 15 * 60 * 1000; // only a lock older than 15 min is treated as abandoned
   for (const p of APP.posts) {
     if (p.status === 'publishing') {
-      p.status = 'scheduled';
-      staleCleared++;
+      const heldFor = p.publishingAt ? (Date.now() - new Date(p.publishingAt).getTime()) : Infinity;
+      if (heldFor > STALE_LOCK_MS) {
+        p.status = 'scheduled';
+        delete p.publishingAt;
+        staleCleared++;
+      }
+      // else: another device may be mid-publish right now — leave it alone
     }
   }
   if (staleCleared) saveState();
