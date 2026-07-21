@@ -3668,6 +3668,9 @@ async function generateImageViaProxy(prompt, opts, postId) {
 // Where the laminate is shown. Rotated per post so scenes stop defaulting to kitchens and
 // bedrooms — the products go into whole homes AND commercial fit-outs, so both pools exist and
 // the audience decides the lean.
+// Market is the Philippines - any people shown should read as Filipino, not Western.
+const PEOPLE_NOTE = ' Any people shown must be Filipino (Southeast Asian) - natural, contemporary Filipinos suited to the setting (homeowners, families, office workers, designers, tradespeople). Do not depict Western or Caucasian people.';
+
 const SPACE_POOLS = {
   residential: [
     'a modern Filipino living room with a built-in TV and media wall unit',
@@ -3856,7 +3859,7 @@ function buildImagePrompt(co, audience, pillar, notes) {
     ? `${space}, beautifully finished, featuring ${products}`
     : `${products} shown in ${space}, conveying material quality and finish`;
   const notesPart = notes ? ` Incorporate this context where natural: ${notes}.` : '';
-  return `Professional, photorealistic marketing photograph for a Facebook post by a Philippine furniture/laminate company. Subject: ${subject}. Content theme: ${pillar}. Bright, clean, high-quality commercial photography style with natural lighting and sharp focus. No text, no words, no logos, no watermarks in the image.${notesPart}`;
+  return `Professional, photorealistic marketing photograph for a Facebook post by a Philippine furniture/laminate company. Subject: ${subject}. Content theme: ${pillar}. Bright, clean, high-quality commercial photography style with natural lighting and sharp focus. No text, no words, no logos, no watermarks in the image.${PEOPLE_NOTE}${notesPart}`;
 }
 
 function buildCaptionPrompt(co, audience, pillar, notes, colorId, includeRetail) {
@@ -4076,7 +4079,7 @@ async function confirmAndGenerateImage() {
   try {
     const colorId = APP.currentColorId || document.getElementById('post-color-id')?.value || '';
     const colorAccuracyNote = getColorAccuracyNote(APP.currentCompany, colorId);
-    const imgPrompt = 'Professional, photorealistic marketing photograph. ' + visualDesc + ' Bright, clean, high-quality commercial photography with natural lighting and sharp focus.' + colorAccuracyNote + ' Absolutely no text, words, logos, or watermarks in the image.';
+    const imgPrompt = 'Professional, photorealistic marketing photograph. ' + visualDesc + ' Bright, clean, high-quality commercial photography with natural lighting and sharp focus.' + colorAccuracyNote + ' Absolutely no text, words, logos, or watermarks in the image.' + PEOPLE_NOTE;
     let imageUrl = await generateImageViaProxy(imgPrompt, buildImageGenOpts(APP.currentCompany, colorId));
 
     const isSwatchCompany = (APP.currentCompany === 'wcli' || APP.currentCompany === 'cwli')
@@ -10250,7 +10253,7 @@ async function runAutoGenerate() {
           if (row) row.innerHTML = baseRowHtml + `<span style="font-size:11px;color:var(--text3)">🎬 video…</span>`;
           try {
             const visualDesc = await captionToVisualDescription(apiKey, fullText, true, co, pillar, colorId, audience);
-            const vidPrompt = `Professional 8-second marketing video for a Philippine furniture/laminate company. ${visualDesc} Cinematic, bright, high-quality commercial style with natural lighting. No text, words, logos, or watermarks.`;
+            const vidPrompt = `Professional 8-second marketing video for a Philippine furniture/laminate company. ${visualDesc} Cinematic, bright, high-quality commercial style with natural lighting. No text, words, logos, or watermarks.${PEOPLE_NOTE}`;
             const vid = await generateVideoHeadless(vidPrompt, '16:9');
             // Store the generated video on the post. Note: object URLs don't survive a page reload —
             // the user should review/publish generated videos in the same session, or regenerate.
@@ -10269,7 +10272,7 @@ async function runAutoGenerate() {
             // Use prebuilt image description from combined call — no extra API call needed
             const visualDesc = prebuiltImageDesc || await captionToVisualDescription(apiKey, fullText, false, co, pillar, colorId, audience);
             const colorAccuracyNote = getColorAccuracyNote(co, colorId);
-            const imgPrompt = `Professional, photorealistic marketing photograph. ${visualDesc} Bright, clean, high-quality commercial photography with natural lighting and sharp focus.${colorAccuracyNote} Absolutely no text, words, logos, or watermarks in the image.`;
+            const imgPrompt = `Professional, photorealistic marketing photograph. ${visualDesc} Bright, clean, high-quality commercial photography with natural lighting and sharp focus.${colorAccuracyNote} Absolutely no text, words, logos, or watermarks in the image.${PEOPLE_NOTE}`;
             let imageUrl = await generateImageViaProxy(imgPrompt, buildImageGenOpts(co, colorId));
             post.photo = imageUrl;
             post.photoOriginal = imageUrl; // always save original so swatch can be applied/removed later
@@ -11835,7 +11838,7 @@ async function generateImageForPreview(postId) {
     const colorAccuracyNote = getColorAccuracyNote(post.company, post.swatchColorId);
     const imgPrompt = 'Professional, photorealistic marketing photograph. ' + visualDesc +
       ' Bright, clean, high-quality commercial photography with natural lighting and sharp focus.' +
-      colorAccuracyNote + ' Absolutely no text, words, logos, or watermarks in the image.';
+      colorAccuracyNote + ' Absolutely no text, words, logos, or watermarks in the image.' + PEOPLE_NOTE;
     const url = await generateImageViaProxy(imgPrompt, buildImageGenOpts(post.company, post.swatchColorId));
     post.photo = url;
     post.mediaType = 'photo';
@@ -11919,7 +11922,7 @@ async function previewRegenImage(postId) {
     const colorAccuracyNote = getColorAccuracyNote(post.company, post.swatchColorId);
     const imgPrompt = 'Professional, photorealistic marketing photograph. ' + visualDesc +
       ' Bright, clean, high-quality commercial photography with natural lighting and sharp focus.' +
-      colorAccuracyNote + ' Absolutely no text, words, logos, or watermarks in the image.';
+      colorAccuracyNote + ' Absolutely no text, words, logos, or watermarks in the image.' + PEOPLE_NOTE;
 
     const url = await generateImageViaProxy(imgPrompt, buildImageGenOpts(post.company, post.swatchColorId));
     post.photo = url;
