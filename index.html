@@ -3958,7 +3958,7 @@ Target Audience: ${audience}
 Content Pillar: ${pillar}
 Tone and Voice: ${getToneFor(co, audience)}
 Primary Goal: ${getGoalFor(co)}
-${notes ? 'Notes from manager: ' + notes : ''}${getPerformanceContextForPrompt(co)}${getAiStrategyContext()}${getColorContextForPrompt(co, colorId)}${includeRetail ? getRetailContextForPrompt(co) : ''}
+${notes ? 'Notes from manager: ' + notes : ''}${getPerformanceContextForPrompt(co)}${getAiStrategyContext()}${getMarketDirectivesForPrompt(co)}${getSteeringPrecedenceNote(co)}${getColorContextForPrompt(co, colorId)}${includeRetail ? getRetailContextForPrompt(co) : ''}
 
 Write one complete Facebook post following these rules exactly:
 - 2 to 3 short paragraphs (not bullet points)
@@ -6045,6 +6045,23 @@ function renderPerformance() {
          <div id="ai-analysis-output"></div>`
     }
     <div style="font-size:11px;color:var(--text3);margin-top:10px;padding-top:10px;border-top:1px solid var(--border)">${getStrategyAgeLabel()}</div>
+    <div style="font-size:11px;color:var(--text3);margin-top:6px">${getDirectivesLabel()}</div>
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-top:8px;padding-top:8px;border-top:1px solid var(--border)">
+      <div style="font-size:11px;color:${loadCampaignFlags().length ? 'var(--amber)' : 'var(--text3)'};flex:1;min-width:220px">${getCampaignFlagLabel()}</div>
+      <button class="btn btn-ghost btn-sm" style="font-size:11px" onclick="openCampaignFlagForm()">⚑ Flag a campaign period</button>
+    </div>
+    ${loadCampaignFlags().length ? `<div style="margin-top:8px">
+      ${loadCampaignFlags().map(f => `<div style="display:flex;align-items:center;gap:9px;padding:6px 0;border-top:1px solid var(--border)">
+        <div style="flex:1;font-size:11.5px;line-height:1.5">
+          <b>${CAMPAIGN_KINDS[f.kind] || 'Flagged period'}</b>
+          <span style="color:var(--text3)"> · ${f.company === 'all' ? 'All companies' : f.company.toUpperCase()} · ${f.from} to ${f.to}</span>
+          ${f.note ? `<div style="color:var(--text2);font-size:11px">${f.note}</div>` : ''}
+          <div style="font-size:10.5px;color:${f.keepInAnalysis ? 'var(--text3)' : 'var(--amber)'}">${f.keepInAnalysis ? 'Kept in analysis' : 'Held out of self-learning'}</div>
+        </div>
+        <button class="btn btn-ghost btn-sm" style="font-size:10.5px" onclick="openCampaignFlagForm('${f.id}')">Edit</button>
+        <button class="btn btn-ghost btn-sm" style="font-size:10.5px;color:var(--red)" onclick="deleteCampaignFlag('${f.id}')">Remove</button>
+      </div>`).join('')}
+    </div>` : ''}
   </div>`;
 
   // Top posts
@@ -6832,8 +6849,163 @@ function autoApplyBestTimes(posts) {
 // ── STRENGTHENED SELF-LEARNING ────────────────────────────────
 // Per company + per audience — injected into every Claude caption prompt
 
+// ============================================================
+//  CAMPAIGN PERIOD FLAGS
+//  Anything that inflates engagement for reasons unrelated to the content -
+//  a staff follow-and-share contest, a boosted post, a giveaway, an expo -
+//  makes that window unrepresentative. Left unflagged it quietly teaches the
+//  app that whatever happened to be posted that week was brilliant, and the
+//  strategy then chases a pattern that was never real.
+//
+//  Flagged windows are excluded from self-learning by default, but the posts
+//  themselves are untouched - nothing is deleted and the raw numbers still
+//  show on the post. You can also keep a window IN the analysis if the
+//  campaign is something you intend to repeat.
+// ============================================================
+
+const CAMPAIGN_FLAGS_KEY = 'scm_campaign_flags';
+
+const CAMPAIGN_KINDS = {
+  contest:  'Contest / giveaway',
+  staff:    'Staff or internal push',
+  boost:    'Paid boost / ads',
+  event:    'Expo, launch or event',
+  outage:   'Outage or data problem',
+  other:    'Other abnormal period',
+};
+
+function loadCampaignFlags() {
+  try { return JSON.parse(localStorage.getItem(CAMPAIGN_FLAGS_KEY) || '[]'); } catch (_e) { return []; }
+}
+function saveCampaignFlags(list) {
+  localStorage.setItem(CAMPAIGN_FLAGS_KEY, JSON.stringify(list));
+  pushSettingToSupabase('campaign_flags', list);
+}
+
+// A post is affected if it was published inside a flagged window for its company
+// (or a window marked "all companies").
+function campaignFlagFor(post) {
+  const when = post?.publishedAt || post?.scheduledFor;
+  if (!when) return null;
+  const t = new Date(when).getTime();
+  if (!isFinite(t)) return null;
+  const co = String(post.company || '').toLowerCase();
+  return loadCampaignFlags().find(f => {
+    if (f.company && f.company !== 'all' && f.company !== co) return false;
+    const from = new Date(f.from + 'T00:00:00').getTime();
+    const to = new Date(f.to + 'T23:59:59').getTime();
+    return t >= from && t <= to;
+  }) || null;
+}
+
+// The filter every self-learning path runs through.
+function excludeFlaggedPosts(posts) {
+  const flags = loadCampaignFlags();
+  if (!flags.length) return posts;
+  return posts.filter(p => {
+    const f = campaignFlagFor(p);
+    return !f || f.keepInAnalysis;
+  });
+}
+
+function countFlaggedPosts() {
+  const flags = loadCampaignFlags();
+  if (!flags.length) return 0;
+  return (APP.posts || []).filter(p => {
+    const f = campaignFlagFor(p);
+    return f && !f.keepInAnalysis;
+  }).length;
+}
+
+function getCampaignFlagLabel() {
+  const flags = loadCampaignFlags();
+  if (!flags.length) return 'No campaign periods flagged — all logged results are being treated as normal activity.';
+  const excluded = countFlaggedPosts();
+  return `⚑ ${flags.length} campaign period${flags.length === 1 ? '' : 's'} flagged` +
+    (excluded ? ` — ${excluded} post${excluded === 1 ? '' : 's'} held out of self-learning so the numbers stay honest.` : ' — no logged posts fall inside them yet.');
+}
+
+function openCampaignFlagForm(existingId) {
+  const list = loadCampaignFlags();
+  const f = existingId ? list.find(x => x.id === existingId) : null;
+  const today = new Date().toISOString().slice(0, 10);
+
+  const html = `<div id="flag-overlay" style="position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:2100;display:flex;align-items:center;justify-content:center;padding:20px" onclick="if(event.target.id==='flag-overlay')document.getElementById('flag-overlay').remove()">
+    <div class="card" style="max-width:520px;width:100%">
+      <div style="font-size:15px;font-weight:600;margin-bottom:4px">${f ? 'Edit' : 'Flag'} a campaign period</div>
+      <div style="font-size:11.5px;color:var(--text3);line-height:1.6;margin-bottom:16px">
+        Mark a window where engagement was driven by something other than the content itself — a follower contest, a boosted post, an expo. Those posts stay exactly as they are; they're just held out of the pattern-detection so the app doesn't learn the wrong lesson.
+      </div>
+
+      <div class="form-group"><label class="form-label">What happened</label>
+        <select id="flag-kind">${Object.entries(CAMPAIGN_KINDS).map(([k, v]) => `<option value="${k}" ${f?.kind === k ? 'selected' : ''}>${v}</option>`).join('')}</select>
+      </div>
+      <div class="form-group"><label class="form-label">Company affected</label>
+        <select id="flag-company">
+          <option value="all" ${!f?.company || f?.company === 'all' ? 'selected' : ''}>All companies</option>
+          <option value="mssi" ${f?.company === 'mssi' ? 'selected' : ''}>MSSI</option>
+          <option value="wcli" ${f?.company === 'wcli' ? 'selected' : ''}>WCLI</option>
+          <option value="cwli" ${f?.company === 'cwli' ? 'selected' : ''}>CWLI</option>
+        </select>
+      </div>
+      <div style="display:flex;gap:10px">
+        <div class="form-group" style="flex:1"><label class="form-label">From</label><input type="date" id="flag-from" value="${f?.from || today}"></div>
+        <div class="form-group" style="flex:1"><label class="form-label">To</label><input type="date" id="flag-to" value="${f?.to || today}"></div>
+      </div>
+      <div class="form-group"><label class="form-label">Note (optional)</label>
+        <input type="text" id="flag-note" placeholder="e.g. staff follow-and-share contest" value="${f?.note || ''}">
+      </div>
+      <label style="display:flex;align-items:flex-start;gap:8px;font-size:12px;padding:6px 0;cursor:pointer">
+        <input type="checkbox" id="flag-keep" ${f?.keepInAnalysis ? 'checked' : ''} style="margin-top:2px">
+        <span>Keep this period in the analysis anyway
+          <span style="display:block;color:var(--text3);font-size:11px;margin-top:2px">Tick only if this is something you plan to repeat regularly — then it's part of your normal pattern, not a distortion.</span>
+        </span>
+      </label>
+
+      <div style="display:flex;gap:8px;margin-top:16px">
+        <button class="btn btn-primary" style="flex:1" onclick="saveCampaignFlag('${f?.id || ''}')">${f ? 'Save changes' : 'Flag this period'}</button>
+        <button class="btn btn-ghost" onclick="document.getElementById('flag-overlay').remove()">Cancel</button>
+      </div>
+    </div>
+  </div>`;
+  document.getElementById('flag-overlay')?.remove();
+  document.body.insertAdjacentHTML('beforeend', html);
+}
+
+function saveCampaignFlag(id) {
+  const from = document.getElementById('flag-from')?.value;
+  const to = document.getElementById('flag-to')?.value;
+  if (!from || !to) { showToast('Please set both dates', 'error'); return; }
+  if (new Date(to) < new Date(from)) { showToast('The end date is before the start date', 'error'); return; }
+
+  const rec = {
+    id: id || ('flag_' + Date.now()),
+    kind: document.getElementById('flag-kind')?.value || 'other',
+    company: document.getElementById('flag-company')?.value || 'all',
+    from, to,
+    note: document.getElementById('flag-note')?.value?.trim() || '',
+    keepInAnalysis: !!document.getElementById('flag-keep')?.checked,
+  };
+
+  const list = loadCampaignFlags();
+  const at = list.findIndex(x => x.id === rec.id);
+  if (at >= 0) list[at] = rec; else list.push(rec);
+  saveCampaignFlags(list);
+
+  document.getElementById('flag-overlay')?.remove();
+  const n = countFlaggedPosts();
+  showToast(rec.keepInAnalysis ? 'Period flagged and kept in analysis' : `Period flagged — ${n} post${n === 1 ? '' : 's'} now held out of self-learning`, 'success');
+  if (typeof renderPerformance === 'function') renderPerformance();
+}
+
+function deleteCampaignFlag(id) {
+  saveCampaignFlags(loadCampaignFlags().filter(x => x.id !== id));
+  showToast('Flag removed', 'success');
+  if (typeof renderPerformance === 'function') renderPerformance();
+}
+
 function buildPerformanceSummary(company) {
-  const allLogged = APP.posts.filter(p => p.performance);
+  const allLogged = excludeFlaggedPosts(APP.posts.filter(p => p.performance));
   const logged = company && company !== 'all'
     ? allLogged.filter(p => p.company === company)
     : allLogged;
@@ -6869,8 +7041,28 @@ function buildPerformanceSummary(company) {
   return summary;
 }
 
+// This post may be steered by three separate inputs at once: what has performed
+// well, strategy hints from the last performance analysis, and market directives
+// from the last competitor analysis. They are gathered from different evidence and
+// can disagree - performance looks backwards at what worked, competitor analysis
+// looks outwards at where we are absent. Without a stated order the model resolves
+// the clash arbitrarily, which is how two posts for the same company end up
+// pulling in opposite directions.
+function getSteeringPrecedenceNote(company) {
+  const hasPerf = !!getPerformanceContextForPrompt(company);
+  const hasStrategy = !!getAiStrategyContext();
+  const hasDirectives = !!getMarketDirectivesForPrompt(company);
+  const count = [hasPerf, hasStrategy, hasDirectives].filter(Boolean).length;
+  if (count < 2) return '';
+  return `\n\nIf any of the guidance above conflicts, resolve it in this order:\n` +
+    `1. Brand voice and the content pillar for this post always win. Never break them.\n` +
+    `2. Market directives next - they address where we are absent, which performance data cannot show.\n` +
+    `3. Performance and strategy hints last - they describe what already worked, which is useful but backward-looking.\n` +
+    `Never satisfy two conflicting instructions by mentioning both. Pick the higher-priority one and write a single coherent post.`;
+}
+
 function getPerformanceContextForPrompt(company) {
-  const allLogged = APP.posts.filter(p => p.performance);
+  const allLogged = excludeFlaggedPosts(APP.posts.filter(p => p.performance));
   const logged = company
     ? allLogged.filter(p => p.company === company)
     : allLogged;
@@ -12215,11 +12407,62 @@ function buildMarketAnalysis() {
     highlights.push({ tone: 'warn', company: null, text: `${notResearched} competitor${notResearched === 1 ? '' : 's'} not yet researched — findings below cover ${rows.length} of ${list.length}.` });
   }
 
+  // --- Our own performance, so the conclusion reconciles inward evidence (what
+  // has worked) with outward evidence (where we are absent) instead of pretending
+  // only one exists. Two reports giving opposite direction is worse than one.
+  const ownPerf = (() => {
+    const logged = excludeFlaggedPosts((APP.posts || []).filter(p => p.performance));
+    if (logged.length < 3) return null;
+    const byCo = {};
+    logged.forEach(p => {
+      const co = String(p.company || '').toUpperCase();
+      const sc = engagementScore(p.performance);
+      byCo[co] = byCo[co] || { posts: 0, score: 0, pillars: {} };
+      byCo[co].posts++; byCo[co].score += sc;
+      const pl = p.pillar || 'Unknown';
+      byCo[co].pillars[pl] = byCo[co].pillars[pl] || { count: 0, score: 0 };
+      byCo[co].pillars[pl].count++; byCo[co].pillars[pl].score += sc;
+    });
+    Object.values(byCo).forEach(v => {
+      const ranked = Object.entries(v.pillars)
+        .map(([k, x]) => ({ pillar: k, avg: x.count ? x.score / x.count : 0, count: x.count }))
+        .filter(x => x.count >= 2)
+        .sort((a, b) => b.avg - a.avg);
+      v.bestPillar = ranked[0] || null;
+      v.worstPillar = ranked.length > 1 ? ranked[ranked.length - 1] : null;
+    });
+    return { total: logged.length, byCo };
+  })();
+
+  // Where the two views disagree, say so plainly rather than letting the reader
+  // discover it by getting contradictory advice later.
+  const tensions = [];
+  if (ownPerf) {
+    Object.entries(ownPerf.byCo).forEach(([co, v]) => {
+      if (!v.bestPillar) return;
+      const pushed = themes.length ? 'Education' : null;
+      if (pushed && v.worstPillar && v.worstPillar.pillar.startsWith(pushed)) {
+        tensions.push(`For ${co}, competitor analysis points to more ${pushed}-style content, but ${pushed} is currently your weakest pillar by engagement. Worth doing, but change the execution rather than repeating what has not landed.`);
+      }
+    });
+  }
+
   // --- Bottom line: what this all adds up to, and what to do next.
   const conclusion = (() => {
     const strong = search.filter(q => q.ourRank === 1);
     const absent = search.filter(q => !q.ourRank);
     const parts = [];
+
+    if (ownPerf) {
+      const lines = Object.entries(ownPerf.byCo)
+        .filter(([, v]) => v.bestPillar)
+        .map(([co, v]) => `${co} performs best on ${v.bestPillar.pillar}${v.worstPillar ? `, weakest on ${v.worstPillar.pillar}` : ''}`);
+      if (lines.length) {
+        parts.push(`From your own posts (${ownPerf.total} with logged results): ${lines.join('; ')}. Read the competitor findings below alongside this, not instead of it - performance shows what has worked, competitor analysis shows where you are not present at all.`);
+      }
+    } else {
+      parts.push(`Note: fewer than 3 of your posts have logged results, so this report reflects competitor evidence only. Log performance on more posts and the conclusions will start accounting for what actually works for you.`);
+    }
 
     if (strong.length) {
       const cos = [...new Set(strong.map(q => q.companyLabel))].join(' and ');
@@ -12376,10 +12619,10 @@ function buildMarketAnalysis() {
       });
     }
 
-    return { narrative: parts, actions };
+    return { narrative: parts, actions, tensions };
   })();
 
-  return { rows, search, dominance, marketGaps, colorGaps, textureGaps, substrateGaps, certGaps, certClaims, priceRows, pricingPosture, priceChanges, themes, activity, highlights, conclusion, coverage: { analysed: rows.length, total: list.length } };
+  return { rows, search, dominance, marketGaps, colorGaps, textureGaps, substrateGaps, certGaps, certClaims, priceRows, pricingPosture, priceChanges, ownPerf, themes, activity, highlights, conclusion, coverage: { analysed: rows.length, total: list.length } };
 }
 
 // ── Market Analysis view ─────────────────────────────────────
@@ -13044,6 +13287,119 @@ function findColorByName(name) {
   return null;
 }
 
+// ============================================================
+//  MARKET DIRECTIVES
+//  A recommendation you have to remember is a recommendation that gets ignored.
+//  Activating one stores it as a standing directive that is injected into every
+//  caption prompt for the company it applies to - the same mechanism the
+//  performance strategy hints already use, so behaviour is consistent.
+//
+//  Directives do not expire on a timer. They stay in force until you turn them
+//  off or a new analysis replaces them, so the content plan stays stable instead
+//  of swinging around.
+// ============================================================
+
+const DIRECTIVES_KEY = 'scm_market_directives';
+
+function loadDirectives() {
+  try { return JSON.parse(localStorage.getItem(DIRECTIVES_KEY) || '[]'); } catch (_e) { return []; }
+}
+function saveDirectives(list) {
+  localStorage.setItem(DIRECTIVES_KEY, JSON.stringify(list));
+  // Also push to Supabase so the server-side autopilot can read the same directives
+  // rather than only the browser knowing about them.
+  pushSettingToSupabase('market_directives', list);
+}
+
+// A stable id so the same recommendation isn't added twice across runs.
+function directiveId(x) {
+  return (String(x.company || '') + '|' + String(x.action || '')).toLowerCase().replace(/[^a-z0-9|]+/g, '-').slice(0, 120);
+}
+
+function isDirectiveActive(x) {
+  const id = directiveId(x);
+  return loadDirectives().some(d => d.id === id);
+}
+
+// Turns a recommendation into the plain instruction the writer will follow.
+// Phrase-based actions become an explicit "use this exact wording" rule, because
+// that is the part that actually moves a search ranking.
+function directiveInstruction(x) {
+  const phrase = (String(x.action || '').match(/"([^"]+)"/) || [])[1];
+  if (phrase && /page one|rank|#1|visible/i.test(x.action)) {
+    return `Work the exact phrase "${phrase}" naturally into the caption body (not only the hashtags) whenever the subject allows it. It must read naturally - never force it or repeat it.`;
+  }
+  if (/content pillar/i.test(x.action)) {
+    const theme = (String(x.action).match(/"([^"]+)"/) || [])[1] || '';
+    return `Give recurring emphasis to ${theme ? `"${theme}"` : 'this theme'} - demonstrate it with specifics rather than claiming it.`;
+  }
+  if (/texture gap|Close \d+ texture/i.test(x.action)) {
+    return `When showing surfaces, name the texture explicitly (stipple, matte, crosscut and so on) and photograph it in raking light. Do not describe a texture we do not stock.`;
+  }
+  if (/certification|E0|E1|CARB|FSC/i.test(x.action)) {
+    return `Where accurate, state our emission class or certification plainly. Never claim a certification we cannot evidence.`;
+  }
+  if (/board core|substrate/i.test(x.action)) {
+    return `Explain which substrate suits which application (worktops, wet areas, partitions) to establish specialist authority.`;
+  }
+  if (/sales claim|#1 ranking/i.test(x.action)) {
+    return `Where it fits the pillar, reference our top search ranking as an independently verifiable proof point.`;
+  }
+  return String(x.action);
+}
+
+function toggleDirective(idx) {
+  const a = APP._lastAnalysis;
+  const x = a && (a.conclusion?.actions || [])[idx];
+  if (!x) return;
+  const id = directiveId(x);
+  const list = loadDirectives();
+  const at = list.findIndex(d => d.id === id);
+  if (at >= 0) {
+    list.splice(at, 1);
+    saveDirectives(list);
+    showToast('Directive removed — captions will stop using it', 'success');
+  } else {
+    list.push({
+      id,
+      company: x.company,
+      action: x.action,
+      instruction: directiveInstruction(x),
+      pillar: x.pillar || '',
+      addedAt: Date.now(),
+    });
+    saveDirectives(list);
+    showToast('Active — every caption for ' + x.company + ' will now follow this', 'success');
+  }
+  renderReportsScreen();
+}
+
+function removeDirectiveById(id) {
+  saveDirectives(loadDirectives().filter(d => d.id !== id));
+  renderReportsScreen();
+}
+
+// Injected into the caption prompt. Only directives for the company being written
+// for are included, so MSSI posts don't inherit WCLI's trade messaging.
+function getMarketDirectivesForPrompt(company) {
+  const co = String(company || '').toUpperCase();
+  const list = loadDirectives().filter(d => {
+    const c = String(d.company || '').toUpperCase();
+    return !c || c === 'ALL' || c.includes(co);
+  });
+  if (!list.length) return '';
+  const lines = list.slice(0, 5).map(d => `- ${d.instruction}`).join('\n');
+  return `\n\nStanding directions from the latest competitor analysis (follow these unless they clash with the brief above):\n${lines}`;
+}
+
+function getDirectivesLabel() {
+  const list = loadDirectives();
+  if (!list.length) return 'No market directives active — activate a recommendation below and every caption will start following it.';
+  const oldest = Math.min(...list.map(d => d.addedAt || Date.now()));
+  const days = Math.floor((Date.now() - oldest) / 86400000);
+  return `✦ ${list.length} market directive${list.length === 1 ? '' : 's'} active${days > 0 ? `, oldest from ${days} day${days === 1 ? '' : 's'} ago` : ''} — these steer every caption until you turn them off.`;
+}
+
 function renderReportsScreen() {
   const el = document.getElementById('reports-content');
   if (!el) return;
@@ -13096,6 +13452,11 @@ function renderReportsScreen() {
   const conclusionHtml = `
     <div class="card" style="border-left:3px solid var(--accent2)">
       <div style="font-size:13px;font-weight:600;margin-bottom:10px">Bottom line</div>
+      ${(conc.tensions || []).length ? `<div style="background:var(--bg2);border-left:3px solid var(--amber);border-radius:6px;padding:10px 12px;margin-bottom:12px">
+        <div style="font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--amber);margin-bottom:5px">Where this disagrees with your performance data</div>
+        ${conc.tensions.map(t => `<div style="font-size:12px;line-height:1.65;margin-bottom:4px">${t}</div>`).join('')}
+        <div style="font-size:11px;color:var(--text3);margin-top:6px">When two sources disagree, the app follows this order: brand voice and pillar first, then market directives, then performance hints. It never tries to satisfy both at once.</div>
+      </div>` : ''}
       ${conc.narrative.map(p => `<div style="font-size:12.5px;line-height:1.75;margin-bottom:10px">${p}</div>`).join('')}
       ${conc.actions.length ? `
         <div style="font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--text3);margin:16px 0 8px">What to do next</div>
@@ -13118,7 +13479,18 @@ function renderReportsScreen() {
                   <ul style="margin:0 0 8px;padding-left:16px;font-size:12px;line-height:1.7;color:var(--text2)">
                     ${x.how.map(h => `<li>${h}</li>`).join('')}
                   </ul>` : ''}
-                ${x.pillar ? `<div style="font-size:11px;color:var(--text3)">Suggested content pillars: <b style="color:var(--text2)">${x.pillar}</b></div>` : ''}
+                ${x.pillar ? `<div style="font-size:11px;color:var(--text3);margin-bottom:8px">Suggested content pillars: <b style="color:var(--text2)">${x.pillar}</b></div>` : ''}
+                ${(() => {
+                  const on = isDirectiveActive(x);
+                  return `<div style="display:flex;align-items:center;gap:9px;flex-wrap:wrap;margin-top:6px">
+                    <button class="btn ${on ? 'btn-secondary' : 'btn-primary'} btn-sm" style="font-size:11px" onclick="toggleDirective(${i})">
+                      ${on ? '✓ Active in captions — turn off' : 'Apply to captions'}
+                    </button>
+                    <span style="font-size:10.5px;color:${on ? 'var(--green)' : 'var(--text3)'};line-height:1.5;flex:1;min-width:200px">
+                      ${on ? 'Every ' + x.company + ' caption now follows this automatically.' : 'Turns this into a standing rule the AI follows on every ' + x.company + ' caption.'}
+                    </span>
+                  </div>`;
+                })()}
               </div>
             </div>
           </div>`;
@@ -13175,6 +13547,24 @@ function renderReportsScreen() {
       </div>
       ${findings}
     </div>
+
+    ${(() => {
+      const list = loadDirectives();
+      return `<div class="card" style="margin-bottom:14px;border-left:3px solid ${list.length ? 'var(--green)' : 'var(--border)'}">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:${list.length ? '10px' : '0'}">
+          <div style="font-size:13px;font-weight:600">How the app is acting on this</div>
+          <div style="font-size:11px;color:${list.length ? 'var(--green)' : 'var(--text3)'}">${getDirectivesLabel()}</div>
+        </div>
+        ${list.length ? list.map(d => `<div style="display:flex;gap:10px;align-items:flex-start;padding:9px 0;border-top:1px solid var(--border)">
+            <div style="flex:1">
+              <div style="font-size:10.5px;font-weight:700;color:var(--accent2);margin-bottom:2px">${d.company}</div>
+              <div style="font-size:12px;line-height:1.6">${d.instruction}</div>
+            </div>
+            <button class="btn btn-ghost btn-sm" style="font-size:10.5px;color:var(--red);flex-shrink:0" onclick="removeDirectiveById('${d.id}')">Turn off</button>
+          </div>`).join('')
+        : `<div style="font-size:11.5px;color:var(--text3);line-height:1.6;margin-top:6px">Recommendations below are just advice until you activate them. Press <b>Apply to captions</b> on any of them and it becomes a standing rule the AI follows on every post for that company — including autopilot and Generate This Week.</div>`}
+      </div>`;
+    })()}
 
     ${conclusionHtml}
 
@@ -13327,6 +13717,7 @@ function renderReportsScreen() {
     <div class="card">
       <div style="font-size:11px;color:var(--text3);line-height:1.7">
         Built only from evidence gathered on public websites and search results. No follower, reach or engagement figures are shown for competitors, because no legitimate source for those exists. Empty fields mean the evidence did not support a claim — not that the competitor lacks it.
+        ${countFlaggedPosts() ? `<br><br><b style="color:var(--amber)">${countFlaggedPosts()} of your own posts were excluded</b> from the performance side of this report because they fall inside a flagged campaign period (contest, boost or event). Their raw numbers are unchanged — they are simply not treated as normal activity.` : ''}
       </div>
     </div>`;
 
