@@ -5270,13 +5270,39 @@ async function markCommentResponded(commentId, staffName) {
   } catch (_e) {}
 }
 
+// Counts inquiry-type comments the webhook has attributed to this post, so the Log
+// Performance form can pre-fill instead of asking you to count by hand.
+// NOTE: the webhook feed holds UNRESPONDED comments only, so this is a floor, not a total.
+function countInquiryCommentsForPost(post) {
+  if (!post || !post.fbPostId) return 0;
+  const list = (typeof _webhookComments !== 'undefined' && _webhookComments) ? _webhookComments : [];
+  const pid = String(post.fbPostId);
+  return list.filter(c => {
+    if (!c || !c.is_inquiry) return false;
+    const cid = String(c.post_id || c.fb_post_id || c.postId || '');
+    if (!cid) return false;
+    return cid === pid || pid.endsWith('_' + cid) || cid.endsWith('_' + pid);
+  }).length;
+}
+
 function renderInquiryCheck() {
   const card = document.getElementById('inquiry-check-card');
   if (!card) return;
 
   // Combine real webhook comments + existing post-level checks
   const published = APP.posts.filter(p => p.status === 'published');
-  const uncheckedPosts = published.filter(p => !p.inquiryChecked);
+  // Only show posts that genuinely need a look: either the webhook found comments on them,
+  // or they are recent enough that a DM could still be unanswered. Old posts with no comment
+  // activity are dropped rather than sitting in the list forever.
+  const _cIds = new Set((_webhookComments || []).map(c => String(c.post_id || c.fb_post_id || c.postId || '')).filter(Boolean));
+  const REVIEW_WINDOW_MS = 14 * 24 * 60 * 60 * 1000;
+  const uncheckedPosts = published.filter(p => {
+    if (p.inquiryChecked) return false;
+    const hasComments = p.fbPostId && [..._cIds].some(cid => cid === String(p.fbPostId) || String(p.fbPostId).endsWith('_' + cid) || cid.endsWith('_' + String(p.fbPostId)));
+    if (hasComments) return true;
+    const age = p.publishedAt ? (Date.now() - new Date(p.publishedAt).getTime()) : 0;
+    return age <= REVIEW_WINDOW_MS;
+  });
   const realComments = _webhookComments || [];
 
   // No data at all
@@ -6749,12 +6775,13 @@ function openPerformanceLogModal(id) {
   if (existing.autoFetched) {
     html += `<div style="font-size:11.5px;color:var(--green);margin-bottom:14px;padding:8px 12px;background:var(--green-bg);border-radius:var(--radius)">✓ Auto-fetched from Facebook ${existing.fetchedAt ? '· ' + new Date(existing.fetchedAt).toLocaleDateString() : ''}</div>`;
   }
-  html += '<div style="font-size:11.5px;color:var(--text3);margin-bottom:16px">Reach, reactions, comments and shares are auto-fetched from Facebook. Only inquiries need to be entered manually — check your Facebook DMs/comments.</div>';
+  const autoInq = countInquiryCommentsForPost(post);
+  html += '<div style="font-size:11.5px;color:var(--text3);margin-bottom:16px">Reach, reactions, comments and shares are auto-fetched from Facebook. Comment-based inquiries are counted automatically' + (autoInq ? ' (' + autoInq + ' found)' : '') + ' — only add DM inquiries manually, since Facebook does not link DMs to a post.</div>';
   html += `<div class="form-group"><label class="form-label">Reach</label><input type="text" inputmode="numeric" id="perf-reach" placeholder="Auto-fetched" value="${existing.reach || ''}"></div>`;
   html += `<div class="form-group"><label class="form-label">Reactions</label><input type="text" inputmode="numeric" id="perf-reactions" placeholder="Auto-fetched" value="${existing.reactions || ''}"></div>`;
   html += `<div class="form-group"><label class="form-label">Comments</label><input type="text" inputmode="numeric" id="perf-comments" placeholder="Auto-fetched" value="${existing.comments || ''}"></div>`;
   html += `<div class="form-group"><label class="form-label">Shares</label><input type="text" inputmode="numeric" id="perf-shares" placeholder="Auto-fetched" value="${existing.shares || ''}"></div>`;
-  html += `<div class="form-group"><label class="form-label" style="color:var(--accent2)">Inquiries <span style="font-size:11px;font-weight:400;color:var(--text3)">(manual — check Facebook DMs/comments)</span></label><input type="text" inputmode="numeric" id="perf-inquiries" placeholder="e.g. 2" value="${existing.inquiries || ''}"></div>`;
+  html += `<div class="form-group"><label class="form-label" style="color:var(--accent2)">Inquiries <span style="font-size:11px;font-weight:400;color:var(--text3)">(${autoInq ? autoInq + ' auto-counted from comments — add DMs on top' : 'add DM inquiries manually'})</span></label><input type="text" inputmode="numeric" id="perf-inquiries" placeholder="${autoInq ? autoInq : 'e.g. 2'}" value="${(existing.inquiries !== undefined && existing.inquiries !== '' && existing.inquiries !== null) ? existing.inquiries : (autoInq || '')}"></div>`;
   html += `<div class="form-group"><label class="form-label">Notes (optional)</label><textarea rows="2" id="perf-notes" placeholder="Why did this do well or poorly?">${existing.notes || ''}</textarea></div>`;
   html += `<button class="btn btn-primary" style="width:100%" onclick="savePerformanceLog('${id}')">Save</button>`;
   html += '</div></div></div>';
