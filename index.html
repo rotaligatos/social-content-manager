@@ -11275,6 +11275,7 @@ async function loadCompetitorsScreen() {
           <div style="display:flex;gap:6px;flex-shrink:0">
             <button class="btn btn-secondary btn-sm" style="font-size:11px" onclick="viewCompetitorComparison('${c.id}')">View Comparison</button>
             <button class="btn btn-ghost btn-sm" style="font-size:11px;color:var(--accent2)" onclick="researchCompetitorNow('${c.id}', this)">✦ Research Now</button>
+            <button class="btn btn-ghost btn-sm" style="font-size:11px" onclick="showCompetitorIntel('${c.id}')">View Intel</button>
             <button class="btn btn-ghost btn-sm" style="font-size:11px" onclick="runCompetitorComparison('${c.id}')">Record Snapshot</button>
             <button class="btn btn-ghost btn-sm" style="font-size:11px" onclick="openCompetitorForm('${c.id}')">Edit</button>
             <button class="btn btn-ghost btn-sm" style="font-size:11px;color:var(--red)" onclick="deleteCompetitor('${c.id}','${c.name.replace(/'/g,"\'")}')">Remove</button>
@@ -11389,28 +11390,209 @@ async function deleteCompetitor(id, name) {
   }
 }
 
-// Calls the research-competitor Edge Function — real Brave Search + Claude
-// extraction, saved automatically as a snapshot. Manual trigger only, per
-// design: costs a small amount per click (search + Claude call), so it never
-// runs unattended or on a schedule.
+// Calls the competitor-intel Edge Function (deployed as "hyper-api").
+// Real web search (Brave) + a crawl of the competitor's own website, analysed by
+// Claude. Manual trigger only, by design: each click costs a few search requests
+// plus one Claude call, so it never runs unattended or on a schedule.
+//
+// Falls back to the older research_competitor sync operation if the new function
+// isn't deployed yet, so the button keeps working either way.
+const INTEL_FN_SLUG = 'hyper-api';
+
+function getCompetitorWebsite(c) {
+  const profiles = c?.competitor_profiles || [];
+  const site = profiles.find(p => /website|site|web/i.test(p.platform || ''));
+  if (site?.url) return site.url;
+  const any = profiles.find(p => p.url && !/facebook|instagram|tiktok|youtube/i.test(p.url));
+  return any?.url || '';
+}
+
+// Everything we sell, so the function can diff their catalogue against ours.
+function getOurColorNames() {
+  const out = [];
+  ['wcli', 'cwli', 'mssi'].forEach(co => {
+    (getColors(co) || []).forEach(c => {
+      const n = (c && (c.name || c.colorName || c.title)) || '';
+      if (n && !out.includes(n)) out.push(n);
+    });
+  });
+  return out;
+}
+
 async function researchCompetitorNow(competitorId, btnEl) {
   if (!_session) { showToast('Please sign in to use Research Now', 'error'); return; }
+  const c = (APP._competitorsCache || []).find(x => x.id === competitorId);
+  if (!c) return;
 
   const originalText = btnEl.textContent;
   btnEl.disabled = true;
   btnEl.textContent = 'Researching…';
 
+  const cfg = getSupabaseConfig();
   try {
-    const data = await syncRequest({ operation: 'research_competitor', competitorId });
+    let data = null;
+
+    if (cfg) {
+      const res = await fetch(cfg.url + '/functions/v1/' + INTEL_FN_SLUG, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: c.name,
+          website: getCompetitorWebsite(c),
+          competitorId: c.id,
+          ourColors: getOurColorNames(),
+        }),
+      });
+      if (res.ok) data = await res.json();
+    }
+
+    // Older deployment, or the function isn't there — use the previous path.
+    if (!data) data = await syncRequest({ operation: 'research_competitor', competitorId });
     if (!data || data.error) throw new Error((data && data.error) || 'Research failed');
-    showToast('Snapshot captured — real web search results saved', 'success');
-    loadCompetitorsScreen();
+
+    APP._competitorIntel = APP._competitorIntel || {};
+    APP._competitorIntel[competitorId] = data;
+
+    const thin = !data.summary && !(data.products || []).length;
+    if (thin && !getCompetitorWebsite(c)) {
+      showToast('No website saved for this competitor — add one under Edit for a full profile', 'error');
+    } else {
+      showToast('Intel captured', 'success');
+    }
+    showCompetitorIntel(competitorId);
   } catch (e) {
     showToast('Could not research: ' + e.message, 'error');
   } finally {
     btnEl.disabled = false;
     btnEl.textContent = originalText;
   }
+}
+
+// ── Intel panel ──────────────────────────────────────────────
+function _intelList(title, arr, opts) {
+  const items = (arr || []).filter(Boolean);
+  if (!items.length) return '';
+  const color = (opts && opts.color) || 'var(--text)';
+  return `<div style="margin-bottom:16px">
+    <div style="font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--text3);margin-bottom:6px">${title}</div>
+    <ul style="margin:0;padding-left:18px;font-size:12.5px;line-height:1.65;color:${color}">
+      ${items.map(x => `<li>${String(x).replace(/</g, '&lt;')}</li>`).join('')}
+    </ul>
+  </div>`;
+}
+
+function showCompetitorIntel(competitorId) {
+  const c = (APP._competitorsCache || []).find(x => x.id === competitorId);
+  const d = (APP._competitorIntel || {})[competitorId];
+  if (!d) { showToast('Run Research Now first', 'error'); return; }
+
+  // Share of search — the only real head-to-head scoreboard that exists.
+  const sos = (d.share_of_search || []).filter(r => (r.top || []).length);
+  const sosHtml = sos.length ? `
+    <div style="margin-bottom:18px">
+      <div style="font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--text3);margin-bottom:8px">Share of search — who ranks when a buyer searches</div>
+      <table style="width:100%;border-collapse:collapse;font-size:12px">
+        <tr style="color:var(--text3);font-size:10.5px;text-transform:uppercase">
+          <th style="text-align:left;padding:4px 0">Search term</th>
+          <th style="text-align:center;padding:4px 6px">You</th>
+          <th style="text-align:center;padding:4px 6px">Them</th>
+          <th style="text-align:left;padding:4px 0">Who's #1</th>
+        </tr>
+        ${sos.map(r => {
+          const you = r.ourRank ? `<span style="color:var(--green);font-weight:600">#${r.ourRank}</span>`
+                                : `<span style="color:var(--red)">not top 10</span>`;
+          const them = r.competitorRank ? `#${r.competitorRank}` : '<span style="color:var(--text3)">—</span>';
+          const first = (r.top && r.top[0]) ? r.top[0].host : '—';
+          return `<tr style="border-top:1px solid var(--border)">
+            <td style="padding:7px 0">${r.query}</td>
+            <td style="text-align:center;padding:7px 6px">${you}</td>
+            <td style="text-align:center;padding:7px 6px">${them}</td>
+            <td style="padding:7px 0;color:var(--text2)">${first}</td>
+          </tr>`;
+        }).join('')}
+      </table>
+      <div style="font-size:10.5px;color:var(--text3);margin-top:6px">"Not top 10" is the actionable one — that's a search your buyers make where you don't appear.</div>
+    </div>` : '';
+
+  const gap = d.gap_vs_us || {};
+  const gapHtml = (gap.theyHaveWeDont || []).length || (gap.weHaveTheyDont || []).length ? `
+    <div style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:16px">
+      <div style="flex:1;min-width:200px">${_intelList('They have / you don\'t', gap.theyHaveWeDont, { color: 'var(--amber)' }) || '<div style="font-size:11.5px;color:var(--text3)">Nothing found they carry that you don\'t.</div>'}</div>
+      <div style="flex:1;min-width:200px">${_intelList('You have / they don\'t', gap.weHaveTheyDont, { color: 'var(--green)' })}</div>
+    </div>` : '';
+
+  const changes = (d.changes || []);
+  const isBaseline = changes.length === 1 && /first run/i.test(changes[0]);
+
+  const sources = (d.sources || []).map(u =>
+    `<a href="${u}" target="_blank" rel="noopener" style="font-size:10.5px;color:var(--accent2);text-decoration:none;margin-right:10px">${u.replace(/^https?:\/\//, '').slice(0, 45)}</a>`
+  ).join('');
+
+  const empty = !d.summary && !(d.products || []).length;
+
+  const html = `<div id="intel-overlay" style="position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:2000;display:flex;align-items:center;justify-content:center;padding:20px" onclick="if(event.target.id==='intel-overlay')document.getElementById('intel-overlay').remove()">
+    <div class="card" style="max-width:760px;width:100%;max-height:88vh;overflow-y:auto">
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px;margin-bottom:4px">
+        <div>
+          <div style="font-size:15px;font-weight:600">${(c && c.name) || d.competitor_name || 'Competitor'}</div>
+          <div style="font-size:11px;color:var(--text3)">Intel captured ${new Date().toLocaleDateString()}</div>
+        </div>
+        <button class="btn btn-ghost btn-sm" onclick="document.getElementById('intel-overlay').remove()">Close</button>
+      </div>
+
+      ${empty ? `<div style="font-size:12.5px;color:var(--amber);padding:12px 0;line-height:1.6">
+          No profile could be built — usually because no website is saved for this competitor.
+          Add their website under <b>Edit</b>, then run this again. The share-of-search table below still works without one.
+        </div>` : `
+        <div style="font-size:13px;line-height:1.7;margin:12px 0 16px">${d.summary || ''}</div>
+        ${d.positioning ? `<div style="font-size:12px;color:var(--text2);line-height:1.65;padding:10px 12px;background:var(--bg2);border-radius:8px;margin-bottom:16px"><b style="color:var(--text)">How they position:</b> ${d.positioning}</div>` : ''}
+      `}
+
+      ${sosHtml}
+
+      ${!isBaseline && changes.length ? `<div style="padding:10px 12px;background:var(--bg2);border-left:3px solid var(--accent2);border-radius:6px;margin-bottom:16px">
+        ${_intelList('What changed since last run', changes)}
+      </div>` : ''}
+      ${isBaseline ? `<div style="font-size:11.5px;color:var(--text3);margin-bottom:14px">First run — this becomes the baseline. Run again next month to see what changed.</div>` : ''}
+
+      ${_intelList('Products', d.products)}
+      ${_intelList('Finishes / colours found', d.finishes)}
+      ${_intelList('Promos running', d.promos)}
+      ${_intelList('Branches & dealers', d.dealers)}
+      ${gapHtml}
+      ${_intelList('Strengths', d.strengths)}
+      ${_intelList('Weaknesses', d.weaknesses, { color: 'var(--amber)' })}
+
+      ${(d.content_angles || []).length ? `<div style="padding:12px;background:var(--bg2);border-radius:8px;margin-bottom:14px">
+        ${_intelList('Post ideas that counter-position against them', d.content_angles, { color: 'var(--green)' })}
+        <button class="btn btn-secondary btn-sm" style="font-size:11px;margin-top:4px" onclick="useIntelAngles('${competitorId}')">Send these to Create Post</button>
+      </div>` : ''}
+
+      ${sources ? `<div style="border-top:1px solid var(--border);padding-top:10px">
+        <div style="font-size:10.5px;color:var(--text3);margin-bottom:4px">Sources — verify before using in a pitch</div>${sources}
+      </div>` : ''}
+    </div>
+  </div>`;
+
+  document.getElementById('intel-overlay')?.remove();
+  document.body.insertAdjacentHTML('beforeend', html);
+}
+
+// Carries the content angles over to Create Post as notes, so the research
+// actually turns into posts instead of being read once and forgotten.
+function useIntelAngles(competitorId) {
+  const d = (APP._competitorIntel || {})[competitorId];
+  if (!d) return;
+  const angles = (d.content_angles || []).join('\n- ');
+  if (!angles) return;
+  APP._pendingNotes = 'Counter-positioning angles from competitor research:\n- ' + angles;
+  document.getElementById('intel-overlay')?.remove();
+  navigateTo('create');
+  setTimeout(() => {
+    const notes = document.getElementById('post-notes') || document.querySelector('#screen-create textarea');
+    if (notes) { notes.value = APP._pendingNotes; notes.dispatchEvent(new Event('input')); }
+    showToast('Angles copied into your notes', 'success');
+  }, 300);
 }
 
 // Opens a manual snapshot form — a fallback for when Research Now isn't available
