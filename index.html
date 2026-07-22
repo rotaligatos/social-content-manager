@@ -11758,7 +11758,18 @@ async function loadCompetitorsScreen() {
     const company = COMP_ACTIVE_TAB === 'all' ? '' : COMP_ACTIVE_TAB;
     const res = await syncRequest({ operation: 'list_competitors', company: company || undefined });
     const list = res?.competitors || [];
-    APP._competitorsCache = list; // used by the edit form to prefill
+    APP._competitorsCache = list; // scoped to the active tab - used by the list + edit form
+    // Also keep the FULL list (all companies) so the Reports/Market Analysis are always
+    // comprehensive regardless of which page tab is active. Without this, sitting on the
+    // WCLI tab made the report unable to see MSSI/CWLI competitors at all.
+    if (COMP_ACTIVE_TAB === 'all') {
+      APP._allCompetitors = list;
+    } else {
+      try {
+        const allRes = await syncRequest({ operation: 'list_competitors' });
+        APP._allCompetitors = allRes?.competitors || APP._allCompetitors || list;
+      } catch (_e) { APP._allCompetitors = APP._allCompetitors || list; }
+    }
     hydrateIntelCache();           // restores saved intel so View Intel survives a reload
 
     if (!list.length) {
@@ -12362,7 +12373,7 @@ function buildMarketAnalysis() {
   const coFilter = (typeof REPORTS_COMPANY !== 'undefined') ? REPORTS_COMPANY : 'all';
   // When focused on one company, only its competitors, its buying searches, and its
   // own performance feed the report - so a WCLI-specific finding isn't diluted by MSSI.
-  const fullList = APP._competitorsCache || [];
+  const fullList = APP._allCompetitors || APP._competitorsCache || [];
   const list = coFilter === 'all' ? fullList
     : fullList.filter(c => (c.competes_with || []).map(x => String(x).toLowerCase()).includes(coFilter));
   const store = loadIntelStore();
@@ -12890,7 +12901,11 @@ function buildMarketAnalysis() {
 }
 
 // ── Market Analysis view ─────────────────────────────────────
-function showMarketAnalysis() {
+async function showMarketAnalysis() {
+  await ensureAllCompetitors();
+  // Mirror the Competitors-page tab into the report focus (shared state). Underlying
+  // data is the full list, so switching tabs changes the lens, never deletes anything.
+  if (typeof COMP_ACTIVE_TAB !== 'undefined') REPORTS_COMPANY = COMP_ACTIVE_TAB;
   const a = buildMarketAnalysis();
   if (!a.rows.length) {
     showToast('No research saved yet — run Analyze All first', 'error');
@@ -13534,7 +13549,7 @@ const TONE = {
 // Their actual swatch photographs, harvested from their own colour pages.
 function getCompetitorSwatches(limitPer) {
   const store = loadIntelStore();
-  const list = APP._competitorsCache || [];
+  const list = APP._allCompetitors || APP._competitorsCache || [];
   const out = [];
   list.forEach(c => {
     const d = store[c.id]?.data;
@@ -13676,9 +13691,21 @@ function setAnalysisWindowFromReports(key) {
   renderReportsScreen();
 }
 
-function renderReportsScreen() {
+// Loads the full competitor list (all companies) once, so the report is comprehensive
+// even when Reports is opened straight from the sidebar without touching Competitors.
+async function ensureAllCompetitors() {
+  if (APP._allCompetitors && APP._allCompetitors.length) return;
+  if (!_session) return;
+  try {
+    const res = await syncRequest({ operation: 'list_competitors' });
+    APP._allCompetitors = res?.competitors || [];
+  } catch (_e) { APP._allCompetitors = APP._allCompetitors || APP._competitorsCache || []; }
+}
+
+async function renderReportsScreen() {
   const el = document.getElementById('reports-content');
   if (!el) return;
+  await ensureAllCompetitors();
   hydrateIntelCache();
   // Keep the header dropdown in sync (topbar is static markup rendered once).
   const sel = document.querySelectorAll('#screen-reports select')[1];
@@ -13686,7 +13713,7 @@ function renderReportsScreen() {
   const coSel = document.getElementById('reports-company-filter');
   if (coSel) coSel.value = REPORTS_COMPANY;
 
-  const list = APP._competitorsCache || [];
+  const list = APP._allCompetitors || APP._competitorsCache || [];
   if (!list.length) {
     el.innerHTML = `<div class="empty-state">
       <div class="empty-icon">📄</div>
