@@ -12425,6 +12425,16 @@ function showCompetitorIntel(competitorId) {
       })()}
       ${_intelList('Promos running', d.promos)}
       ${_intelList('Branches & dealers', d.dealers)}
+      ${(() => {
+        const soc = d.social || [];
+        if (!soc.length) return '';
+        return `<div style="margin-bottom:16px">
+          <div style="font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--text3);margin-bottom:6px">Social presence (which platforms — not metrics)</div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            ${soc.map(sp => `<a href="${sp.url || '#'}" target="_blank" rel="noopener" style="font-size:11.5px;padding:3px 9px;border:1px solid var(--border);border-radius:14px;color:var(--accent2);text-decoration:none">${sp.platform}${sp.handle ? ' ' + sp.handle : ''}</a>`).join('')}
+          </div>
+        </div>`;
+      })()}
       ${gapHtml}
       ${_intelList('Strengths', d.strengths)}
       ${_intelList('Weaknesses', d.weaknesses, { color: 'var(--amber)' })}
@@ -12918,10 +12928,52 @@ function buildMarketAnalysis() {
       text: `"${t.theme}" is the most common weakness across ${t.competitors.length} competitor${t.competitors.length === 1 ? '' : 's'} (${t.competitors.join(', ')}) — the clearest opening for ${forWho} messaging.`,
     });
   }
+  // Channel-gap highlights - the "consider Instagram / TikTok" opening, evidence-based.
+  channelGaps.forEach(sp => {
+    const emphasis = /Instagram|TikTok/.test(sp.platform);
+    highlights.push({
+      tone: emphasis ? 'warn' : 'good',
+      company: coFilter !== 'all' ? (COMPANY_LABEL[coFilter] || coFilter.toUpperCase()) : null,
+      text: `${sp.competitors.length} competitor${sp.competitors.length === 1 ? '' : 's'} ${sp.competitors.length === 1 ? 'is' : 'are'} on ${sp.platform} (${sp.competitors.map(c => c.name).join(', ')}) — a channel you are not on yet.${emphasis ? ' Worth considering.' : ''}`,
+    });
+  });
+
   const notResearched = list.length - rows.length;
   if (notResearched > 0) {
     highlights.push({ tone: 'warn', company: null, text: `${notResearched} competitor${notResearched === 1 ? '' : 's'} not yet researched — findings below cover ${rows.length} of ${list.length}.` });
   }
+
+  // --- Social presence across rivals (PRESENCE only, never metrics). This is the
+  // honest, legitimate half of "Instagram/TikTok analytics" - who is on which
+  // platform - and it surfaces channels rivals use that you have not started.
+  const PLATFORM_CANON = (pf) => {
+    const t = String(pf || '').toLowerCase();
+    if (/face/.test(t)) return 'Facebook';
+    if (/insta|ig\b/.test(t)) return 'Instagram';
+    if (/tik ?tok/.test(t)) return 'TikTok';
+    if (/you ?tube/.test(t)) return 'YouTube';
+    if (/linked/.test(t)) return 'LinkedIn';
+    if (/pinterest/.test(t)) return 'Pinterest';
+    if (/viber/.test(t)) return 'Viber';
+    if (/x\b|twitter/.test(t)) return 'X / Twitter';
+    return pf ? (pf[0].toUpperCase() + pf.slice(1)) : '';
+  };
+  const socialPresence = {};
+  rows.forEach(({ competitor, rec }) => ((rec.data || {}).social || []).forEach(sp => {
+    const plat = PLATFORM_CANON(sp.platform); if (!plat) return;
+    socialPresence[plat] = socialPresence[plat] || { platform: plat, competitors: [] };
+    if (!socialPresence[plat].competitors.some(c => c.name === competitor.name)) {
+      socialPresence[plat].competitors.push({ name: competitor.name, handle: sp.handle || '', url: sp.url || '' });
+    }
+  }));
+  const socialRows = Object.values(socialPresence).sort((a, b) => b.competitors.length - a.competitors.length);
+
+  // Which platforms WE are on. We know Facebook; the rest come from any social
+  // identity you have declared. Everything else a rival uses is an open channel.
+  let ourPlatforms;
+  try { ourPlatforms = new Set((JSON.parse(localStorage.getItem('scm_our_platforms') || 'null') || ['Facebook']).map(PLATFORM_CANON)); }
+  catch (_e) { ourPlatforms = new Set(['Facebook']); }
+  const channelGaps = socialRows.filter(sp => !ourPlatforms.has(sp.platform));
 
   // Trends across every run in the window - this is what "look at the past to
   // understand the present" looks like for competitors. Needs 2+ runs to say anything.
@@ -13150,6 +13202,23 @@ function buildMarketAnalysis() {
       });
     }
 
+    const priorityChannels = (typeof channelGaps !== 'undefined' ? channelGaps : []).filter(sp => /Instagram|TikTok/.test(sp.platform));
+    priorityChannels.forEach(sp => {
+      actions.push({
+        company: 'All',
+        action: `Consider opening a ${sp.platform} presence`,
+        why: `${sp.competitors.length} of your researched competitors are already on ${sp.platform} (${sp.competitors.map(c => c.name).join(', ')}), and you are not. ${sp.platform === 'TikTok' ? 'TikTok in particular rewards new accounts with reach that established platforms no longer give — short factory, finish, and installation clips suit the trade well.' : 'Instagram is where finished-project and finish photography performs, and it cross-posts cleanly from your existing Facebook content.'} This is presence-based observation, not a metric — no one can see their actual follower or view numbers.`,
+        how: [
+          `Start by cross-posting your best existing ${sp.platform === 'TikTok' ? 'video' : 'photo'} content — no new production needed at first.`,
+          `Claim the handle now even if you post later, so the name is reserved and consistent across platforms.`,
+          `Watch which of your competitors' public posts get visible engagement for a sense of what lands, without treating it as hard data.`,
+          `Once posting, log results here manually so this analysis can learn from it.`,
+        ],
+        effort: 'Medium', impact: sp.platform === 'TikTok' ? 'High' : 'Medium',
+        pillar: 'Brand Story + Aspiration',
+      });
+    });
+
     if (strong.length) {
       actions.push({
         company: [...new Set(strong.map(q => q.companyLabel))].join(' / '),
@@ -13185,7 +13254,7 @@ function buildMarketAnalysis() {
   }
   const outConclusion = conclusion ? { ...conclusion, actions: outActions } : conclusion;
 
-  return { rows, search, dominance, marketGaps, colorGaps, textureGaps, substrateGaps, certGaps, certClaims, priceRows, pricingPosture, priceChanges, ownPerf, windowInfo, trends, themes, activity, highlights: outHighlights, conclusion: outConclusion, coverage: { analysed: rows.length, total: list.length } };
+  return { rows, search, dominance, marketGaps, colorGaps, textureGaps, substrateGaps, certGaps, certClaims, priceRows, pricingPosture, priceChanges, ownPerf, windowInfo, trends, socialRows, channelGaps, themes, activity, highlights: outHighlights, conclusion: outConclusion, coverage: { analysed: rows.length, total: list.length } };
 }
 
 // ── Market Analysis view ─────────────────────────────────────
@@ -14185,6 +14254,28 @@ async function renderReportsScreen() {
     })()}
 
     ${conclusionHtml}
+
+    ${(a.socialRows || []).length ? `<div class="card" style="margin-bottom:14px">
+      <div style="font-size:13px;font-weight:600;margin-bottom:4px">Where competitors are present</div>
+      <div style="font-size:11px;color:var(--text3);margin-bottom:10px;line-height:1.55">Which platforms each rival is on — <b>presence only</b>. No follower or engagement numbers are shown for anyone, because no legitimate source for another account's analytics exists. Platforms you are not on yet are flagged as openings.</div>
+      <table style="width:100%;border-collapse:collapse;font-size:12px">
+        <tr style="color:var(--text3);font-size:10.5px;text-transform:uppercase">
+          <th style="text-align:left;padding:4px 0">Platform</th>
+          <th style="text-align:center;padding:4px 6px">Rivals on it</th>
+          <th style="text-align:left;padding:4px 0">Who</th>
+          <th style="text-align:center;padding:4px 6px">You?</th>
+        </tr>
+        ${a.socialRows.map(sp => {
+          const youOn = !(a.channelGaps || []).some(g => g.platform === sp.platform);
+          return `<tr style="border-top:1px solid var(--border)">
+            <td style="padding:7px 0;font-weight:500">${sp.platform}</td>
+            <td style="text-align:center;padding:7px 6px">${sp.competitors.length}</td>
+            <td style="padding:7px 0;color:var(--text2);font-size:11.5px">${sp.competitors.map(c => c.url ? `<a href="${c.url}" target="_blank" rel="noopener" style="color:var(--accent2);text-decoration:none">${c.name}</a>` : c.name).join(', ')}</td>
+            <td style="text-align:center;padding:7px 6px">${youOn ? '<span style="color:var(--green)">on it</span>' : '<span style="color:var(--amber)">not yet</span>'}</td>
+          </tr>`;
+        }).join('')}
+      </table>
+    </div>` : ''}
 
     ${(a.trends || []).length ? `<div class="card" style="margin-bottom:14px;border-left:3px solid var(--accent2)">
       <div style="font-size:13px;font-weight:600;margin-bottom:4px">Trends across this window</div>
