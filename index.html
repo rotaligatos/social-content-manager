@@ -648,7 +648,10 @@ select:focus{border-color:var(--accent-border);}
         <button class="btn btn-ghost btn-sm" onclick="changeMonth(1)">→</button>
         <button class="btn btn-ghost btn-sm" onclick="goToToday()" style="margin-left:8px">Today</button>
       </div>
-      <button class="btn btn-primary btn-sm" onclick="checkUnsavedBeforeNav('autogen')">+ Fill Week</button>
+      <div style="display:flex;gap:6px">
+        <button class="btn btn-ghost btn-sm" onclick="openCampaignFlagForm()" title="Mark a contest, boost or event so it doesn't distort what the app learns">⚑ Mark campaign</button>
+        <button class="btn btn-primary btn-sm" onclick="checkUnsavedBeforeNav('autogen')">+ Fill Week</button>
+      </div>
     </div>
     <div class="cal-grid" id="calendar-grid"></div>
     <div id="cal-day-detail"></div>
@@ -6034,9 +6037,17 @@ function renderPerformance() {
   html += `<div class="card" style="margin-bottom:20px;border-color:var(--accent-border)">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
       <div style="font-size:13px;font-weight:500">✦ AI Strategy Analysis ${PERF_ACTIVE_TAB !== 'all' ? '— ' + PERF_ACTIVE_TAB.toUpperCase() : ''}</div>
-      <button class="btn btn-primary btn-sm" onclick="runAIAnalysis()">
-        ${savedAnalysis ? 'Re-analyze' : 'Analyze & Recommend'}
-      </button>
+      <div style="display:flex;gap:6px;align-items:center">
+        <button class="btn ${loadCampaignFlags().length ? 'btn-secondary' : 'btn-ghost'} btn-sm"
+                style="font-size:11px;${loadCampaignFlags().length ? 'color:var(--amber)' : ''}"
+                onclick="openCampaignFlagForm()"
+                title="Mark a contest, boost or event so it doesn't distort what the app learns">
+          ⚑ Flag campaign${loadCampaignFlags().length ? ' (' + loadCampaignFlags().length + ')' : ''}
+        </button>
+        <button class="btn btn-primary btn-sm" onclick="runAIAnalysis()">
+          ${savedAnalysis ? 'Re-analyze' : 'Analyze & Recommend'}
+        </button>
+      </div>
     </div>
     ${savedAnalysis
       ? `<div id="ai-analysis-output" style="font-size:13px;line-height:1.8;color:var(--text2);white-space:pre-wrap">${savedAnalysis}</div>
@@ -6046,7 +6057,10 @@ function renderPerformance() {
     }
     <div style="font-size:11px;color:var(--text3);margin-top:10px;padding-top:10px;border-top:1px solid var(--border)">${getStrategyAgeLabel()}</div>
     <div style="font-size:11px;color:var(--text3);margin-top:6px">${getDirectivesLabel()}</div>
-    <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-top:8px;padding-top:8px;border-top:1px solid var(--border)">
+    ${countFlaggedPosts() ? `<div style="background:var(--bg2);border-left:3px solid var(--amber);border-radius:6px;padding:8px 11px;margin-bottom:12px;font-size:11.5px;line-height:1.6">
+      <b style="color:var(--amber)">${countFlaggedPosts()} post${countFlaggedPosts() === 1 ? '' : 's'} excluded</b> from this analysis — inside a flagged campaign period. Raw numbers are unchanged; they're just not treated as normal activity.
+    </div>` : ''}
+    <div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--border);font-size:11px;color:${loadCampaignFlags().length ? 'var(--amber)' : 'var(--text3)'}">${getCampaignFlagLabel()}</div>
       <div style="font-size:11px;color:${loadCampaignFlags().length ? 'var(--amber)' : 'var(--text3)'};flex:1;min-width:220px">${getCampaignFlagLabel()}</div>
       <button class="btn btn-ghost btn-sm" style="font-size:11px" onclick="openCampaignFlagForm()">⚑ Flag a campaign period</button>
     </div>
@@ -6898,6 +6912,18 @@ function campaignFlagFor(post) {
   }) || null;
 }
 
+// Same test as campaignFlagFor(), but for a bare date - used to shade the calendar.
+function campaignFlagForDate(date, companyFilter) {
+  const t = new Date(date).setHours(12, 0, 0, 0);
+  const co = String(companyFilter || 'all').toLowerCase();
+  return loadCampaignFlags().find(f => {
+    if (co !== 'all' && f.company && f.company !== 'all' && f.company !== co) return false;
+    const from = new Date(f.from + 'T00:00:00').getTime();
+    const to = new Date(f.to + 'T23:59:59').getTime();
+    return t >= from && t <= to;
+  }) || null;
+}
+
 // The filter every self-learning path runs through.
 function excludeFlaggedPosts(posts) {
   const flags = loadCampaignFlags();
@@ -6925,10 +6951,19 @@ function getCampaignFlagLabel() {
     (excluded ? ` — ${excluded} post${excluded === 1 ? '' : 's'} held out of self-learning so the numbers stay honest.` : ' — no logged posts fall inside them yet.');
 }
 
-function openCampaignFlagForm(existingId) {
+// Opens the flag form prefilled from a calendar day - campaigns are usually
+// planned around a date you are already looking at.
+function flagFromCalendar(year, month, day) {
+  const existing = campaignFlagForDate(new Date(year, month, day), APP.calFilter);
+  if (existing) { openCampaignFlagForm(existing.id); return; }
+  const iso = new Date(year, month, day).toISOString().slice(0, 10);
+  openCampaignFlagForm(null, iso);
+}
+
+function openCampaignFlagForm(existingId, prefillDate) {
   const list = loadCampaignFlags();
   const f = existingId ? list.find(x => x.id === existingId) : null;
-  const today = new Date().toISOString().slice(0, 10);
+  const today = prefillDate || new Date().toISOString().slice(0, 10);
 
   const html = `<div id="flag-overlay" style="position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:2100;display:flex;align-items:center;justify-content:center;padding:20px" onclick="if(event.target.id==='flag-overlay')document.getElementById('flag-overlay').remove()">
     <div class="card" style="max-width:520px;width:100%">
@@ -6996,12 +7031,14 @@ function saveCampaignFlag(id) {
   const n = countFlaggedPosts();
   showToast(rec.keepInAnalysis ? 'Period flagged and kept in analysis' : `Period flagged — ${n} post${n === 1 ? '' : 's'} now held out of self-learning`, 'success');
   if (typeof renderPerformance === 'function') renderPerformance();
+  if (typeof renderCalendar === 'function') renderCalendar();
 }
 
 function deleteCampaignFlag(id) {
   saveCampaignFlags(loadCampaignFlags().filter(x => x.id !== id));
   showToast('Flag removed', 'success');
   if (typeof renderPerformance === 'function') renderPerformance();
+  if (typeof renderCalendar === 'function') renderCalendar();
 }
 
 function buildPerformanceSummary(company) {
@@ -7204,11 +7241,16 @@ function renderCalendar() {
       const pd = postDateForCalendar(p);
       return pd.getFullYear()===CAL_YEAR && pd.getMonth()===CAL_MONTH && pd.getDate()===d && (APP.calFilter==='all' || p.company===APP.calFilter);
     });
+    // A flagged campaign window is shaded across the whole range, so you can see
+    // at a glance which weeks are not normal activity.
+    const flag = campaignFlagForDate(new Date(CAL_YEAR, CAL_MONTH, d), APP.calFilter);
+    const flagStyle = flag ? `background:rgba(200,150,60,0.09);box-shadow:inset 0 2px 0 var(--amber);` : '';
+    const flagHtml = flag ? `<div style="font-size:9px;color:var(--amber);margin-bottom:3px;font-weight:600" title="${(CAMPAIGN_KINDS[flag.kind] || 'Flagged')}${flag.note ? ' — ' + flag.note : ''}">⚑ ${CAMPAIGN_KINDS[flag.kind] || 'Flagged'}</div>` : '';
     const holiday = getHolidayFor(new Date(CAL_YEAR, CAL_MONTH, d));
     const holidayHtml = holiday ? `<div style="font-size:9.5px;color:var(--amber);margin-bottom:3px;font-weight:500" title="${holiday.name}">🇵🇭 ${holiday.name}</div>` : '';
     const chipsHtml = dayPosts.slice(0,3).map(p => '<div class="cal-post-chip badge-'+p.company+'">'+p.pillar+'</div>').join('');
     const moreHtml = dayPosts.length > 3 ? '<div style="font-size:10px;color:var(--text3);padding-left:2px">+'+(dayPosts.length-3)+' more</div>' : '';
-    html += '<div class="cal-day '+(d===todayD?'today':'')+'" onclick="showDayDetail('+CAL_YEAR+','+CAL_MONTH+','+d+')"><div class="cal-day-num">'+d+'</div>'+holidayHtml+chipsHtml+moreHtml+'</div>';
+    html += '<div class="cal-day '+(d===todayD?'today':'')+'" style="'+flagStyle+'" onclick="showDayDetail('+CAL_YEAR+','+CAL_MONTH+','+d+')"><div class="cal-day-num">'+d+'</div>'+flagHtml+holidayHtml+chipsHtml+moreHtml+'</div>';
   }
   const rem = 42 - firstDay - daysInMonth;
   for (let i = 1; i <= rem; i++) html += '<div class="cal-day other-month"><div class="cal-day-num">'+i+'</div></div>';
@@ -7231,7 +7273,12 @@ function showDayDetail(year, month, day) {
           <button class="btn btn-ghost btn-sm" onclick="closeDayDetail()">Close</button>
         </div>
         <div style="font-size:13px;color:var(--text3)">No posts on this day.</div>
-        <button class="btn btn-primary btn-sm" style="margin-top:10px" onclick="checkUnsavedBeforeNav('create')">Create a Post</button>
+        ${(() => { const f = campaignFlagForDate(new Date(year, month, day), APP.calFilter);
+          return f ? `<div style="font-size:12px;color:var(--amber);margin-top:8px">⚑ Inside a flagged period: ${CAMPAIGN_KINDS[f.kind] || 'campaign'}${f.note ? ' — ' + f.note : ''}</div>` : ''; })()}
+        <div style="display:flex;gap:8px;margin-top:10px">
+          <button class="btn btn-primary btn-sm" onclick="checkUnsavedBeforeNav('create')">Create a Post</button>
+          <button class="btn btn-ghost btn-sm" onclick="flagFromCalendar(${year},${month},${day})">⚑ Mark campaign from here</button>
+        </div>
       </div>`;
     return;
   }
