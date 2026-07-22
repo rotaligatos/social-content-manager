@@ -1120,20 +1120,22 @@ select:focus{border-color:var(--accent-border);}
           <div style="font-size:14px;font-weight:500;margin-bottom:4px">Facebook Pages</div>
           <div style="font-size:12px;color:var(--text3);margin-bottom:20px">Add Page ID and Page Access Token for each company.</div>
           <div style="margin-bottom:20px;padding-bottom:20px;border-bottom:1px solid var(--border)">
-            <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px"><div style="width:8px;height:8px;border-radius:50%;background:var(--mssi)"></div><div style="font-size:13.5px;font-weight:500;color:var(--mssi)">MSSI</div></div>
-            <div class="form-group"><label class="form-label">Page ID</label><input type="text" id="fb-mssi-id" placeholder="123456789012345"></div>
-            <div class="form-group"><label class="form-label">Page Access Token</label><input type="password" id="fb-mssi-token" placeholder="EAAxxxxxxxx..."></div>
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px"><div style="width:8px;height:8px;border-radius:50%;background:var(--mssi)"></div><div style="font-size:13.5px;font-weight:500;color:var(--mssi)">MSSI</div><span style="font-size:11px;color:var(--text3);margin-left:auto">Official + sub-pages</span></div>
+            <div style="font-size:11.5px;color:var(--text3);margin-bottom:12px">Declare the official page and any sub-pages / annexes. Fill the URL now to define identity; add Page ID and token when you have access.</div>
+            <div id="mssi-pages-list"></div>
+            <button class="btn btn-secondary btn-sm" onclick="addCompanyPageField('mssi')">+ Add MSSI Page</button>
           </div>
           <div style="margin-bottom:20px;padding-bottom:20px;border-bottom:1px solid var(--border)">
             <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px"><div style="width:8px;height:8px;border-radius:50%;background:var(--wcli)"></div><div style="font-size:13.5px;font-weight:500;color:var(--wcli)">WCLI</div><span style="font-size:11px;color:var(--text3);margin-left:auto">Supports multiple pages</span></div>
             <div style="font-size:11.5px;color:var(--text3);margin-bottom:12px">WCLI can publish to more than one Facebook Page — useful for regional or pilot pages alongside the official page. Add as many as you need; each post will let you choose which one to publish to.</div>
             <div id="wcli-pages-list"></div>
-            <button class="btn btn-secondary btn-sm" onclick="addWcliPageField()">+ Add WCLI Page</button>
+            <button class="btn btn-secondary btn-sm" onclick="addCompanyPageField('wcli')">+ Add WCLI Page</button>
           </div>
           <div>
-            <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px"><div style="width:8px;height:8px;border-radius:50%;background:var(--cwli)"></div><div style="font-size:13.5px;font-weight:500;color:var(--cwli)">CWLI</div></div>
-            <div class="form-group"><label class="form-label">Page ID</label><input type="text" id="fb-cwli-id" placeholder="123456789012345"></div>
-            <div class="form-group"><label class="form-label">Page Access Token</label><input type="password" id="fb-cwli-token" placeholder="EAAxxxxxxxx..."></div>
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px"><div style="width:8px;height:8px;border-radius:50%;background:var(--cwli)"></div><div style="font-size:13.5px;font-weight:500;color:var(--cwli)">CWLI</div><span style="font-size:11px;color:var(--text3);margin-left:auto">Official + sub-pages</span></div>
+            <div style="font-size:11.5px;color:var(--text3);margin-bottom:12px">Declare the official page and any sub-pages / annexes. Fill the URL now to define identity; add Page ID and token when you have access.</div>
+            <div id="cwli-pages-list"></div>
+            <button class="btn btn-secondary btn-sm" onclick="addCompanyPageField('cwli')">+ Add CWLI Page</button>
           </div>
           <button class="btn btn-primary" style="margin-top:10px" onclick="saveFbPages()">Save Page Settings</button>
         </div>
@@ -1148,7 +1150,7 @@ select:focus{border-color:var(--accent-border);}
             <label class="form-label">Which page?</label>
             <select id="token-exchange-company" style="font-size:12px;padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg3);color:var(--text);width:100%">
               <option value="mssi">MSSI — Module Systems & Services Inc.</option>
-              <option value="wcli">WCLI — first page</option>
+              <option value="wcli">WCLI — official page</option>
               <option value="cwli">CWLI</option>
             </select>
           </div>
@@ -4391,9 +4393,9 @@ async function checkTokenHealth() {
   const pages = APP.fbPages || JSON.parse(localStorage.getItem('scm_fb_pages') || '{}');
   const checks = [];
 
-  if (pages.mssi?.token) checks.push({ company: 'MSSI', token: pages.mssi.token });
-  if (Array.isArray(pages.wcli) && pages.wcli[0]?.token) checks.push({ company: 'WCLI', token: pages.wcli[0].token });
-  if (pages.cwli?.token) checks.push({ company: 'CWLI', token: pages.cwli.token });
+  if (getPageToken('mssi')) checks.push({ company: 'MSSI', token: getPageToken('mssi') });
+  if (getPageToken('wcli')) checks.push({ company: 'WCLI', token: getPageToken('wcli') });
+  if (getPageToken('cwli')) checks.push({ company: 'CWLI', token: getPageToken('cwli') });
 
   if (!checks.length) { resultEl.innerHTML = '<div style="color:var(--red)">No tokens configured yet</div>'; return; }
 
@@ -4472,14 +4474,15 @@ async function convertToPermanentToken() {
     const fbPages = APP.fbPages || JSON.parse(localStorage.getItem('scm_fb_pages') || '{}');
 
     if (company === 'mssi') {
-      fbPages.mssi = fbPages.mssi || {};
-      fbPages.mssi.token = permanentToken;
-    } else if (company === 'wcli') {
-      if (!Array.isArray(fbPages.wcli)) fbPages.wcli = [{}];
-      fbPages.wcli[0].token = permanentToken;
-    } else if (company === 'cwli') {
-      fbPages.cwli = fbPages.cwli || {};
-      fbPages.cwli.token = permanentToken;
+      // Write the permanent token to the OFFICIAL page of the selected company
+      // (the array format now used for all three). Falls back to the first page.
+      const co = document.getElementById('token-exchange-company')?.value || 'mssi';
+      fbPages[co] = Array.isArray(fbPages[co]) ? fbPages[co] : (fbPages[co] && (fbPages[co].id || fbPages[co].token)
+        ? [{ name: co.toUpperCase(), role: 'official', id: fbPages[co].id || '', token: fbPages[co].token || '' }] : []);
+      if (!fbPages[co].length) fbPages[co] = [{ name: co.toUpperCase(), role: 'official', id: '', token: '' }];
+      let tgt = fbPages[co].find(pg => pg.role === 'official') || fbPages[co][0];
+      tgt.token = permanentToken;
+      if (pageId) tgt.id = pageId;
     }
 
     localStorage.setItem('scm_fb_pages', JSON.stringify(fbPages));
@@ -4504,19 +4507,8 @@ async function subscribePageToWebhook(company) {
   const pages = APP.fbPages || JSON.parse(localStorage.getItem('scm_fb_pages') || '{}');
   const statusEl = document.getElementById('webhook-subscribe-status');
 
-  let pageId, token;
-  if (company === 'mssi') {
-    pageId = pages.mssi?.id;
-    token = pages.mssi?.token;
-  } else if (company === 'wcli') {
-    // WCLI pages stored as array in pages.wcli
-    const wcliPages = Array.isArray(pages.wcli) ? pages.wcli : [];
-    pageId = wcliPages[0]?.id;
-    token = wcliPages[0]?.token;
-  } else if (company === 'cwli') {
-    pageId = pages.cwli?.id;
-    token = pages.cwli?.token;
-  }
+  const off = getOfficialPage(company) || {};
+  let pageId = off.id, token = off.token;
 
   if (!pageId || !token) {
     if (statusEl) statusEl.innerHTML = `<span style="color:var(--red)">❌ No page ID or token saved for ${company.toUpperCase()} — save page settings first</span>`;
@@ -5232,9 +5224,7 @@ function updateDashboard() {
     // Facebook connection status
     const fbPages = APP.fbPages || JSON.parse(localStorage.getItem('scm_fb_pages') || '{}');
     let hasToken = false;
-    if (co === 'mssi') hasToken = !!(fbPages.mssi && fbPages.mssi.token);
-    else if (co === 'wcli') hasToken = !!(Array.isArray(fbPages.wcli) ? fbPages.wcli[0]?.token : fbPages.wcli?.token);
-    else if (co === 'cwli') hasToken = !!(fbPages.cwli && fbPages.cwli.token);
+    hasToken = !!getPageToken(co);
     const dot = document.getElementById('dot-' + co);
     const statusEl = document.getElementById('status-' + co);
     if (dot && statusEl) {
@@ -7904,85 +7894,142 @@ function updateApiStatusBadges() {
   });
 }
 
-function renderWcliPagesList() {
-  const list = document.getElementById('wcli-pages-list');
-  if (!list) return;
-  const pages = (APP.fbPages && APP.fbPages.wcli && Array.isArray(APP.fbPages.wcli)) ? APP.fbPages.wcli : [];
-  if (!pages.length) {
-    // Always show at least one empty row so there's something to fill in
-    list.innerHTML = wcliPageRowHtml(0, { name: '', id: '', token: '' });
-    return;
-  }
-  list.innerHTML = pages.map((p, i) => wcliPageRowHtml(i, p)).join('');
+// Page list renderer, now generalised to any company. Each company can declare an
+// Official/Main page plus any number of Sub-pages / Annexes, with the page URL and
+// (later) the access token. Identity can be filled now; tokens when access exists.
+const PAGE_COMPANIES = ['mssi', 'wcli', 'cwli'];
+
+function getCompanyPages(company) {
+  const pages = APP.fbPages || {};
+  const entry = pages[company];
+  if (Array.isArray(entry)) return entry;
+  if (entry && (entry.id || entry.token || entry.url || entry.name)) return [{ ...entry, role: entry.role || 'official' }];
+  return [];
 }
 
-function wcliPageRowHtml(index, page) {
+function renderCompanyPagesList(company) {
+  const list = document.getElementById(company + '-pages-list');
+  if (!list) return;
+  const pages = getCompanyPages(company);
+  if (!pages.length) { list.innerHTML = companyPageRowHtml(company, 0, { role: 'official' }); return; }
+  list.innerHTML = pages.map((p, i) => companyPageRowHtml(company, i, p)).join('');
+}
+
+function companyPageRowHtml(company, index, page) {
+  const role = page.role || (index === 0 ? 'official' : 'sub');
+  const multi = getCompanyPages(company).length > 1;
   return `
-    <div style="background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius);padding:12px;margin-bottom:10px" data-wcli-row="${index}">
+    <div style="background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius);padding:12px;margin-bottom:10px" data-page-row="${company}-${index}">
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
-        <input type="text" class="wcli-page-name" placeholder="Page label (e.g. WCLI Regional Pilot)" value="${page.name || ''}" style="flex:1;font-size:12.5px">
-        ${index > 0 || (APP.fbPages && APP.fbPages.wcli && APP.fbPages.wcli.length > 1) ? `<button class="btn btn-ghost btn-sm" style="color:var(--red)" onclick="removeWcliPageField(${index})">Remove</button>` : ''}
+        <input type="text" class="pg-name" placeholder="Page label (e.g. ${company.toUpperCase()} Annex)" value="${page.name || ''}" style="flex:1;font-size:12.5px">
+        <select class="pg-role" style="font-size:11.5px;padding:5px 8px;border-radius:6px" title="Official / main page vs a sub-page / annex">
+          <option value="official" ${role === 'official' ? 'selected' : ''}>Official / Main</option>
+          <option value="sub" ${role === 'sub' ? 'selected' : ''}>Sub-page / Annex</option>
+        </select>
+        ${index > 0 || multi ? `<button class="btn btn-ghost btn-sm" style="color:var(--red)" onclick="removeCompanyPageField('${company}', ${index})">Remove</button>` : ''}
       </div>
-      <div class="form-group" style="margin-bottom:8px"><label class="form-label">Page ID</label><input type="text" class="wcli-page-id" placeholder="123456789012345" value="${page.id || ''}"></div>
-      <div class="form-group" style="margin-bottom:0"><label class="form-label">Page Access Token</label><input type="password" class="wcli-page-token" placeholder="EAAxxxxxxxx..." value="${page.token || ''}"></div>
+      <div class="form-group" style="margin-bottom:8px"><label class="form-label">Page URL or username</label><input type="text" class="pg-url" placeholder="facebook.com/yourpage" value="${page.url || ''}"></div>
+      <div class="form-group" style="margin-bottom:8px"><label class="form-label">Page ID <span style="color:var(--text3);font-weight:400">(fill when you have access)</span></label><input type="text" class="pg-id" placeholder="123456789012345" value="${page.id || ''}"></div>
+      <div class="form-group" style="margin-bottom:0"><label class="form-label">Page Access Token <span style="color:var(--text3);font-weight:400">(fill when you have access)</span></label><input type="password" class="pg-token" placeholder="EAAxxxxxxxx..." value="${page.token || ''}"></div>
     </div>`;
 }
 
-function addWcliPageField() {
-  const list = document.getElementById('wcli-pages-list');
-  const newIndex = list.querySelectorAll('[data-wcli-row]').length;
-  list.insertAdjacentHTML('beforeend', wcliPageRowHtml(newIndex, { name: '', id: '', token: '' }));
+function addCompanyPageField(company) {
+  const list = document.getElementById(company + '-pages-list');
+  const newIndex = list.querySelectorAll('[data-page-row]').length;
+  list.insertAdjacentHTML('beforeend', companyPageRowHtml(company, newIndex, { role: 'sub' }));
 }
 
-function removeWcliPageField(index) {
-  if (!confirm('Remove this WCLI page? Any drafts already targeting it will need to be reassigned.')) return;
-  const rows = Array.from(document.querySelectorAll('#wcli-pages-list [data-wcli-row]'));
-  const collected = collectWcliPageFields().filter((_, i) => i !== index);
+function removeCompanyPageField(company, index) {
+  if (!confirm('Remove this page? Any drafts already targeting it will need to be reassigned.')) return;
+  const collected = collectCompanyPageFields(company).filter((_, i) => i !== index);
   APP.fbPages = APP.fbPages || {};
-  APP.fbPages.wcli = collected;
-  renderWcliPagesList();
+  APP.fbPages[company] = collected;
+  renderCompanyPagesList(company);
 }
 
-function collectWcliPageFields() {
-  const rows = Array.from(document.querySelectorAll('#wcli-pages-list [data-wcli-row]'));
+function collectCompanyPageFields(company) {
+  const rows = Array.from(document.querySelectorAll('#' + company + '-pages-list [data-page-row]'));
   return rows.map(row => ({
-    name: row.querySelector('.wcli-page-name').value.trim(),
-    id: row.querySelector('.wcli-page-id').value.trim(),
-    token: row.querySelector('.wcli-page-token').value.trim()
-  })).filter(p => p.name || p.id || p.token); // drop fully-empty rows
+    name: row.querySelector('.pg-name').value.trim(),
+    role: (row.querySelector('.pg-role') || {}).value || 'sub',
+    url: normalizeFbUrl((row.querySelector('.pg-url') || {}).value || ''),
+    id: row.querySelector('.pg-id').value.trim(),
+    token: row.querySelector('.pg-token').value.trim()
+  })).filter(p => p.name || p.id || p.token || p.url);
+}
+
+// Backwards-compatible aliases (WCLI markup/handlers referenced these names).
+function renderWcliPagesList() { return renderCompanyPagesList('wcli'); }
+function addWcliPageField() { return addCompanyPageField('wcli'); }
+function collectWcliPageFields() { return collectCompanyPageFields('wcli'); }
+
+// Accept "facebook.com/foo", "https://www.facebook.com/foo", or just "foo" and
+// store a clean canonical form. This is the identity that lets ranking credit
+// your own page even before a token exists.
+function normalizeFbUrl(v) {
+  v = String(v || '').trim();
+  if (!v) return '';
+  v = v.replace(/^https?:\/\//i, '').replace(/^www\./i, '');
+  if (!/facebook\.com/i.test(v)) v = 'facebook.com/' + v.replace(/^\/+/, '');
+  return v.replace(/\/+$/, '').toLowerCase();
+}
+
+// The Facebook usernames/URLs the app should treat as OURS (per company), so a
+// result that is our own page is never mistaken for a competitor and IS counted
+// when we rank. Works today from the identity fields even with no token.
+function getOurFacebookIdentities() {
+  const out = { mssi: [], wcli: [], cwli: [] };
+  ['mssi', 'wcli', 'cwli'].forEach(co => getCompanyPages(co).forEach(p => {
+    const n = normalizeFbUrl(p.url); if (n) out[co].push(n);
+  }));
+  return out;
+}
+
+// The official page per company (role === 'official'), source of truth for
+// performance once tokens exist. Falls back to the first page.
+function getOfficialPage(company) {
+  const arr = getCompanyPages(company);
+  return arr.find(p => p.role === 'official') || arr[0] || null;
+}
+
+// A usable token for a company (from its official page, else any page that has one).
+function getPageToken(company) {
+  const arr = getCompanyPages(company);
+  const off = arr.find(p => p.role === 'official' && p.token);
+  return (off && off.token) || (arr.find(p => p.token) || {}).token || '';
 }
 
 function saveFbPages() {
   const data = {
     appId: document.getElementById('fb-app-id').value.trim(),
-    mssi: { id: document.getElementById('fb-mssi-id').value.trim(), token: document.getElementById('fb-mssi-token').value.trim() },
-    wcli: collectWcliPageFields(),
-    cwli: { id: document.getElementById('fb-cwli-id').value.trim(), token: document.getElementById('fb-cwli-token').value.trim() }
+    mssi: collectCompanyPageFields('mssi'),
+    wcli: collectCompanyPageFields('wcli'),
+    cwli: collectCompanyPageFields('cwli'),
   };
   localStorage.setItem('scm_fb_pages', JSON.stringify(data));
   APP.fbPages = data;
+  pushSettingToSupabase('fb_pages', data);
   showToast('Facebook page settings saved', 'success');
 }
 
 function loadFbPages() {
   try {
     const data = JSON.parse(localStorage.getItem('scm_fb_pages') || '{}');
-    // Migrate old single-object WCLI format (from before multi-page support) into the new array format
-    if (data.wcli && !Array.isArray(data.wcli)) {
-      data.wcli = (data.wcli.id || data.wcli.token) ? [{ name: 'WCLI', id: data.wcli.id || '', token: data.wcli.token || '' }] : [];
-    }
+    // Migrate every company from the old single-object format into the page-array
+    // format, so all three now support Official + Sub-page/Annex uniformly.
+    ['mssi', 'wcli', 'cwli'].forEach(co => {
+      if (data[co] && !Array.isArray(data[co])) {
+        const o = data[co];
+        data[co] = (o.id || o.token || o.url || o.name)
+          ? [{ name: o.name || co.toUpperCase(), role: 'official', url: o.url || '', id: o.id || '', token: o.token || '' }]
+          : [];
+      }
+    });
     APP.fbPages = data;
     const appIdEl = document.getElementById('fb-app-id');
     if (appIdEl && data.appId) appIdEl.value = data.appId;
-    ['mssi','cwli'].forEach(co => {
-      if (data[co]) {
-        const idEl = document.getElementById('fb-'+co+'-id');
-        const tokenEl = document.getElementById('fb-'+co+'-token');
-        if (idEl && data[co].id) idEl.value = data[co].id;
-        if (tokenEl && data[co].token) tokenEl.value = data[co].token;
-      }
-    });
-    renderWcliPagesList();
+    ['mssi', 'wcli', 'cwli'].forEach(co => renderCompanyPagesList(co));
   } catch(e) { console.error(e); }
 }
 
@@ -12449,6 +12496,17 @@ function buildMarketAnalysis() {
 
   const ourHosts = OUR_SITES.map(o => o.host);
   const isOurs = (h) => ourHosts.some(o => String(h || '').includes(o));
+  // Our own Facebook page URLs, so a ranking result that IS our page counts as us
+  // (its host is facebook.com, so a host-only check would miss it).
+  const ourFbSet = (function () {
+    const ids = (typeof getOurFacebookIdentities === 'function') ? getOurFacebookIdentities() : { mssi: [], wcli: [], cwli: [] };
+    return [].concat(ids.mssi || [], ids.wcli || [], ids.cwli || []);
+  })();
+  const isOursResult = (t) => {
+    if (isOurs(t && t.host)) return true;
+    const u = String((t && t.url) || '').toLowerCase();
+    return ourFbSet.some(f => f && u.includes(f));
+  };
 
   // --- Share of search, merged across every competitor's run.
   const byQuery = {};
@@ -12463,7 +12521,7 @@ function buildMarketAnalysis() {
   const searchAll = Object.values(byQuery);
   const searchScoped = coFilter === 'all' ? searchAll : searchAll.filter(q => queryCompany(q.query) === coFilter);
   const search = searchScoped.map(q => {
-    const mine = (q.top || []).filter(t => isOurs(t.host));
+    const mine = (q.top || []).filter(t => isOursResult(t));
     // Work out our own rank from the domains in the result list. The function can
     // only match a single brand name, which silently missed MSSI and CWLI.
     const best = mine.reduce((lo, t) => (lo === null || t.pos < lo ? t.pos : lo), null);
@@ -12596,7 +12654,7 @@ function buildMarketAnalysis() {
   const highlights = [];
   const bestDom = dominance.filter(d => d.ours).sort((a, b) => b.count - a.count)[0];
   if (bestDom && bestDom.count > 1) {
-    const q = search.find(x => (x.top || []).filter(t => isOurs(t.host)).length === bestDom.count);
+    const q = search.find(x => (x.top || []).filter(t => isOursResult(t)).length === bestDom.count);
     highlights.push({
       tone: 'good',
       company: bestDom.companyLabel,
