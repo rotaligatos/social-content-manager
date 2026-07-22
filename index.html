@@ -737,6 +737,7 @@ select:focus{border-color:var(--accent-border);}
         <div class="filter-pill" id="comp-tab-cwli" onclick="switchCompTab('cwli',this)" style="color:var(--cwli)">CWLI</div>
       </div>
       <button class="btn btn-secondary btn-sm" id="btn-analyze-all" onclick="analyzeAllCompetitors(this)">✦ Analyze All</button>
+      <button class="btn btn-ghost btn-sm" title="Re-research everyone now, ignoring the 30-day window" onclick="analyzeAllCompetitors(this, true)">⟳ Force refresh</button>
       <button class="btn btn-secondary btn-sm" onclick="showMarketAnalysis()">Market Analysis</button>
       <button class="btn btn-primary btn-sm" onclick="openCompetitorForm()">+ Add Competitor</button>
     </div>
@@ -11801,7 +11802,7 @@ async function loadCompetitorsScreen() {
           </div>
           <div style="display:flex;gap:6px;flex-shrink:0">
             <button class="btn btn-secondary btn-sm" style="font-size:11px" onclick="viewCompetitorComparison('${c.id}')">View Comparison</button>
-            <button class="btn btn-ghost btn-sm" style="font-size:11px;color:var(--accent2)" onclick="researchCompetitorNow('${c.id}', this)">✦ Research Now</button>
+            <button class="btn btn-ghost btn-sm" style="font-size:11px;color:var(--accent2)" onclick="researchCompetitorNow('${c.id}', this)">✦ Research Now${(() => { const d = intelAgeDays(c.id); return d !== null && d < INTEL_STALE_DAYS ? ' <span style=\'color:var(--text3)\'>(fresh ' + d + 'd)</span>' : ''; })()}</button>
             <button class="btn btn-ghost btn-sm" style="font-size:11px" onclick="showCompetitorIntel('${c.id}')">View Intel${(() => { const d = intelAgeDays(c.id); return d === null ? '' : ` <span style="color:var(--text3)">· ${d}d</span>`; })()}</button>
             <button class="btn btn-ghost btn-sm" style="font-size:11px" onclick="runCompetitorComparison('${c.id}')">Record Snapshot</button>
             <button class="btn btn-ghost btn-sm" style="font-size:11px" onclick="openCompetitorForm('${c.id}')">Edit</button>
@@ -11975,6 +11976,15 @@ async function researchCompetitorNow(competitorId, btnEl) {
   if (!_session) { showToast('Please sign in to use Research Now', 'error'); return; }
   const c = (APP._competitorsCache || []).find(x => x.id === competitorId);
   if (!c) return;
+
+  // If the data is still fresh, warn that a re-run may return the same thing before
+  // it spends API calls - the override the user asked for, with eyes open.
+  const age = (typeof intelAgeDays === 'function') ? intelAgeDays(competitorId) : null;
+  if (age !== null && age < INTEL_STALE_DAYS) {
+    if (!confirm(`${c.name} was researched ${age === 0 ? 'today' : age + ' day' + (age === 1 ? '' : 's') + ' ago'}.\n\n` +
+      `Competitor websites rarely change day to day, so a refresh now may return the same information — it still spends about 6 web searches + 1 AI call.\n\n` +
+      `Refresh anyway?`)) return;
+  }
 
   const originalText = btnEl.textContent;
   btnEl.disabled = true;
@@ -12329,7 +12339,7 @@ async function fetchIntelFor(c) {
   return data;
 }
 
-async function analyzeAllCompetitors(btnEl) {
+async function analyzeAllCompetitors(btnEl, force) {
   if (!_session) { showToast('Please sign in first', 'error'); return; }
   const list = APP._competitorsCache || [];
   if (!list.length) { showToast('Add a competitor first', 'error'); return; }
@@ -12337,32 +12347,53 @@ async function analyzeAllCompetitors(btnEl) {
   const stale = list.filter(c => isIntelStale(c.id));
   const fresh = list.length - stale.length;
 
-  if (!stale.length) {
+  // Normal mode: only research stale competitors. Force mode (override): re-research
+  // everyone regardless of the 30-day window, with a warning that fresh data may be
+  // identical - competitor sites don't change daily, so a same-day re-run often just
+  // spends API calls to confirm nothing moved.
+  const targets = force ? list : stale;
+
+  if (!force && !stale.length) {
     showToast(`All ${list.length} already researched within ${INTEL_STALE_DAYS} days — showing saved results`, 'success');
     showMarketAnalysis();
     return;
   }
 
-  const msg = `Research ${stale.length} competitor${stale.length === 1 ? '' : 's'}?` +
-    (fresh ? `\n\n${fresh} already researched in the last ${INTEL_STALE_DAYS} days will be skipped and their saved results reused.` : '') +
-    `\n\nEach one costs about 6 web searches plus one AI call.`;
+  let msg;
+  if (force) {
+    msg = `Force refresh all ${list.length} competitor${list.length === 1 ? '' : 's'} now?\n\n` +
+      `⚠ ${fresh} of them ${fresh === 1 ? 'was' : 'were'} already researched within the last ${INTEL_STALE_DAYS} days. ` +
+      `Competitor websites rarely change day to day, so the new results may be identical to what you already have — ` +
+      `this still spends about 6 web searches + 1 AI call PER competitor.\n\n` +
+      `Use this only when you have reason to believe something changed (a launch, a promo, a price move). Proceed?`;
+  } else {
+    msg = `Research ${stale.length} competitor${stale.length === 1 ? '' : 's'}?` +
+      (fresh ? `\n\n${fresh} already researched in the last ${INTEL_STALE_DAYS} days will be skipped and their saved results reused.` : '') +
+      `\n\nEach one costs about 6 web searches plus one AI call.`;
+  }
   if (!confirm(msg)) return;
 
   const original = btnEl ? btnEl.textContent : '';
   if (btnEl) btnEl.disabled = true;
 
-  let done = 0, failed = 0;
-  for (const c of stale) {
-    if (btnEl) btnEl.textContent = `Researching ${done + 1} of ${stale.length}…`;
+  let done = 0, failed = 0, unchanged = 0;
+  for (const c of targets) {
+    if (btnEl) btnEl.textContent = `Researching ${done + 1} of ${targets.length}…`;
     try {
+      const before = (loadIntelStore()[c.id] || {}).data;
       const data = await fetchIntelFor(c);
       saveIntelRecord(c.id, data);
       done++;
+      // "No material change" = the server's own diff found nothing new. Surfacing this
+      // is the honest answer to "did the refresh actually get me anything?"
+      const ch = (data.changes || []);
+      if (before && ch.length && ch.every(x => /no material changes/i.test(x))) unchanged++;
     } catch (_e) { failed++; }
   }
 
   if (btnEl) { btnEl.disabled = false; btnEl.textContent = original; }
-  showToast(`Researched ${done}${failed ? `, ${failed} failed` : ''}`, failed ? 'error' : 'success');
+  const tail = force && unchanged ? ` — ${unchanged} came back unchanged (as warned)` : '';
+  showToast(`Researched ${done}${failed ? `, ${failed} failed` : ''}${tail}`, failed ? 'error' : 'success');
   showMarketAnalysis();
 }
 
@@ -12642,9 +12673,13 @@ function buildMarketAnalysis() {
   }
   if (themes.length) {
     const t = themes[0];
+    // When focused on one company, phrase the opening for that company only.
+    const forWho = coFilter !== 'all'
+      ? (COMPANY_LABEL[coFilter] || coFilter.toUpperCase())
+      : ((t.affected || []).join(' and ') || 'your');
     highlights.push({
-      tone: 'good', company: (t.affected || []).join(', ') || null,
-      text: `"${t.theme}" is the most common weakness across ${t.competitors.length} competitor${t.competitors.length === 1 ? '' : 's'} (${t.competitors.join(', ')}) — the clearest opening for ${(t.affected || []).join(' and ') || 'your'} messaging.`,
+      tone: 'good', company: coFilter !== 'all' ? (COMPANY_LABEL[coFilter] || coFilter.toUpperCase()) : ((t.affected || []).join(', ') || null),
+      text: `"${t.theme}" is the most common weakness across ${t.competitors.length} competitor${t.competitors.length === 1 ? '' : 's'} (${t.competitors.join(', ')}) — the clearest opening for ${forWho} messaging.`,
     });
   }
   const notResearched = list.length - rows.length;
@@ -12897,7 +12932,24 @@ function buildMarketAnalysis() {
     return { narrative: parts, actions, tensions };
   })();
 
-  return { rows, search, dominance, marketGaps, colorGaps, textureGaps, substrateGaps, certGaps, certClaims, priceRows, pricingPosture, priceChanges, ownPerf, windowInfo, trends, themes, activity, highlights, conclusion, coverage: { analysed: rows.length, total: list.length } };
+  // When focused on one company, drop any finding or action that concerns a DIFFERENT
+  // company. A finding is kept if it is global (no company) or its label mentions the
+  // focused company. Labels that mention several companies are trimmed to the focus so
+  // the reader never sees another company's name in a focused report.
+  let outHighlights = highlights, outActions = (conclusion && conclusion.actions) || [];
+  if (coFilter !== 'all') {
+    const focus = COMPANY_LABEL[coFilter] || coFilter.toUpperCase();
+    const relevant = (co) => {
+      if (!co) return true;                       // global finding, always relevant
+      return String(co).toUpperCase().includes(focus);
+    };
+    const relabel = (x) => ({ ...x, company: x.company ? focus : x.company });
+    outHighlights = highlights.filter(h => relevant(h.company)).map(relabel);
+    outActions = outActions.filter(a => relevant(a.company)).map(a => ({ ...a, company: a.company && !/all/i.test(a.company) ? focus : a.company }));
+  }
+  const outConclusion = conclusion ? { ...conclusion, actions: outActions } : conclusion;
+
+  return { rows, search, dominance, marketGaps, colorGaps, textureGaps, substrateGaps, certGaps, certClaims, priceRows, pricingPosture, priceChanges, ownPerf, windowInfo, trends, themes, activity, highlights: outHighlights, conclusion: outConclusion, coverage: { analysed: rows.length, total: list.length } };
 }
 
 // ── Market Analysis view ─────────────────────────────────────
@@ -13869,11 +13921,21 @@ async function renderReportsScreen() {
     </div>
 
     ${(() => {
-      const list = loadDirectives();
+      // Respect the report's company focus - a WCLI directive shouldn't show in the MSSI report.
+      const focus = (typeof REPORTS_COMPANY !== 'undefined') ? REPORTS_COMPANY : 'all';
+      const all = loadDirectives();
+      const list = focus === 'all' ? all : all.filter(d => {
+        const c = String(d.company || '').toUpperCase();
+        return !c || c === 'ALL' || c.includes(focus.toUpperCase());
+      });
+      const focusName = { all: 'all companies', mssi: 'MSSI', wcli: 'WCLI', cwli: 'CWLI' }[focus] || 'all companies';
+      const label = list.length
+        ? `✦ ${list.length} directive${list.length === 1 ? '' : 's'} active for ${focusName} — steering every caption until turned off.`
+        : (focus === 'all' ? getDirectivesLabel() : `No directives active for ${focusName} yet.`);
       return `<div class="card" style="margin-bottom:14px;border-left:3px solid ${list.length ? 'var(--green)' : 'var(--border)'}">
         <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:${list.length ? '10px' : '0'}">
           <div style="font-size:13px;font-weight:600">How the app is acting on this</div>
-          <div style="font-size:11px;color:${list.length ? 'var(--green)' : 'var(--text3)'}">${getDirectivesLabel()}</div>
+          <div style="font-size:11px;color:${list.length ? 'var(--green)' : 'var(--text3)'}">${label}</div>
         </div>
         ${list.length ? list.map(d => `<div style="display:flex;gap:10px;align-items:flex-start;padding:9px 0;border-top:1px solid var(--border)">
             <div style="flex:1">
