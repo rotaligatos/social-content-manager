@@ -6038,6 +6038,9 @@ function renderPerformance() {
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
       <div style="font-size:13px;font-weight:500">✦ AI Strategy Analysis ${PERF_ACTIVE_TAB !== 'all' ? '— ' + PERF_ACTIVE_TAB.toUpperCase() : ''}</div>
       <div style="display:flex;gap:6px;align-items:center">
+        <select onchange="setAnalysisWindow(this.value)" title="How far back to analyze" style="font-size:11px;padding:5px 8px;border-radius:6px">
+          ${ANALYSIS_WINDOWS.map(w => `<option value="${w.key}" ${getAnalysisWindow().key === w.key ? 'selected' : ''}>${w.label}</option>`).join('')}
+        </select>
         <button class="btn ${loadCampaignFlags().length ? 'btn-secondary' : 'btn-ghost'} btn-sm"
                 style="font-size:11px;${loadCampaignFlags().length ? 'color:var(--amber)' : ''}"
                 onclick="openCampaignFlagForm()"
@@ -6052,7 +6055,7 @@ function renderPerformance() {
     ${savedAnalysis
       ? `<div id="ai-analysis-output" style="font-size:13px;line-height:1.8;color:var(--text2);white-space:pre-wrap">${savedAnalysis}</div>
          <div style="font-size:11px;color:var(--text3);margin-top:10px">Generated ${localStorage.getItem(analysisKey + '_date') || 'recently'} · Re-analyze anytime as new data comes in</div>`
-      : `<div style="font-size:13px;color:var(--text3);line-height:1.7">Click <strong>Analyze & Recommend</strong> to get a Claude-powered strategy report — what's working, what's not, best times to post, and specific recommendations per company and audience.<br><br>The more posts you have logged, the sharper the recommendations.</div>
+      : `<div style="font-size:13px;color:var(--text3);line-height:1.7">Analyzing <b>${getAnalysisWindow().label.toLowerCase()}</b> of data (change with the dropdown above). If Claude spots an older period that matters, it will pull that in and tell you. Click <strong>Analyze & Recommend</strong> to get a Claude-powered strategy report — what's working, what's not, best times to post, and specific recommendations per company and audience.<br><br>The more posts you have logged, the sharper the recommendations.</div>
          <div id="ai-analysis-output"></div>`
     }
     <div style="font-size:11px;color:var(--text3);margin-top:10px;padding-top:10px;border-top:1px solid var(--border)">${getStrategyAgeLabel()}</div>
@@ -6217,6 +6220,72 @@ function showAllPosts() {
 }
 
 // ── AI ANALYSIS ───────────────────────────────────────────────
+// ============================================================
+//  ANALYSIS WINDOW + LOOK-BACK
+//  Two problems solved together:
+//   - As history grows, analysing everything every time gets slow and blurs
+//     recent signal with years-old noise. So there's a window filter.
+//   - But a short window can't see a pattern that only shows up year over year,
+//     which is how you stay reactive. So the AI is allowed to reach further
+//     back when it senses the current window rhymes with an older period.
+// ============================================================
+
+const ANALYSIS_WINDOWS = [
+  { key: '1m',  label: 'Last month',    days: 31 },
+  { key: '2m',  label: 'Last 2 months', days: 62 },
+  { key: '6m',  label: 'Last 6 months', days: 183 },
+  { key: '12m', label: 'Last 12 months', days: 365 },
+  { key: '2y',  label: 'Last 2 years',  days: 730 },
+  { key: '5y',  label: 'Last 3-5 years', days: 1825 },
+  { key: '10y', label: 'Last 10 years', days: 3650 },
+  { key: 'all', label: 'All time',      days: null },
+];
+
+function getAnalysisWindow() {
+  const saved = localStorage.getItem('scm_analysis_window') || '12m';
+  return ANALYSIS_WINDOWS.find(w => w.key === saved) || ANALYSIS_WINDOWS[3];
+}
+function setAnalysisWindow(key) {
+  localStorage.setItem('scm_analysis_window', key);
+  if (typeof renderPerformance === 'function') renderPerformance();
+}
+
+// Posts inside the chosen window (and, optionally, an extra older span the AI asked for).
+function postsInWindow(posts, windowDays, extraFrom, extraTo) {
+  if (windowDays === null && !extraFrom) return posts;
+  const now = Date.now();
+  const cutoff = windowDays === null ? -Infinity : now - windowDays * 86400000;
+  const ef = extraFrom ? new Date(extraFrom).getTime() : null;
+  const et = extraTo ? new Date(extraTo).getTime() : null;
+  return posts.filter(p => {
+    const t = new Date(p.publishedAt || p.scheduledFor || 0).getTime();
+    if (!isFinite(t)) return false;
+    if (t >= cutoff) return true;                      // inside the main window
+    if (ef && et && t >= ef && t <= et) return true;   // inside the pulled-back span
+    return false;
+  });
+}
+
+// A compact per-month rollup of ALL history, cheap to send to the model. This is
+// what lets the AI notice "your current window looks like Nov two years ago" and
+// decide it wants that period pulled in - without us shipping every old post.
+function buildHistoryIndex(posts) {
+  const byMonth = {};
+  posts.forEach(p => {
+    const d = new Date(p.publishedAt || p.scheduledFor || 0);
+    if (!isFinite(d.getTime())) return;
+    const key = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
+    const perf = p.performance || {};
+    byMonth[key] = byMonth[key] || { month: key, posts: 0, score: 0, inquiries: 0 };
+    byMonth[key].posts++;
+    byMonth[key].score += engagementScore(perf);
+    byMonth[key].inquiries += perf.inquiries || 0;
+  });
+  return Object.values(byMonth)
+    .map(m => ({ month: m.month, posts: m.posts, avgScore: Math.round(m.score / Math.max(1, m.posts)), inquiries: m.inquiries }))
+    .sort((a, b) => a.month.localeCompare(b.month));
+}
+
 async function runAIAnalysis() {
   const apiKey = APP.apiKeys.anthropic || localStorage.getItem('scm_anthropic_key');
   if (!apiKey) { showToast('Add your Claude API key in Settings first', 'error'); return; }
@@ -6226,8 +6295,12 @@ async function runAIAnalysis() {
   if (btn) { btn.disabled = true; btn.innerHTML = '<div class="spinner" style="width:12px;height:12px;border-width:2px"></div> Analyzing…'; }
   if (output) output.innerHTML = '<div style="color:var(--text3);font-size:12.5px">Claude is reading your performance data…</div>';
 
-  const allLogged = APP.posts.filter(p => p.performance);
-  const filtered = PERF_ACTIVE_TAB === 'all' ? allLogged : allLogged.filter(p => p.company === PERF_ACTIVE_TAB);
+  const win = getAnalysisWindow();
+  const allLoggedEver = excludeFlaggedPosts(APP.posts.filter(p => p.performance));
+  const scoped = PERF_ACTIVE_TAB === 'all' ? allLoggedEver : allLoggedEver.filter(p => p.company === PERF_ACTIVE_TAB);
+  // Main window. A look-back span may be added on the second pass below.
+  let filtered = postsInWindow(scoped, win.days);
+  let pulledBack = null; // {from,to,reason} once the AI reaches further back
 
   if (filtered.length < 3) {
     if (btn) { btn.disabled = false; btn.innerHTML = 'Analyze & Recommend'; }
@@ -6236,7 +6309,7 @@ async function runAIAnalysis() {
   }
 
   // Build a structured data summary for Claude
-  const postSummaries = filtered.map(p => ({
+  const summarise = (list) => list.map(p => ({
     company: p.company.toUpperCase(),
     pillar: p.pillar,
     audience: p.audience,
@@ -6250,6 +6323,10 @@ async function runAIAnalysis() {
     engagementScore: engagementScore(p.performance),
     notes: p.performance.notes || ''
   }));
+  let postSummaries = summarise(filtered);
+  // A cheap month-by-month index of ALL history, so the model can spot an older
+  // period worth pulling in even though we didn't send those posts in full.
+  const historyIndex = buildHistoryIndex(scoped);
 
   const companyContext = PERF_ACTIVE_TAB === 'all'
     ? 'three Philippine companies: MSSI (modular furniture, B2C + B2B), WCLI (laminated boards, Luzon/national B2B trade), CWLI (laminated boards, Cebu/Visayas/Mindanao B2B trade)'
@@ -6261,10 +6338,17 @@ async function runAIAnalysis() {
 
   const prompt = `You are a social media strategist analyzing Facebook post performance data for ${companyContext}. The primary business goal is generating inquiries (DMs or comments asking about pricing/ordering). Engagement score formula: inquiries×10 + comments×3 + shares×4 + reactions×1.
 
-Here is the performance data for ${filtered.length} posts:
+Analysis window: ${win.label}. Here is the performance data for ${filtered.length} posts in that window:
 
 ${JSON.stringify(postSummaries, null, 2)}
+${historyIndex.length > 1 ? `
+For context, here is a compact month-by-month index of the FULL history (avgScore = average engagement score that month), so you can see longer-term shape without every post:
+${JSON.stringify(historyIndex)}
 
+If \u2014 and only if \u2014 you notice the current window closely resembles a specific earlier period (a seasonal spike, a past slump, a pattern that repeats), you may ask to examine that period in full. To do so, put this on the VERY FIRST line, alone, before anything else:
+LOOKBACK: YYYY-MM-DD to YYYY-MM-DD | one-line reason
+Only do this when the older period would genuinely change the recommendation. If not, do not include a LOOKBACK line at all.
+` : ''}
 Write a practical strategy report with these sections:
 
 1. WHAT'S WORKING
@@ -6285,10 +6369,47 @@ Recommend specific days and time windows for each company based on when their pu
 Write in plain, direct English. No fluff. This is for a busy business owner who needs clear direction, not a marketing textbook. Keep the whole report under 500 words.`;
 
   try {
-    const analysis = await callClaudeSonnet(apiKey, prompt, 800);
+    let analysis = await callClaudeSonnet(apiKey, prompt, 850);
+
+    // --- Look-back pass. If the model asked to see an older period, pull it in
+    // and analyse once more with it folded in. Auto-pull, then tell the user.
+    const firstLine = analysis.split(String.fromCharCode(10))[0] || '';
+    const lb = /^\s*LOOKBACK:\s*(\d{4}-\d{2}-\d{2})\s*to\s*(\d{4}-\d{2}-\d{2})\s*\|?\s*(.*)$/i.exec(firstLine);
+    if (lb) {
+      const [, from, to, reason] = lb;
+      pulledBack = { from, to, reason: (reason || '').trim() };
+      if (output) output.innerHTML = `<div style="color:var(--text3);font-size:12.5px">Claude spotted a relevant earlier period (${from} to ${to}) and is pulling it in…</div>`;
+
+      const widened = postsInWindow(scoped, win.days, from, to);
+      const extraOnly = widened.filter(p => !filtered.includes(p));
+      if (extraOnly.length) {
+        const secondPrompt = prompt.replace(
+          /Analysis window:[\s\S]*?Write a practical strategy report/,
+          `Analysis window: ${win.label}, PLUS an earlier period (${from} to ${to}) you asked to examine because: ${pulledBack.reason || 'it resembled the current data'}.
+
+` +
+          `Current-window posts (${filtered.length}):
+${JSON.stringify(summarise(filtered))}
+
+` +
+          `Pulled-back posts from ${from} to ${to} (${extraOnly.length}):
+${JSON.stringify(summarise(extraOnly))}
+
+` +
+          `Now write the report, and in a short opening line state what the older period told you and how it changed your read of the present. Do NOT emit another LOOKBACK line.
+
+Write a practical strategy report`
+        );
+        analysis = await callClaudeSonnet(apiKey, secondPrompt, 900);
+      }
+    }
+
     const analysisKey = 'scm_ai_analysis_' + PERF_ACTIVE_TAB;
-    localStorage.setItem(analysisKey, analysis);
+    const windowNote = `[Window: ${win.label}${pulledBack ? ` + pulled in ${pulledBack.from} to ${pulledBack.to}` : ''}]`;
+    const stored = windowNote + '\n\n' + analysis;
+    localStorage.setItem(analysisKey, stored);
     localStorage.setItem(analysisKey + '_date', new Date().toLocaleString('en-PH', {month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}));
+    analysis = stored;
 
     if (output) {
       output.style.whiteSpace = 'pre-wrap';
