@@ -12531,7 +12531,44 @@ function loadIntelStore() {
 const INTEL_HISTORY_KEY = 'scm_competitor_intel_history';
 
 function loadIntelHistory() {
+  // Prefer the full history pulled from Supabase (every run, any device, any age).
+  // Fall back to this device's local cache if the cloud copy hasn't loaded yet.
+  if (APP._cloudIntelHistory && APP._cloudIntelHistory.length) return APP._cloudIntelHistory;
   try { return JSON.parse(localStorage.getItem(INTEL_HISTORY_KEY) || '[]'); } catch (_e) { return []; }
+}
+
+// Pulls the COMPLETE competitor history from Supabase (via hyper-api history mode -
+// no research, no cost) so trend analysis can reach back across years and devices,
+// not just this browser's recent local cache. Cached in memory for the session.
+async function hydrateIntelHistoryFromCloud(force) {
+  if (APP._cloudIntelHistory && APP._cloudIntelHistory.length && !force) return;
+  const cfg = getSupabaseConfig();
+  if (!cfg) return;
+  try {
+    const res = await fetch(cfg.url + '/functions/v1/' + INTEL_FN_SLUG, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mode: 'history' }),
+    });
+    if (!res.ok) return;
+    const data = await res.json();
+    const runs = (data && data.runs) || [];
+    if (!Array.isArray(runs) || !runs.length) return;
+    // Map the Supabase rows into the shape the trend code expects.
+    APP._cloudIntelHistory = runs.map(r => ({
+      competitorId: r.competitor_id || null,
+      competitorName: r.competitor_name || '',
+      capturedAt: new Date(r.captured_at).getTime(),
+      data: {
+        competitor_name: r.competitor_name,
+        colors: r.colors || [], textures: r.textures || [], substrates: r.substrates || [],
+        certifications: r.certifications || [], prices: r.prices || [], social: r.social || [],
+        gap_vs_us: r.gap_vs_us || {}, substrate_gap: r.substrate_gap || {}, certification_gap: r.certification_gap || {},
+        share_of_search: r.share_of_search || [], promos: r.promos || [], dealers: r.dealers || [],
+        changes: r.changes || [], summary: r.summary || '', positioning: r.positioning || '', products: r.products || [],
+      },
+    }));
+  } catch (_e) { /* fall back to local history silently */ }
 }
 
 function saveIntelRecord(competitorId, data) {
@@ -12562,13 +12599,20 @@ function saveIntelRecord(competitorId, data) {
 
   APP._competitorIntel = APP._competitorIntel || {};
   APP._competitorIntel[competitorId] = data;
+  // A fresh run just landed in Supabase - drop the cached cloud history so the next
+  // report pulls it again including this run.
+  APP._cloudIntelHistory = null;
 }
 
 // Runs for one competitor within a time window (ms cutoff). Falls back to the
 // single latest run if the window predates any stored run, so the report is never
 // blank just because you picked a narrow window early on.
-function intelRunsInWindow(competitorId, cutoffMs) {
-  const hist = loadIntelHistory().filter(h => h.competitorId === competitorId);
+function intelRunsInWindow(competitorId, cutoffMs, competitorName) {
+  const nameKey = String(competitorName || '').toLowerCase().trim();
+  const hist = loadIntelHistory().filter(h =>
+    (competitorId && h.competitorId === competitorId) ||
+    (nameKey && String(h.competitorName || '').toLowerCase().trim() === nameKey)
+  );
   const inWin = hist.filter(h => cutoffMs === null || h.capturedAt >= cutoffMs);
   return inWin.sort((a, b) => a.capturedAt - b.capturedAt);
 }
@@ -12697,7 +12741,7 @@ function buildMarketAnalysis() {
   // the latest run so the report is never empty - and flag that we did.
   let usedFallback = 0;
   const rows = list.map(c => {
-    const runs = intelRunsInWindow(c.id, cutoffMs);
+    const runs = intelRunsInWindow(c.id, cutoffMs, c.name);
     if (runs.length) {
       const latestInWin = runs[runs.length - 1];
       return { competitor: c, rec: { capturedAt: latestInWin.capturedAt, data: latestInWin.data }, runsInWindow: runs.length };
@@ -13023,7 +13067,7 @@ function buildMarketAnalysis() {
   // understand the present" looks like for competitors. Needs 2+ runs to say anything.
   const trends = [];
   rows.forEach(({ competitor }) => {
-    const runs = intelRunsInWindow(competitor.id, cutoffMs);
+    const runs = intelRunsInWindow(competitor.id, cutoffMs, competitor.name);
     if (runs.length < 2) return;
     const first = runs[0].data, last = runs[runs.length - 1].data;
     const span = Math.max(1, Math.round((runs[runs.length - 1].capturedAt - runs[0].capturedAt) / 86400000));
@@ -13304,6 +13348,7 @@ function buildMarketAnalysis() {
 // ── Market Analysis view ─────────────────────────────────────
 async function showMarketAnalysis() {
   await ensureAllCompetitors();
+  await hydrateIntelHistoryFromCloud();
   // Mirror the Competitors-page tab into the report focus (shared state). Underlying
   // data is the full list, so switching tabs changes the lens, never deletes anything.
   if (typeof COMP_ACTIVE_TAB !== 'undefined') REPORTS_COMPANY = COMP_ACTIVE_TAB;
@@ -14107,6 +14152,7 @@ async function renderReportsScreen() {
   const el = document.getElementById('reports-content');
   if (!el) return;
   await ensureAllCompetitors();
+  await hydrateIntelHistoryFromCloud();
   hydrateIntelCache();
   // Keep the header dropdown in sync (topbar is static markup rendered once).
   const sel = document.querySelectorAll('#screen-reports select')[1];
