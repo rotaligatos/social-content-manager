@@ -12837,6 +12837,38 @@ function buildMarketAnalysis() {
     ageDays: Math.floor((Date.now() - rec.capturedAt) / 86400000),
   })).sort((a, b) => b.promos - a.promos);
 
+  // --- Social presence across rivals (PRESENCE only, never metrics). This is the
+  // honest, legitimate half of "Instagram/TikTok analytics" - who is on which
+  // platform - and it surfaces channels rivals use that you have not started.
+  const PLATFORM_CANON = (pf) => {
+    const t = String(pf || '').toLowerCase();
+    if (/face/.test(t)) return 'Facebook';
+    if (/insta|ig\b/.test(t)) return 'Instagram';
+    if (/tik ?tok/.test(t)) return 'TikTok';
+    if (/you ?tube/.test(t)) return 'YouTube';
+    if (/linked/.test(t)) return 'LinkedIn';
+    if (/pinterest/.test(t)) return 'Pinterest';
+    if (/viber/.test(t)) return 'Viber';
+    if (/x\b|twitter/.test(t)) return 'X / Twitter';
+    return pf ? (pf[0].toUpperCase() + pf.slice(1)) : '';
+  };
+  const socialPresence = {};
+  rows.forEach(({ competitor, rec }) => ((rec.data || {}).social || []).forEach(sp => {
+    const plat = PLATFORM_CANON(sp.platform); if (!plat) return;
+    socialPresence[plat] = socialPresence[plat] || { platform: plat, competitors: [] };
+    if (!socialPresence[plat].competitors.some(c => c.name === competitor.name)) {
+      socialPresence[plat].competitors.push({ name: competitor.name, handle: sp.handle || '', url: sp.url || '' });
+    }
+  }));
+  const socialRows = Object.values(socialPresence).sort((a, b) => b.competitors.length - a.competitors.length);
+
+  // Which platforms WE are on. We know Facebook; the rest come from any social
+  // identity you have declared. Everything else a rival uses is an open channel.
+  let ourPlatforms;
+  try { ourPlatforms = new Set((JSON.parse(localStorage.getItem('scm_our_platforms') || 'null') || ['Facebook']).map(PLATFORM_CANON)); }
+  catch (_e) { ourPlatforms = new Set(['Facebook']); }
+  const channelGaps = socialRows.filter(sp => !ourPlatforms.has(sp.platform));
+
   // --- Headline findings. Every line names the company it concerns, so a reader
   // who manages three businesses knows immediately which one to act on.
   const highlights = [];
@@ -12943,37 +12975,6 @@ function buildMarketAnalysis() {
     highlights.push({ tone: 'warn', company: null, text: `${notResearched} competitor${notResearched === 1 ? '' : 's'} not yet researched — findings below cover ${rows.length} of ${list.length}.` });
   }
 
-  // --- Social presence across rivals (PRESENCE only, never metrics). This is the
-  // honest, legitimate half of "Instagram/TikTok analytics" - who is on which
-  // platform - and it surfaces channels rivals use that you have not started.
-  const PLATFORM_CANON = (pf) => {
-    const t = String(pf || '').toLowerCase();
-    if (/face/.test(t)) return 'Facebook';
-    if (/insta|ig\b/.test(t)) return 'Instagram';
-    if (/tik ?tok/.test(t)) return 'TikTok';
-    if (/you ?tube/.test(t)) return 'YouTube';
-    if (/linked/.test(t)) return 'LinkedIn';
-    if (/pinterest/.test(t)) return 'Pinterest';
-    if (/viber/.test(t)) return 'Viber';
-    if (/x\b|twitter/.test(t)) return 'X / Twitter';
-    return pf ? (pf[0].toUpperCase() + pf.slice(1)) : '';
-  };
-  const socialPresence = {};
-  rows.forEach(({ competitor, rec }) => ((rec.data || {}).social || []).forEach(sp => {
-    const plat = PLATFORM_CANON(sp.platform); if (!plat) return;
-    socialPresence[plat] = socialPresence[plat] || { platform: plat, competitors: [] };
-    if (!socialPresence[plat].competitors.some(c => c.name === competitor.name)) {
-      socialPresence[plat].competitors.push({ name: competitor.name, handle: sp.handle || '', url: sp.url || '' });
-    }
-  }));
-  const socialRows = Object.values(socialPresence).sort((a, b) => b.competitors.length - a.competitors.length);
-
-  // Which platforms WE are on. We know Facebook; the rest come from any social
-  // identity you have declared. Everything else a rival uses is an open channel.
-  let ourPlatforms;
-  try { ourPlatforms = new Set((JSON.parse(localStorage.getItem('scm_our_platforms') || 'null') || ['Facebook']).map(PLATFORM_CANON)); }
-  catch (_e) { ourPlatforms = new Set(['Facebook']); }
-  const channelGaps = socialRows.filter(sp => !ourPlatforms.has(sp.platform));
 
   // Trends across every run in the window - this is what "look at the past to
   // understand the present" looks like for competitors. Needs 2+ runs to say anything.
