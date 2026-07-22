@@ -1480,6 +1480,49 @@ select:focus{border-color:var(--accent-border);}
 // Newest entries go at the top. Each entry should describe what changed in plain language.
 const CHANGELOG = [
   {
+    date: '2026-07-22',
+    title: 'Reports page, deeper competitor intel, and analysis you can act on',
+    items: [
+      'New "Reports" screen in the sidebar — one place that consolidates competitor findings, your own performance, charts, competitor swatches, and exports. Filter the whole report by company (MSSI / WCLI / CWLI) and by time window; both filters govern everything on the page at once.',
+      'Competitor research now captures far more: colour (shade) and texture (surface finish) tracked SEPARATELY, board substrates (MDF, HDF, CDF, PB, plywood, bamboo, compact laminate), environmental certifications and emission classes (E0, E1, CARB P2, FSC, GREENGUARD, LEED/WELL), published retail pricing with the source URL, and each competitor\'s actual colour/texture photos harvested from their own pages.',
+      'Findings are ranked by consequence: a colour gap loses a preference, a texture gap loses an enquiry, a substrate gap loses an application, a certification gap loses a project. Each finding names the company it concerns.',
+      'Share of search now credits your own Facebook page (not just your website) when it ranks, and measures all three companies correctly instead of only WCLI.',
+      '"Analyze All" researches every competitor in one click (skipping any done in the last 30 days), and a new "Force refresh" overrides that window with a clear warning that results may be unchanged.',
+      'Recommendations are now actionable: press "Apply to captions" and it becomes a standing rule the AI follows on every post for that company — including autopilot and Generate This Week.',
+      'Reports export to PDF and PowerPoint, with embedded charts, labelled by the company and window in view.',
+    ]
+  },
+  {
+    date: '2026-07-22',
+    title: 'Social presence: Instagram, TikTok & more (competitors)',
+    items: [
+      'Competitor research now searches Instagram and TikTok and records which platforms each rival is present on — presence only, never follower or engagement numbers (no legitimate source for another account\'s analytics exists).',
+      'A new "Where competitors are present" table shows each platform, how many rivals are on it, who, and whether you are too. Platforms you are not on yet are flagged as openings.',
+      'When rivals are on a channel you are not, it surfaces as a finding and an actual recommendation — e.g. "Consider opening a TikTok presence", with concrete first steps.',
+    ]
+  },
+  {
+    date: '2026-07-22',
+    title: 'Smarter, longer-memory performance analysis',
+    items: [
+      'The AI Strategy Analysis now has a time-window selector (last month up to all time, default 12 months) so it stays fast as your history grows.',
+      'Look-back: even on a short window, if the AI notices the current period resembles an older one, it pulls that older period in and tells you plainly — so it can learn from what happened before, not just react to now.',
+      'Campaign flagging: mark a date range as a contest, boost or event (from the Performance card OR the Calendar) and those posts are held out of self-learning, so a follower push can\'t teach the app the wrong lesson. Raw numbers stay untouched.',
+      'When performance and competitor findings disagree, the report says so, and captions follow a clear priority order (brand voice → market directives → performance hints) instead of resolving conflicts arbitrarily.',
+    ]
+  },
+  {
+    date: '2026-07-22',
+    title: 'Facebook page identity for all companies + fixes',
+    items: [
+      'Each company (MSSI, WCLI, CWLI) can now declare an Official/Main page plus any Sub-pages / Annexes, with page URL and role — set the identity now, add tokens when you have access. Your existing page settings migrate automatically.',
+      'Export Archive (Settings → Data): a dated, secret-stripped snapshot of everything — posts, performance, competitor intel and its full history, flags, directives, colours — as a complete JSON plus a readable multi-tab Excel. Built for keeping on a NAS; run it periodically to build a real record.',
+      'Fixed: deleting a post on one device no longer leaves it lingering on another ("resurrection" on mobile). Deletes now propagate correctly on the next sync.',
+      'Fixed: the double-post issue when the app was open on two devices at once (atomic publish claim).',
+      'Images and videos now show more Filipino people and a wider range of spaces (living rooms, offices, showrooms — not just kitchens/bedrooms); WCLI leans more industrial; videos land cleanly instead of cutting off; and the video length is planned up front.',
+    ]
+  },
+  {
     date: '2026-07-02',
     title: 'Generate Report — real PDF, built in your browser',
     items: [
