@@ -1361,6 +1361,13 @@ select:focus{border-color:var(--accent-border);}
             </div>
           </div>
         </div>
+        <div class="card" style="margin-bottom:16px;border:1px solid var(--accent2)">
+          <div style="font-size:14px;font-weight:500;margin-bottom:4px">🗄️ Export Archive <span style="font-size:11px;color:var(--text3);font-weight:400">for Synology / long-term record</span></div>
+          <div style="font-size:12px;color:var(--text3);margin-bottom:14px;line-height:1.6">Downloads a dated snapshot of everything — posts, performance, competitor intel and its full run history, campaign flags, directives, colours. You get two files: a complete <b>.json</b> (the real archive) and a readable multi-tab <b>.xlsx</b> you can open in Excel years later to study trends. API keys and Facebook tokens are deliberately left out so it's safe to keep on a NAS. Each run is dated, so archives stack up into a history instead of overwriting.</div>
+          <button class="btn btn-primary" style="width:100%" onclick="exportArchive(this)">Download Archive (.json + .xlsx)</button>
+          <div style="font-size:11px;color:var(--text3);margin-top:8px">Tip: keep these in one Synology folder. Run it monthly (or after big changes) to build a record the analysis can be checked against later.</div>
+        </div>
+
         <div class="card" style="margin-bottom:16px">
           <div style="font-size:14px;font-weight:500;margin-bottom:4px">Full Backup</div>
           <div style="font-size:12px;color:var(--text3);margin-bottom:14px">Saves everything — posts, photos, brand profiles, Facebook page settings, and API keys — into one file you can restore later or move to another computer.</div>
@@ -9404,6 +9411,172 @@ function exportPosts() {
   a.download = 'scm-posts-export.csv';
   a.click();
   showToast('Posts exported as CSV', 'success');
+}
+
+// ============================================================
+//  EXPORT ARCHIVE  (for Synology / long-term record)
+//  A dated, self-describing snapshot of everything the app knows, built for
+//  keeping - not just restoring. Two files come out:
+//    1. scm-archive-YYYY-MM-DD.json  - complete machine-readable snapshot,
+//       future-proofed by scanning ALL app data (so new data types are captured
+//       automatically), with secrets stripped so it's safe to store on a NAS.
+//    2. scm-archive-YYYY-MM-DD.xlsx  - the same data as readable spreadsheet
+//       tabs, so you can open it in Excel years from now and analyze trends
+//       without the app.
+//  Drop both into your Synology folder. Each run is dated, so they stack up into
+//  a real history instead of overwriting.
+// ============================================================
+
+// Never write these to an archive that leaves the app - they are credentials.
+const ARCHIVE_SECRET_KEYS = new Set([
+  'scm_anthropic_key', 'scm_facebook_key', 'scm_ideogram_key', 'scm_veo_key',
+  'scm_imgproxy_key', 'scm_google_sa', 'scm_telegram_token', 'scm_session',
+]);
+
+function buildArchiveSnapshot() {
+  const snapshot = { archiveVersion: 1, exportedAt: new Date().toISOString(), data: {} };
+  // Scan every app key so anything added in future is archived without code changes.
+  for (let i = 0; i < localStorage.length; i++) {
+    const k = localStorage.key(i);
+    if (!k || !k.startsWith('scm_')) continue;
+    if (ARCHIVE_SECRET_KEYS.has(k)) continue;
+    let v = localStorage.getItem(k);
+    // fb_pages holds tokens - keep the identity (name/role/url/id), drop the token.
+    if (k === 'scm_fb_pages') {
+      try {
+        const parsed = JSON.parse(v);
+        ['mssi', 'wcli', 'cwli'].forEach(co => {
+          if (Array.isArray(parsed[co])) parsed[co] = parsed[co].map(pg => ({ ...pg, token: pg.token ? '[stored, omitted from archive]' : '' }));
+          else if (parsed[co] && parsed[co].token) parsed[co] = { ...parsed[co], token: '[stored, omitted from archive]' };
+        });
+        v = JSON.stringify(parsed);
+      } catch (_e) {}
+    }
+    try { snapshot.data[k] = JSON.parse(v); } catch (_e) { snapshot.data[k] = v; }
+  }
+  return snapshot;
+}
+
+// Pull SheetJS on demand (like the PowerPoint lib) so the app doesn't carry it
+// every session. Multiple CDNs so one bad host can't break the export.
+function loadXlsxLib() {
+  if (window.XLSX) return Promise.resolve();
+  if (APP._xlsxLoading) return APP._xlsxLoading;
+  const SOURCES = [
+    'https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js',
+    'https://unpkg.com/xlsx@0.18.5/dist/xlsx.full.min.js',
+    'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js',
+  ];
+  const tryOne = (url) => new Promise((res, rej) => {
+    const el = document.createElement('script'); el.src = url;
+    let done = false; const fin = (ok) => { if (done) return; done = true; ok && window.XLSX ? res() : rej(); };
+    el.onload = () => fin(true); el.onerror = () => fin(false); setTimeout(() => fin(false), 12000);
+    document.head.appendChild(el);
+  });
+  APP._xlsxLoading = (async () => {
+    for (const u of SOURCES) { try { await tryOne(u); if (window.XLSX) return; } catch (_e) {} }
+    APP._xlsxLoading = null; throw new Error('spreadsheet library unavailable');
+  })();
+  return APP._xlsxLoading;
+}
+
+function _dl(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href = url; a.download = filename; a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+async function exportArchive(btnEl) {
+  const original = btnEl ? btnEl.textContent : '';
+  if (btnEl) { btnEl.disabled = true; btnEl.textContent = 'Building archive…'; }
+  const date = new Date().toISOString().slice(0, 10);
+  try {
+    // 1) JSON snapshot - always produced, this is the real archive.
+    const snap = buildArchiveSnapshot();
+    _dl(new Blob([JSON.stringify(snap, null, 2)], { type: 'application/json' }), `scm-archive-${date}.json`);
+
+    // 2) XLSX - best-effort readable version.
+    let xlsxNote = '';
+    try {
+      await loadXlsxLib();
+      const wb = XLSX.utils.book_new();
+      const addSheet = (name, rows) => {
+        if (!rows || !rows.length) return;
+        const ws = XLSX.utils.json_to_sheet(rows);
+        XLSX.utils.book_append_sheet(wb, ws, name.slice(0, 31));
+      };
+
+      const posts = (APP.posts || []);
+      addSheet('Posts', posts.map(p => ({
+        date: p.publishedAt || p.scheduledFor || '', company: (p.company || '').toUpperCase(),
+        status: p.status || '', pillar: p.pillar || '', audience: p.audience || '',
+        caption: String(p.caption || '').replace(/\s+/g, ' ').slice(0, 500),
+      })));
+      addSheet('Performance', posts.filter(p => p.performance).map(p => ({
+        date: p.publishedAt || '', company: (p.company || '').toUpperCase(), pillar: p.pillar || '',
+        reach: p.performance.reach || 0, reactions: p.performance.reactions || 0,
+        comments: p.performance.comments || 0, shares: p.performance.shares || 0,
+        inquiries: p.performance.inquiries || 0,
+        engagementScore: (typeof engagementScore === 'function') ? engagementScore(p.performance) : '',
+      })));
+
+      // Competitor intel (latest per competitor) and full run history.
+      const store = (typeof loadIntelStore === 'function') ? loadIntelStore() : {};
+      const compRows = [];
+      Object.values(store).forEach(rec => {
+        const d = rec && rec.data; if (!d) return;
+        compRows.push({
+          competitor: d.competitor_name || '', capturedAt: new Date(rec.capturedAt).toISOString(),
+          summary: String(d.summary || '').slice(0, 400),
+          colors: (d.colors || []).join('; '), textures: (d.textures || []).join('; '),
+          substrates: (d.substrates || []).join('; '),
+          certifications: (d.certifications || []).map(c => c && c.name).filter(Boolean).join('; '),
+          promos: (d.promos || []).join('; '), dealers: (d.dealers || []).length,
+        });
+      });
+      addSheet('Competitors (latest)', compRows);
+
+      const hist = (typeof loadIntelHistory === 'function') ? loadIntelHistory() : [];
+      addSheet('Competitor History', hist.map(h => ({
+        competitor: h.competitorName || '', capturedAt: new Date(h.capturedAt).toISOString(),
+        colors: (h.data.colors || []).length, textures: (h.data.textures || []).length,
+        substrates: (h.data.substrates || []).length,
+        certifications: (h.data.certifications || []).length,
+        prices: (h.data.prices || []).length,
+        changes: (h.data.changes || []).join(' | ').slice(0, 500),
+      })));
+
+      const flags = (typeof loadCampaignFlags === 'function') ? loadCampaignFlags() : [];
+      addSheet('Campaign Flags', flags.map(f => ({
+        type: (CAMPAIGN_KINDS && CAMPAIGN_KINDS[f.kind]) || f.kind, company: f.company,
+        from: f.from, to: f.to, note: f.note || '', keptInAnalysis: !!f.keepInAnalysis,
+      })));
+
+      const dirs = (typeof loadDirectives === 'function') ? loadDirectives() : [];
+      addSheet('Directives', dirs.map(d => ({
+        company: d.company, action: d.action, instruction: d.instruction,
+        addedAt: d.addedAt ? new Date(d.addedAt).toISOString() : '',
+      })));
+
+      const colorRows = [];
+      ['wcli', 'cwli', 'mssi'].forEach(co => (getColors(co) || []).forEach(c => colorRows.push({
+        company: co.toUpperCase(), name: c.name || '', family: c.colorFamily || '',
+        pattern: c.pattern || '', status: c.status || '', priority: c.featurePriority || '',
+      })));
+      addSheet('Colours', colorRows);
+
+      const out = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+      _dl(new Blob([out], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), `scm-archive-${date}.xlsx`);
+    } catch (_e) {
+      xlsxNote = ' (spreadsheet skipped — no connection to the spreadsheet library; the JSON archive is complete)';
+    }
+
+    showToast('Archive downloaded — drop both files into your Synology folder' + xlsxNote, 'success');
+  } catch (e) {
+    showToast('Could not build archive: ' + e.message, 'error');
+  } finally {
+    if (btnEl) { btnEl.disabled = false; btnEl.textContent = original; }
+  }
 }
 
 function exportFullBackup() {
