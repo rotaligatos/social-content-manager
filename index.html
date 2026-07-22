@@ -749,6 +749,15 @@ select:focus{border-color:var(--accent-border);}
   <div class="topbar">
     <div class="topbar-left"><h1>Reports</h1><p>Everything consolidated in one place — findings, charts, and exports</p></div>
     <div class="topbar-actions">
+      <select id="reports-company-filter" onchange="setReportsCompany(this.value)" title="Focus the report on one company" style="font-size:11px;padding:5px 8px;border-radius:6px">
+        <option value="all">All companies</option>
+        <option value="mssi">MSSI</option>
+        <option value="wcli">WCLI</option>
+        <option value="cwli">CWLI</option>
+      </select>
+      <select onchange="setAnalysisWindowFromReports(this.value)" title="Time period this whole report analyzes" style="font-size:11px;padding:5px 8px;border-radius:6px">
+        ${ANALYSIS_WINDOWS.map(w => `<option value="${w.key}" ${getAnalysisWindow().key === w.key ? 'selected' : ''}>${w.label}</option>`).join('')}
+      </select>
       <button class="btn btn-secondary btn-sm" onclick="renderReportsScreen()">Refresh</button>
       <button class="btn btn-secondary btn-sm" onclick="exportMarketPDF(this)">Export PDF</button>
       <button class="btn btn-primary btn-sm" onclick="exportMarketPPTX(this)">Export PowerPoint</button>
@@ -12220,17 +12229,49 @@ const INTEL_STALE_DAYS = 30;
 function loadIntelStore() {
   try { return JSON.parse(localStorage.getItem(INTEL_STORE_KEY) || '{}'); } catch (_e) { return {}; }
 }
+const INTEL_HISTORY_KEY = 'scm_competitor_intel_history';
+
+function loadIntelHistory() {
+  try { return JSON.parse(localStorage.getItem(INTEL_HISTORY_KEY) || '[]'); } catch (_e) { return []; }
+}
+
 function saveIntelRecord(competitorId, data) {
+  const now = Date.now();
+
+  // "Latest" store, unchanged - View Intel and the default report read this.
   const store = loadIntelStore();
-  store[competitorId] = { capturedAt: Date.now(), data };
+  store[competitorId] = { capturedAt: now, data };
   try { localStorage.setItem(INTEL_STORE_KEY, JSON.stringify(store)); }
   catch (_e) {
-    // Quota is finite - drop the raw model output (the biggest field) and retry once.
     Object.values(store).forEach(r => { if (r?.data?.raw) delete r.data.raw; });
     try { localStorage.setItem(INTEL_STORE_KEY, JSON.stringify(store)); } catch (_e2) {}
   }
+
+  // History store - one entry per run, so a time window can select older runs
+  // later. Images and raw model text are stripped from history to keep it small;
+  // the numbers, gaps, prices and change notes are what trend analysis needs.
+  try {
+    const slim = { ...data };
+    delete slim.raw; delete slim.finish_images; delete slim.finishImages;
+    delete slim.color_images; delete slim.texture_images;
+    const hist = loadIntelHistory();
+    hist.push({ competitorId, competitorName: data.competitor_name || '', capturedAt: now, data: slim });
+    // Cap total history so localStorage can't fill up: keep the most recent 200 runs.
+    const trimmed = hist.slice(-200);
+    localStorage.setItem(INTEL_HISTORY_KEY, JSON.stringify(trimmed));
+  } catch (_e) { /* history is best-effort; the latest store above is what must not fail */ }
+
   APP._competitorIntel = APP._competitorIntel || {};
   APP._competitorIntel[competitorId] = data;
+}
+
+// Runs for one competitor within a time window (ms cutoff). Falls back to the
+// single latest run if the window predates any stored run, so the report is never
+// blank just because you picked a narrow window early on.
+function intelRunsInWindow(competitorId, cutoffMs) {
+  const hist = loadIntelHistory().filter(h => h.competitorId === competitorId);
+  const inWin = hist.filter(h => cutoffMs === null || h.capturedAt >= cutoffMs);
+  return inWin.sort((a, b) => a.capturedAt - b.capturedAt);
 }
 function intelAgeDays(competitorId) {
   const rec = loadIntelStore()[competitorId];
@@ -12318,11 +12359,34 @@ async function analyzeAllCompetitors(btnEl) {
 // Everything here is derived from stored intel. Nothing is estimated or invented -
 // if the evidence didn't support it, the metric simply reports fewer competitors.
 function buildMarketAnalysis() {
-  const list = APP._competitorsCache || [];
+  const coFilter = (typeof REPORTS_COMPANY !== 'undefined') ? REPORTS_COMPANY : 'all';
+  // When focused on one company, only its competitors, its buying searches, and its
+  // own performance feed the report - so a WCLI-specific finding isn't diluted by MSSI.
+  const fullList = APP._competitorsCache || [];
+  const list = coFilter === 'all' ? fullList
+    : fullList.filter(c => (c.competes_with || []).map(x => String(x).toLowerCase()).includes(coFilter));
   const store = loadIntelStore();
-  const rows = list
-    .map(c => ({ competitor: c, rec: store[c.id] }))
-    .filter(r => r.rec && r.rec.data);
+
+  // The SAME window the Performance page uses, so the whole app analyses one
+  // consistent slice of time - competitor intel and your own results together.
+  const win = (typeof getAnalysisWindow === 'function') ? getAnalysisWindow() : { key: 'all', label: 'All time', days: null };
+  const cutoffMs = win.days === null ? null : (Date.now() - win.days * 86400000);
+
+  // For each competitor, take the most recent run INSIDE the window. If the window
+  // predates every stored run (common while history is still shallow), fall back to
+  // the latest run so the report is never empty - and flag that we did.
+  let usedFallback = 0;
+  const rows = list.map(c => {
+    const runs = intelRunsInWindow(c.id, cutoffMs);
+    if (runs.length) {
+      const latestInWin = runs[runs.length - 1];
+      return { competitor: c, rec: { capturedAt: latestInWin.capturedAt, data: latestInWin.data }, runsInWindow: runs.length };
+    }
+    // fallback to the always-current latest store
+    if (store[c.id] && store[c.id].data) { usedFallback++; return { competitor: c, rec: store[c.id], runsInWindow: 0 }; }
+    return { competitor: c, rec: null, runsInWindow: 0 };
+  }).filter(r => r.rec && r.rec.data);
+  const windowInfo = { label: win.label, key: win.key, cutoffMs, usedFallback, company: coFilter };
 
   // Which of our three businesses each of our own domains belongs to, so every
   // finding can name the company it actually concerns instead of saying "you".
@@ -12354,7 +12418,9 @@ function buildMarketAnalysis() {
       if (r.ourRank && !byQuery[r.query].ourRank) byQuery[r.query].ourRank = r.ourRank;
     });
   });
-  const search = Object.values(byQuery).map(q => {
+  const searchAll = Object.values(byQuery);
+  const searchScoped = coFilter === 'all' ? searchAll : searchAll.filter(q => queryCompany(q.query) === coFilter);
+  const search = searchScoped.map(q => {
     const mine = (q.top || []).filter(t => isOurs(t.host));
     // Work out our own rank from the domains in the result list. The function can
     // only match a single brand name, which silently missed MSSI and CWLI.
@@ -12575,11 +12641,41 @@ function buildMarketAnalysis() {
     highlights.push({ tone: 'warn', company: null, text: `${notResearched} competitor${notResearched === 1 ? '' : 's'} not yet researched — findings below cover ${rows.length} of ${list.length}.` });
   }
 
+  // Trends across every run in the window - this is what "look at the past to
+  // understand the present" looks like for competitors. Needs 2+ runs to say anything.
+  const trends = [];
+  rows.forEach(({ competitor }) => {
+    const runs = intelRunsInWindow(competitor.id, cutoffMs);
+    if (runs.length < 2) return;
+    const first = runs[0].data, last = runs[runs.length - 1].data;
+    const span = Math.max(1, Math.round((runs[runs.length - 1].capturedAt - runs[0].capturedAt) / 86400000));
+
+    const nColorsFirst = (first.colors || []).length, nColorsLast = (last.colors || []).length;
+    if (nColorsLast > nColorsFirst) trends.push({ competitor: competitor.name, text: `added ${nColorsLast - nColorsFirst} colour${nColorsLast - nColorsFirst === 1 ? '' : 's'} over ${span} days` });
+
+    const nCertFirst = (first.certifications || []).length, nCertLast = (last.certifications || []).length;
+    if (nCertLast > nCertFirst) trends.push({ competitor: competitor.name, text: `began claiming ${nCertLast - nCertFirst} new certification${nCertLast - nCertFirst === 1 ? '' : 's'} — worth watching`, tone: 'bad' });
+
+    // Price direction across runs
+    const priceOf = (d) => { const ps = (d.prices || []).map(x => parseFloat(String(x.price).replace(/[^0-9.]/g, ''))).filter(isFinite); return ps.length ? ps.reduce((a, b) => a + b, 0) / ps.length : null; };
+    const pf = priceOf(first), pl = priceOf(last);
+    if (pf && pl && Math.abs(pl - pf) / pf > 0.03) {
+      const pct = Math.round(((pl - pf) / pf) * 100);
+      trends.push({ competitor: competitor.name, text: `average published price ${pct > 0 ? 'rose' : 'fell'} ${Math.abs(pct)}% across the window` });
+    }
+  });
+
   // --- Our own performance, so the conclusion reconciles inward evidence (what
   // has worked) with outward evidence (where we are absent) instead of pretending
   // only one exists. Two reports giving opposite direction is worse than one.
   const ownPerf = (() => {
-    const logged = excludeFlaggedPosts((APP.posts || []).filter(p => p.performance));
+    let logged = excludeFlaggedPosts((APP.posts || []).filter(p => p.performance && (coFilter === 'all' || p.company === coFilter)));
+    if (cutoffMs !== null) {
+      logged = logged.filter(p => {
+        const t = new Date(p.publishedAt || p.scheduledFor || 0).getTime();
+        return isFinite(t) && t >= cutoffMs;
+      });
+    }
     if (logged.length < 3) return null;
     const byCo = {};
     logged.forEach(p => {
@@ -12790,7 +12886,7 @@ function buildMarketAnalysis() {
     return { narrative: parts, actions, tensions };
   })();
 
-  return { rows, search, dominance, marketGaps, colorGaps, textureGaps, substrateGaps, certGaps, certClaims, priceRows, pricingPosture, priceChanges, ownPerf, themes, activity, highlights, conclusion, coverage: { analysed: rows.length, total: list.length } };
+  return { rows, search, dominance, marketGaps, colorGaps, textureGaps, substrateGaps, certGaps, certClaims, priceRows, pricingPosture, priceChanges, ownPerf, windowInfo, trends, themes, activity, highlights, conclusion, coverage: { analysed: rows.length, total: list.length } };
 }
 
 // ── Market Analysis view ─────────────────────────────────────
@@ -12993,7 +13089,8 @@ async function exportMarketPDF(btnEl) {
     doc.setFontSize(20); doc.setTextColor(20);
     doc.text('Market Analysis', margin, y); y += 22;
     doc.setFontSize(10); doc.setTextColor(120);
-    doc.text(`${a.coverage.analysed} of ${a.coverage.total} competitors  ·  ${new Date().toLocaleDateString()}`, margin, y);
+    const wiPdf = a.windowInfo || {}; const coPdf = { all: 'All companies', mssi: 'MSSI', wcli: 'WCLI', cwli: 'CWLI' }[wiPdf.company] || 'All companies';
+    doc.text(`${coPdf}  ·  ${wiPdf.label || 'All time'}  ·  ${a.coverage.analysed} of ${a.coverage.total} competitors  ·  ${new Date().toLocaleDateString()}`, margin, y);
     y += 26; doc.setTextColor(30);
 
     if (a.highlights.length) {
@@ -13210,7 +13307,7 @@ async function exportMarketPDF(btnEl) {
     doc.setFontSize(8); doc.setTextColor(140);
     doc.text(doc.splitTextToSize('Built only from evidence gathered on public websites and search results. No follower, reach or engagement figures are shown for competitors, because no legitimate source for those exists.', pageW - margin * 2), margin, y);
 
-    doc.save(`market-analysis-${new Date().toISOString().slice(0, 10)}.pdf`);
+    doc.save(`market-analysis-${(a.windowInfo && a.windowInfo.company) || 'all'}-${new Date().toISOString().slice(0, 10)}.pdf`);
     showToast('PDF downloaded', 'success');
   } catch (e) {
     showToast('Could not build PDF: ' + e.message, 'error');
@@ -13246,7 +13343,8 @@ async function exportMarketPPTX(btnEl) {
         Object.assign({ x: 0.5, y: 1.05, w: 9, fontSize: 11, border: { pt: 0.5, color: 'DDDDDD' }, autoPage: true }, opts || {}));
     };
 
-    titleSlide('Market Analysis', `${a.coverage.analysed} of ${a.coverage.total} competitors  ·  ${new Date().toLocaleDateString()}`);
+    const wiP = a.windowInfo || {}; const coP = { all: 'All companies', mssi: 'MSSI', wcli: 'WCLI', cwli: 'CWLI' }[wiP.company] || 'All companies';
+    titleSlide('Market Analysis', `${coP}  ·  ${wiP.label || 'All time'}  ·  ${a.coverage.analysed} of ${a.coverage.total} competitors  ·  ${new Date().toLocaleDateString()}`);
 
     if (a.highlights.length) {
       const s = section('What matters most');
@@ -13410,7 +13508,7 @@ async function exportMarketPPTX(btnEl) {
       { text: 'Empty fields mean the evidence did not support a claim, not that the competitor lacks it.', options: { bullet: true, breakLine: true } },
     ], { x: 0.6, y: 1.2, w: 8.8, fontSize: 13, color: GREY });
 
-    await pptx.writeFile({ fileName: `market-analysis-${new Date().toISOString().slice(0, 10)}.pptx` });
+    await pptx.writeFile({ fileName: `market-analysis-${(a.windowInfo && a.windowInfo.company) || 'all'}-${new Date().toISOString().slice(0, 10)}.pptx` });
     showToast('PowerPoint downloaded', 'success');
   } catch (e) {
     showToast('Could not build PowerPoint: ' + e.message, 'error');
@@ -13568,10 +13666,25 @@ function getDirectivesLabel() {
   return `✦ ${list.length} market directive${list.length === 1 ? '' : 's'} active${days > 0 ? `, oldest from ${days} day${days === 1 ? '' : 's'} ago` : ''} — these steer every caption until you turn them off.`;
 }
 
+let REPORTS_COMPANY = 'all';
+function setReportsCompany(co) {
+  REPORTS_COMPANY = co || 'all';
+  renderReportsScreen();
+}
+function setAnalysisWindowFromReports(key) {
+  localStorage.setItem('scm_analysis_window', key);
+  renderReportsScreen();
+}
+
 function renderReportsScreen() {
   const el = document.getElementById('reports-content');
   if (!el) return;
   hydrateIntelCache();
+  // Keep the header dropdown in sync (topbar is static markup rendered once).
+  const sel = document.querySelectorAll('#screen-reports select')[1];
+  if (sel) sel.innerHTML = ANALYSIS_WINDOWS.map(w => `<option value="${w.key}" ${getAnalysisWindow().key === w.key ? 'selected' : ''}>${w.label}</option>`).join('');
+  const coSel = document.getElementById('reports-company-filter');
+  if (coSel) coSel.value = REPORTS_COMPANY;
 
   const list = APP._competitorsCache || [];
   if (!list.length) {
@@ -13585,10 +13698,13 @@ function renderReportsScreen() {
 
   const a = buildMarketAnalysis();
   if (!a.rows.length) {
+    const focused = REPORTS_COMPANY !== 'all';
     el.innerHTML = `<div class="empty-state">
       <div class="empty-icon">🔍</div>
-      <div class="empty-title">No research saved yet</div>
-      <div class="empty-sub">Go to Competitors and press "✦ Analyze All". Findings, charts and exports all appear here once there's data.</div>
+      <div class="empty-title">${focused ? 'No ' + REPORTS_COMPANY.toUpperCase() + ' competitors researched yet' : 'No research saved yet'}</div>
+      <div class="empty-sub">${focused
+        ? 'No competitors tagged against ' + REPORTS_COMPANY.toUpperCase() + ' have been analyzed inside this window. Switch to "All companies", widen the window, or add and Analyze a competitor for this company.'
+        : 'Go to Competitors and press "✦ Analyze All". Findings, charts and exports all appear here once there\'s data.'}</div>
     </div>`;
     return;
   }
@@ -13704,7 +13820,16 @@ function renderReportsScreen() {
       ${inner}
     </div>` : '';
 
+  const wi = a.windowInfo || { label: 'All time', usedFallback: 0, company: 'all' };
+  const coName = { all: 'All companies', mssi: 'MSSI', wcli: 'WCLI', cwli: 'CWLI' }[wi.company] || 'All companies';
   el.innerHTML = `
+    <div class="card" style="margin-bottom:14px;border-left:3px solid var(--accent2)">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
+        <div style="font-size:12.5px"><b>Analyzing:</b> ${coName} · ${wi.label} — this governs the whole report, competitor findings and your own performance together. Change either filter top-right.</div>
+      </div>
+      ${wi.usedFallback ? `<div style="font-size:11px;color:var(--amber);margin-top:6px">${wi.usedFallback} competitor${wi.usedFallback === 1 ? ' has' : 's have'} no research inside this window yet, so their most recent run is used instead. As you re-run Analyze All over time, narrower windows get more accurate.</div>` : ''}
+    </div>
+
     <div class="card" style="margin-bottom:14px">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;margin-bottom:14px">
         <div>
@@ -13735,6 +13860,15 @@ function renderReportsScreen() {
     })()}
 
     ${conclusionHtml}
+
+    ${(a.trends || []).length ? `<div class="card" style="margin-bottom:14px;border-left:3px solid var(--accent2)">
+      <div style="font-size:13px;font-weight:600;margin-bottom:4px">Trends across this window</div>
+      <div style="font-size:11px;color:var(--text3);margin-bottom:10px;line-height:1.55">What moved between the earliest and latest research runs inside your selected window. This only appears once a competitor has been analyzed more than once — the memory this builds is exactly the "know what happened before" you asked for.</div>
+      ${a.trends.map(t => `<div style="display:flex;gap:9px;padding:7px 0;border-top:1px solid var(--border)">
+        <div style="width:4px;border-radius:2px;background:${t.tone === 'bad' ? 'var(--red)' : 'var(--accent2)'};flex-shrink:0"></div>
+        <div style="font-size:12.5px;line-height:1.6"><b>${t.competitor}</b> ${t.text}.</div>
+      </div>`).join('')}
+    </div>` : ''}
 
     <div class="card" style="margin:14px 0">
       <div style="font-size:13px;font-weight:600;margin-bottom:12px">Search standings by company</div>
