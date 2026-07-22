@@ -11660,6 +11660,7 @@ async function pullFromSupabase() {
           responseTimestamp: p.response_timestamp, createdAt: p.created_at,
           suggestedDate: local?.suggestedDate || null,
           colorId: local?.colorId || null,
+          _syncedToCloud: true, // came from Supabase, so it definitely existed there
         };
       });
 
@@ -11669,7 +11670,11 @@ async function pullFromSupabase() {
       const remoteIds = new Set((data.posts || []).map(p => String(p.id)));
       const localOnly = (APP.posts_before_pull || []).filter(p => {
         if (remoteIds.has(String(p.id))) return false; // already in Supabase
-        // Always keep drafts and scheduled posts — they may not have synced yet
+        // Resurrection guard: if this post was previously synced to the cloud and is
+        // now missing from the cloud, it was DELETED on another device. Drop it
+        // instead of keeping it — this is what left "remnants" on the mobile app.
+        if (p._syncedToCloud) return false;
+        // Always keep genuinely local-only drafts/scheduled posts (never synced yet)
         if (p.status === 'draft' || p.status === 'scheduled') return true;
         // For other statuses (published/missed), only keep if recent (within 5 min)
         const latestRemoteTime = data.posts?.length
