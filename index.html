@@ -1859,10 +1859,32 @@ const APP = {
   watermarkAiImages: false
 };
 
+// --- security & resilience helpers (added by build-studio Pass 1, 9 Aug 2026) ---
+function escapeHtml(s){
+  if (s == null) return '';
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+// Render caption/markdown safely: escape the raw text FIRST, then add the intended tags.
+function captionToHtml(raw){
+  return escapeHtml(raw).replace(/\*\*(.*?)\*\*/g,'<strong>$1</strong>').replace(/\*(.*?)\*/g,'<em>$1</em>').replace(/\n/g,'<br>');
+}
+// Parse a localStorage JSON value without letting one corrupt key abort the whole load.
+// Keeps a backup of any unparseable value so it is never silently overwritten/lost.
+function safeParseLS(key, dflt){
+  const raw = localStorage.getItem(key);
+  if (raw == null) return dflt;
+  try { return JSON.parse(raw); }
+  catch(e){
+    try { localStorage.setItem(key + '__corrupt_' + Date.now(), raw); } catch(_){}
+    console.error('Corrupt localStorage for', key, '— kept a backup under', key + '__corrupt_*', e);
+    return dflt;
+  }
+}
+
 function loadState() {
   try {
-    APP.posts = JSON.parse(localStorage.getItem('scm_posts') || '[]');
-    APP.photos = JSON.parse(localStorage.getItem('scm_photos') || '[]');
+    APP.posts = safeParseLS('scm_posts', []);
+    APP.photos = safeParseLS('scm_photos', []);
     // Repair any Drive photos saved with an expiring thumbnailLink — switch to the stable endpoint
     let repaired = false;
     APP.photos.forEach(p => {
@@ -5463,24 +5485,24 @@ function renderCommentRow(c) {
   // Get staff for this company
   const staff = (APP.staff || []).filter(s => !c.company || (s.companies || []).includes(c.company));
   const staffOptions = staff.length
-    ? `<select style="font-size:10.5px;padding:2px 4px;border:1px solid var(--border);border-radius:4px;background:var(--bg3);color:var(--text)" onchange="markCommentResponded('${c.id}', this.options[this.selectedIndex].text)">
+    ? `<select style="font-size:10.5px;padding:2px 4px;border:1px solid var(--border);border-radius:4px;background:var(--bg3);color:var(--text)" onchange="markCommentResponded('${String(c.id||'').replace(/[^\w.-]/g,'')}', this.options[this.selectedIndex].text)">
         <option value="">Assign…</option>
-        ${staff.map(s => `<option value="${s.chatId}">${s.name}</option>`).join('')}
+        ${staff.map(s => `<option value="${escapeHtml(s.chatId)}">${escapeHtml(s.name)}</option>`).join('')}
        </select>`
     : '';
 
   return `
     <div style="padding:9px 10px;background:var(--bg3);border-radius:var(--radius);border:1px solid ${slaBreached ? 'var(--red)' : c.is_inquiry ? 'var(--amber)' : 'var(--border)'};margin-bottom:6px">
       <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">
-        ${c.company ? `<span class="post-company-badge badge-${c.company}">${c.company.toUpperCase()}</span>` : ''}
+        ${c.company ? `<span class="post-company-badge badge-${String(c.company).replace(/[^\w-]/g,'')}">${escapeHtml(String(c.company).toUpperCase())}</span>` : ''}
         ${c.is_inquiry ? '<span class="post-company-badge" style="background:var(--amber-bg);color:var(--amber)">Inquiry</span>' : ''}
-        <span style="font-size:11.5px;font-weight:500;color:var(--text2);flex:1">${c.author_name || 'Unknown'}</span>
+        <span style="font-size:11.5px;font-weight:500;color:var(--text2);flex:1">${escapeHtml(c.author_name || 'Unknown')}</span>
         <span style="font-size:11px;color:${slaBreached ? 'var(--red)' : 'var(--text3)'}">${timeLabel}${slaBreached ? ' ⚠️ SLA' : ''}</span>
       </div>
-      <div style="font-size:12.5px;color:var(--text);margin-bottom:6px;line-height:1.5">"${(c.message || '').slice(0, 120)}${(c.message || '').length > 120 ? '…' : ''}"</div>
+      <div style="font-size:12.5px;color:var(--text);margin-bottom:6px;line-height:1.5">"${escapeHtml((c.message || '').slice(0, 120))}${(c.message || '').length > 120 ? '…' : ''}"</div>
       <div style="display:flex;gap:6px;align-items:center">
         ${staffOptions}
-        <button class="btn btn-ghost btn-sm" style="font-size:10.5px" onclick="markCommentResponded('${c.id}','Staff')">✓ Responded</button>
+        <button class="btn btn-ghost btn-sm" style="font-size:10.5px" onclick="markCommentResponded('${String(c.id||'').replace(/[^\w.-]/g,'')}','Staff')">✓ Responded</button>
         <a href="https://facebook.com" target="_blank" style="font-size:10.5px;color:var(--accent2);text-decoration:none">View on FB →</a>
       </div>
     </div>`;
@@ -15107,10 +15129,7 @@ function toggleScheduledPreview(postId) {
   const rawCaption = captionEl ? captionEl.value : post.caption;
 
   // Convert markdown to HTML for preview
-  const caption = rawCaption
-    .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-    .replace(/\*(.*?)\*/g, '<em>$1</em>')
-    .replace(/\n/g, '<br>');
+  const caption = captionToHtml(rawCaption);
 
   const fbName = post.company === 'mssi' ? 'Module Systems & Services, Inc.' : post.company === 'wcli' ? 'World Class Laminate, Inc.' : 'Cebu World Laminate, Inc.';
   const photoSrc = post.photo || post.photoUrl || post.photo_url || null;
@@ -15178,7 +15197,7 @@ function toggleScheduledPreview(postId) {
           <span>👤 ${post.audience}</span>
         </div>
         <!-- Editable caption inside preview -->
-        <textarea id="preview-caption-edit-${postId}" style="width:100%;font-size:13px;line-height:1.65;padding:10px 12px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg3);color:var(--text);font-family:'DM Sans',sans-serif;resize:vertical;min-height:80px;margin-bottom:8px" onchange="previewSaveCaption('${postId}', this.value)">${rawCaption}</textarea>
+        <textarea id="preview-caption-edit-${postId}" style="width:100%;font-size:13px;line-height:1.65;padding:10px 12px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg3);color:var(--text);font-family:'DM Sans',sans-serif;resize:vertical;min-height:80px;margin-bottom:8px" onchange="previewSaveCaption('${postId}', this.value)">${escapeHtml(rawCaption)}</textarea>
         <div style="display:flex;gap:6px;margin-bottom:8px;flex-wrap:wrap">
           <button class="btn btn-secondary btn-sm" style="flex:1" id="preview-regen-caption-${postId}" onclick="previewRegenCaption('${postId}')">↺ Regen Caption</button>
           <button class="btn btn-secondary btn-sm" style="flex:1" id="preview-regen-image-${postId}" onclick="previewRegenImage('${postId}')">↺ Regen Image</button>
@@ -15254,7 +15273,7 @@ async function previewRegenCaption(postId) {
     const queueEl = document.getElementById('caption-edit-' + postId);
     if (queueEl) queueEl.value = newCaption;
     const fbCaptionEl = document.getElementById('preview-fb-caption-' + postId);
-    if (fbCaptionEl) fbCaptionEl.innerHTML = newCaption.replace(/\*\*(.*?)\*\*/g,'<strong>$1</strong>').replace(/\*(.*?)\*/g,'<em>$1</em>').replace(/\n/g,'<br>');
+    if (fbCaptionEl) fbCaptionEl.innerHTML = captionToHtml(newCaption);
     if (statusEl) { statusEl.textContent = '✓ Caption regenerated'; setTimeout(() => { if(statusEl) statusEl.style.display='none'; }, 2500); }
     showToast('Caption regenerated', 'success');
   } catch (err) {
