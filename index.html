@@ -3090,6 +3090,20 @@ function libFilter(f, el) {
 }
 
 // PHOTO PICKER MODAL (for Create Post "Choose from Library")
+// Robustly parse JSON that an AI returned: strip code fences, extract the JSON
+// object even if wrapped in prose, tolerate a trailing comma, and on a genuinely
+// broken/truncated response throw a friendly message (not a raw parser error).
+function parseJsonLoose(raw){
+  let s = String(raw).replace(/```json/gi, '').replace(/```/g, '').trim();
+  const first = s.indexOf('{'), last = s.lastIndexOf('}');
+  if (first >= 0 && last > first) s = s.slice(first, last + 1);
+  const candidates = [s, s.replace(/,\s*([}\]])/g, '$1')];
+  for (const c of candidates) {
+    try { return JSON.parse(c); } catch (_) {}
+  }
+  throw new Error("Couldn't read the AI's schedule — the response looks incomplete. Please try again.");
+}
+
 async function recommendBestTimes() {
   const drafts = APP.posts.filter(p => p.status === 'draft');
   if (!drafts.length) { showToast('No pending posts to schedule', 'info'); return; }
@@ -3162,13 +3176,17 @@ Format your response as JSON only:
       },
       body: JSON.stringify({
         model: 'claude-haiku-4-5',
-        max_tokens: 800,
+        max_tokens: Math.min(4096, 1000 + drafts.length * 180),
         messages: [{ role: 'user', content: prompt }]
       })
     });
     const data = await res.json();
+    if (!res.ok || data.error) {
+      throw new Error((data.error && (data.error.message || data.error)) || ('AI service error (HTTP ' + res.status + '). Please try again.'));
+    }
     const text = data.content?.[0]?.text || '';
-    const json = JSON.parse(text.replace(/```json|```/g, '').trim());
+    if (!text.trim()) throw new Error('The AI returned an empty response — please try again.');
+    const json = parseJsonLoose(text);
 
     const contentEl = document.getElementById('best-times-content');
     if (!contentEl) return;
@@ -3218,7 +3236,8 @@ Format your response as JSON only:
     }
   } catch (err) {
     const contentEl = document.getElementById('best-times-content');
-    if (contentEl) contentEl.innerHTML = `<div style="color:var(--red);font-size:13px">❌ ${err.message}</div>`;
+    if (contentEl) contentEl.innerHTML = `<div style="color:var(--red);font-size:13px;margin-bottom:12px">❌ ${escapeHtml(err.message)}</div>
+      <button class="btn btn-secondary btn-sm" onclick="document.getElementById('best-times-modal')?.remove();recommendBestTimes()">↺ Try again</button>`;
   }
 }
 
