@@ -1859,32 +1859,10 @@ const APP = {
   watermarkAiImages: false
 };
 
-// --- security & resilience helpers (added by build-studio Pass 1, 9 Aug 2026) ---
-function escapeHtml(s){
-  if (s == null) return '';
-  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
-}
-// Render caption/markdown safely: escape the raw text FIRST, then add the intended tags.
-function captionToHtml(raw){
-  return escapeHtml(raw).replace(/\*\*(.*?)\*\*/g,'<strong>$1</strong>').replace(/\*(.*?)\*/g,'<em>$1</em>').replace(/\n/g,'<br>');
-}
-// Parse a localStorage JSON value without letting one corrupt key abort the whole load.
-// Keeps a backup of any unparseable value so it is never silently overwritten/lost.
-function safeParseLS(key, dflt){
-  const raw = localStorage.getItem(key);
-  if (raw == null) return dflt;
-  try { return JSON.parse(raw); }
-  catch(e){
-    try { localStorage.setItem(key + '__corrupt_' + Date.now(), raw); } catch(_){}
-    console.error('Corrupt localStorage for', key, '— kept a backup under', key + '__corrupt_*', e);
-    return dflt;
-  }
-}
-
 function loadState() {
   try {
-    APP.posts = safeParseLS('scm_posts', []);
-    APP.photos = safeParseLS('scm_photos', []);
+    APP.posts = JSON.parse(localStorage.getItem('scm_posts') || '[]');
+    APP.photos = JSON.parse(localStorage.getItem('scm_photos') || '[]');
     // Repair any Drive photos saved with an expiring thumbnailLink — switch to the stable endpoint
     let repaired = false;
     APP.photos.forEach(p => {
@@ -2212,7 +2190,10 @@ async function runVideoGen() {
   document.getElementById('vidgen-result').innerHTML = '';
 
   const BASE_URL = 'https://generativelanguage.googleapis.com/v1beta';
-  const MODEL = 'veo-3.1-fast-generate-preview'; // Fast tier: built for quick, business-use social content
+  // Manual generation uses the STANDARD Veo 3.1 (higher quality than Fast) - this is
+  // where hero/showcase videos are made and the extra render time is acceptable.
+  // Autopilot keeps using Fast (see generateVideoHeadless) because it can't wait as long.
+  const MODEL = 'veo-3.1-generate-preview';
 
   try {
     // Plan the full length as one idea first, so later takes actually continue the same shot
@@ -2221,6 +2202,16 @@ async function runVideoGen() {
       progressEl.textContent = `Planning a ${totalTarget}s video in ${segments} linked takes...`;
       const plan = await planVideoSegments(prompt, segments);
       openingPrompt = plan.opening; continuations = plan.continuations;
+    }
+    // Apply the cinematic director layer so every clip is directed, not plain, and lands
+    // cleanly. Craft applies to every take; the landing goes on the FINAL take only.
+    const _pillar = APP.currentPillar;
+    if (segments <= 1) {
+      openingPrompt = applyVideoDirection(openingPrompt, _pillar, true);
+    } else {
+      openingPrompt = applyVideoDirection(openingPrompt, _pillar, false);
+      continuations = continuations.map((c, i) =>
+        applyVideoDirection(c, _pillar, i === continuations.length - 1));
     }
 
     // Step 1: start the long-running generation job
@@ -3090,20 +3081,6 @@ function libFilter(f, el) {
 }
 
 // PHOTO PICKER MODAL (for Create Post "Choose from Library")
-// Robustly parse JSON that an AI returned: strip code fences, extract the JSON
-// object even if wrapped in prose, tolerate a trailing comma, and on a genuinely
-// broken/truncated response throw a friendly message (not a raw parser error).
-function parseJsonLoose(raw){
-  let s = String(raw).replace(/```json/gi, '').replace(/```/g, '').trim();
-  const first = s.indexOf('{'), last = s.lastIndexOf('}');
-  if (first >= 0 && last > first) s = s.slice(first, last + 1);
-  const candidates = [s, s.replace(/,\s*([}\]])/g, '$1')];
-  for (const c of candidates) {
-    try { return JSON.parse(c); } catch (_) {}
-  }
-  throw new Error("Couldn't read the AI's schedule — the response looks incomplete. Please try again.");
-}
-
 async function recommendBestTimes() {
   const drafts = APP.posts.filter(p => p.status === 'draft');
   if (!drafts.length) { showToast('No pending posts to schedule', 'info'); return; }
@@ -3176,17 +3153,13 @@ Format your response as JSON only:
       },
       body: JSON.stringify({
         model: 'claude-haiku-4-5',
-        max_tokens: Math.min(4096, 1000 + drafts.length * 180),
+        max_tokens: 800,
         messages: [{ role: 'user', content: prompt }]
       })
     });
     const data = await res.json();
-    if (!res.ok || data.error) {
-      throw new Error((data.error && (data.error.message || data.error)) || ('AI service error (HTTP ' + res.status + '). Please try again.'));
-    }
     const text = data.content?.[0]?.text || '';
-    if (!text.trim()) throw new Error('The AI returned an empty response — please try again.');
-    const json = parseJsonLoose(text);
+    const json = JSON.parse(text.replace(/```json|```/g, '').trim());
 
     const contentEl = document.getElementById('best-times-content');
     if (!contentEl) return;
@@ -3236,8 +3209,7 @@ Format your response as JSON only:
     }
   } catch (err) {
     const contentEl = document.getElementById('best-times-content');
-    if (contentEl) contentEl.innerHTML = `<div style="color:var(--red);font-size:13px;margin-bottom:12px">❌ ${escapeHtml(err.message)}</div>
-      <button class="btn btn-secondary btn-sm" onclick="document.getElementById('best-times-modal')?.remove();recommendBestTimes()">↺ Try again</button>`;
+    if (contentEl) contentEl.innerHTML = `<div style="color:var(--red);font-size:13px">❌ ${err.message}</div>`;
   }
 }
 
@@ -3834,7 +3806,37 @@ async function generateImageViaProxy(prompt, opts, postId) {
 // bedrooms — the products go into whole homes AND commercial fit-outs, so both pools exist and
 // the audience decides the lean.
 // Market is the Philippines - any people shown should read as Filipino, not Western.
-const VIDEO_ENDING_NOTE = ' Choreograph the shot so the movement FINISHES cleanly: decelerate through the final two seconds and settle on a held, well-composed closing frame. The clip must never cut off mid-movement. AUDIO: keep the ambient sound bed steady and low, and let it resolve and fade gently over the last second rather than stopping abruptly - no music sting, no speech or phrase left unfinished at the cut.';
+const VIDEO_ENDING_NOTE = ' ENDING (critical): plan the action so it fully COMPLETES within the clip length - never begin a movement that cannot finish in the time available (this is the usual cause of an abrupt cut). Decelerate through the final ~2 seconds and settle, holding a composed, well-lit hero frame for the last beat so the clip resolves gracefully instead of stopping mid-motion. AUDIO: keep a low, steady ambient bed and let it resolve and fade gently over the last second - no music sting, no unfinished speech, nothing chopped off at the cut.';
+
+// ── CINEMATIC DIRECTOR LAYER ──────────────────────────────────────────────
+// Turns a plain description into a directed shot. A "plain" clip is almost always
+// an undirected one - no chosen camera move, flat light, no depth. This injects the
+// craft a high-end furniture brand film would have, so Veo has something to aim for.
+const VIDEO_DIRECTOR_NOTE = ' CRAFT & DIRECTION: shoot this like a premium furniture brand film, not a plain clip. Use ONE deliberate, motivated camera move - a slow dolly-in, a gentle lateral glide, or a smooth arc - never locked-static and never frantic. Shallow depth of field with soft natural bokeh; the featured surface/product stays crisp while the background falls away. Cinematic lighting: a soft key with gentle falloff, warm and inviting, subtle highlights raking along edges to reveal texture. Clean, premium colour grade with true-to-life material tones (do not oversaturate). Thoughtful composition - rule of thirds, leading lines guiding the eye to the product, real sense of depth and space. Unhurried, confident pacing. Photorealistic, sharp focus, 1080p, filmic. Absolutely no text, words, captions, logos or watermarks anywhere in the frame.';
+
+// Per-pillar shot treatment, so every content type gets its own cinematic language
+// instead of the same flat move every time.
+function videoDirectorForPillar(pillar) {
+  const t = String(pillar || '').toLowerCase();
+  if (/product showcase|sales push/.test(t))
+    return ' SHOT: a hero product reveal - open slightly wide to set the scene, then a slow push-in that lands on the finished surface as the undeniable star, light catching along a clean edge.';
+  if (/aspiration|lifestyle/.test(t))
+    return ' SHOT: a lifestyle glide through the finished space - warm and lived-in, an unhurried move that lets the room breathe and feel like a dream home coming to life.';
+  if (/social proof/.test(t))
+    return ' SHOT: a confident reveal of a real completed installation - establish the space, then glide to a composed hero angle that shows off craftsmanship and finish quality.';
+  if (/brand story/.test(t))
+    return ' SHOT: an intimate, tactile study of material and craft - close detail with soft light raking across the surface to show grain and texture, proud and human.';
+  if (/education/.test(t))
+    return ' SHOT: a clear, elegant demonstration - a steady, revealing move that draws the eye to the exact detail being shown, uncluttered and precise.';
+  if (/engagement/.test(t))
+    return ' SHOT: a scroll-stopping opening beat - a bold composition or a satisfying reveal in the first second that makes the viewer look twice.';
+  return '';
+}
+
+// Wrap any base description with the full direction. `isFinalTake` adds the landing.
+function applyVideoDirection(basePrompt, pillar, isFinalTake) {
+  return String(basePrompt || '') + videoDirectorForPillar(pillar) + VIDEO_DIRECTOR_NOTE + (isFinalTake === false ? '' : VIDEO_ENDING_NOTE);
+}
 const PEOPLE_NOTE = ' Any people shown must be Filipino (Southeast Asian) - natural, contemporary Filipinos suited to the setting (homeowners, families, office workers, designers, tradespeople). Do not depict Western or Caucasian people.';
 
 const SPACE_POOLS = {
@@ -5504,24 +5506,24 @@ function renderCommentRow(c) {
   // Get staff for this company
   const staff = (APP.staff || []).filter(s => !c.company || (s.companies || []).includes(c.company));
   const staffOptions = staff.length
-    ? `<select style="font-size:10.5px;padding:2px 4px;border:1px solid var(--border);border-radius:4px;background:var(--bg3);color:var(--text)" onchange="markCommentResponded('${String(c.id||'').replace(/[^\w.-]/g,'')}', this.options[this.selectedIndex].text)">
+    ? `<select style="font-size:10.5px;padding:2px 4px;border:1px solid var(--border);border-radius:4px;background:var(--bg3);color:var(--text)" onchange="markCommentResponded('${c.id}', this.options[this.selectedIndex].text)">
         <option value="">Assign…</option>
-        ${staff.map(s => `<option value="${escapeHtml(s.chatId)}">${escapeHtml(s.name)}</option>`).join('')}
+        ${staff.map(s => `<option value="${s.chatId}">${s.name}</option>`).join('')}
        </select>`
     : '';
 
   return `
     <div style="padding:9px 10px;background:var(--bg3);border-radius:var(--radius);border:1px solid ${slaBreached ? 'var(--red)' : c.is_inquiry ? 'var(--amber)' : 'var(--border)'};margin-bottom:6px">
       <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">
-        ${c.company ? `<span class="post-company-badge badge-${String(c.company).replace(/[^\w-]/g,'')}">${escapeHtml(String(c.company).toUpperCase())}</span>` : ''}
+        ${c.company ? `<span class="post-company-badge badge-${c.company}">${c.company.toUpperCase()}</span>` : ''}
         ${c.is_inquiry ? '<span class="post-company-badge" style="background:var(--amber-bg);color:var(--amber)">Inquiry</span>' : ''}
-        <span style="font-size:11.5px;font-weight:500;color:var(--text2);flex:1">${escapeHtml(c.author_name || 'Unknown')}</span>
+        <span style="font-size:11.5px;font-weight:500;color:var(--text2);flex:1">${c.author_name || 'Unknown'}</span>
         <span style="font-size:11px;color:${slaBreached ? 'var(--red)' : 'var(--text3)'}">${timeLabel}${slaBreached ? ' ⚠️ SLA' : ''}</span>
       </div>
-      <div style="font-size:12.5px;color:var(--text);margin-bottom:6px;line-height:1.5">"${escapeHtml((c.message || '').slice(0, 120))}${(c.message || '').length > 120 ? '…' : ''}"</div>
+      <div style="font-size:12.5px;color:var(--text);margin-bottom:6px;line-height:1.5">"${(c.message || '').slice(0, 120)}${(c.message || '').length > 120 ? '…' : ''}"</div>
       <div style="display:flex;gap:6px;align-items:center">
         ${staffOptions}
-        <button class="btn btn-ghost btn-sm" style="font-size:10.5px" onclick="markCommentResponded('${String(c.id||'').replace(/[^\w.-]/g,'')}','Staff')">✓ Responded</button>
+        <button class="btn btn-ghost btn-sm" style="font-size:10.5px" onclick="markCommentResponded('${c.id}','Staff')">✓ Responded</button>
         <a href="https://facebook.com" target="_blank" style="font-size:10.5px;color:var(--accent2);text-decoration:none">View on FB →</a>
       </div>
     </div>`;
@@ -11184,7 +11186,7 @@ async function runAutoGenerate() {
           if (row) row.innerHTML = baseRowHtml + `<span style="font-size:11px;color:var(--text3)">🎬 video…</span>`;
           try {
             const visualDesc = await captionToVisualDescription(apiKey, fullText, true, co, pillar, colorId, audience);
-            const vidPrompt = `Professional 8-second marketing video for a Philippine furniture/laminate company. ${visualDesc} Cinematic, bright, high-quality commercial style with natural lighting. No text, words, logos, or watermarks.${PEOPLE_NOTE}${VIDEO_ENDING_NOTE}`;
+            const vidPrompt = applyVideoDirection(`Professional marketing video for a Philippine furniture/laminate company. ${visualDesc}${PEOPLE_NOTE}`, pillar, true);
             const vid = await generateVideoHeadless(vidPrompt, '16:9');
             // Store the generated video on the post. Note: object URLs don't survive a page reload —
             // the user should review/publish generated videos in the same session, or regenerate.
@@ -15148,7 +15150,10 @@ function toggleScheduledPreview(postId) {
   const rawCaption = captionEl ? captionEl.value : post.caption;
 
   // Convert markdown to HTML for preview
-  const caption = captionToHtml(rawCaption);
+  const caption = rawCaption
+    .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*(.*?)\*/g, '<em>$1</em>')
+    .replace(/\n/g, '<br>');
 
   const fbName = post.company === 'mssi' ? 'Module Systems & Services, Inc.' : post.company === 'wcli' ? 'World Class Laminate, Inc.' : 'Cebu World Laminate, Inc.';
   const photoSrc = post.photo || post.photoUrl || post.photo_url || null;
@@ -15216,7 +15221,7 @@ function toggleScheduledPreview(postId) {
           <span>👤 ${post.audience}</span>
         </div>
         <!-- Editable caption inside preview -->
-        <textarea id="preview-caption-edit-${postId}" style="width:100%;font-size:13px;line-height:1.65;padding:10px 12px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg3);color:var(--text);font-family:'DM Sans',sans-serif;resize:vertical;min-height:80px;margin-bottom:8px" onchange="previewSaveCaption('${postId}', this.value)">${escapeHtml(rawCaption)}</textarea>
+        <textarea id="preview-caption-edit-${postId}" style="width:100%;font-size:13px;line-height:1.65;padding:10px 12px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg3);color:var(--text);font-family:'DM Sans',sans-serif;resize:vertical;min-height:80px;margin-bottom:8px" onchange="previewSaveCaption('${postId}', this.value)">${rawCaption}</textarea>
         <div style="display:flex;gap:6px;margin-bottom:8px;flex-wrap:wrap">
           <button class="btn btn-secondary btn-sm" style="flex:1" id="preview-regen-caption-${postId}" onclick="previewRegenCaption('${postId}')">↺ Regen Caption</button>
           <button class="btn btn-secondary btn-sm" style="flex:1" id="preview-regen-image-${postId}" onclick="previewRegenImage('${postId}')">↺ Regen Image</button>
@@ -15292,7 +15297,7 @@ async function previewRegenCaption(postId) {
     const queueEl = document.getElementById('caption-edit-' + postId);
     if (queueEl) queueEl.value = newCaption;
     const fbCaptionEl = document.getElementById('preview-fb-caption-' + postId);
-    if (fbCaptionEl) fbCaptionEl.innerHTML = captionToHtml(newCaption);
+    if (fbCaptionEl) fbCaptionEl.innerHTML = newCaption.replace(/\*\*(.*?)\*\*/g,'<strong>$1</strong>').replace(/\*(.*?)\*/g,'<em>$1</em>').replace(/\n/g,'<br>');
     if (statusEl) { statusEl.textContent = '✓ Caption regenerated'; setTimeout(() => { if(statusEl) statusEl.style.display='none'; }, 2500); }
     showToast('Caption regenerated', 'success');
   } catch (err) {
