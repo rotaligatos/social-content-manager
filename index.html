@@ -1489,6 +1489,8 @@ const CHANGELOG = [
       'Endings no longer cut abruptly — the video is directed to complete its motion and settle on a held closing frame, with the audio resolving gently.',
       'Manual video generation upgraded to Veo 3.1 standard (higher quality) while autopilot stays on Fast for speed.',
       'Videos can no longer be lost to a stray click — a generated video auto-saves to storage, clicking outside the popup no longer discards it, and reopening the generator recovers your last video.',
+      'Concepts are now tuned to what AI video can actually do in one continuous shot (no fake before/after cuts it cannot deliver).',
+      'New "⬇ Download for Reels" button on every generated video, with guidance: post it as a Reel and add trending audio — this replaces the AI\'s choppy sound and is the biggest driver of reach. (Veo\'s built-in audio can\'t be turned off via the API, so trending audio on-platform is the fix.)',
     ]
   },
   {
@@ -2336,7 +2338,10 @@ async function runVideoGen() {
     progressEl.textContent = '';
     document.getElementById('vidgen-result').innerHTML = `
       <video src="${objectUrl}" controls style="width:100%;border-radius:var(--radius);margin-bottom:10px;background:#000"></video>
-      <button class="btn btn-primary" style="width:100%" onclick="useGeneratedVideo()">Use This Video</button>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-primary" style="flex:1" onclick="useGeneratedVideo()">Use This Video</button>
+        <button class="btn btn-secondary" onclick="downloadCurrentVideo()">⬇ Download</button>
+      </div>
     `;
     // Stash on a temp holder so the button click (which can't pass a File through HTML) can pick it up
     // googleVideoUri + apiKey kept so the video can be Extended later without re-uploading
@@ -2804,7 +2809,7 @@ async function applyVideoTrim() {
     document.getElementById('video-preview-area').innerHTML = `
       <video src="${objectUrl}" controls style="width:100%;max-height:200px;border-radius:var(--radius);background:#000"></video>
       <div style="font-size:11.5px;color:var(--text3);margin-top:6px">${trimmedFile.name} · ${(trimmedFile.size/1024/1024).toFixed(1)}MB · Trimmed to ${(end-start).toFixed(1)}s</div>
-      <div style="margin-top:6px"><button class="btn btn-secondary btn-sm" onclick="openVideoTrimmer()">✂️ Trim Again</button></div>
+      <div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap"><button class="btn btn-primary btn-sm" onclick="downloadCurrentVideo()">⬇ Download for Reels</button><button class="btn btn-secondary btn-sm" onclick="openVideoTrimmer()">✂️ Trim Again</button></div>
       <div id="vidupload-status" style="font-size:11.5px;color:var(--text2);margin-top:4px">⏫ Uploading trimmed video…</div>
     `;
     refreshPreviewMedia();
@@ -2950,6 +2955,7 @@ async function applyVideoExtend() {
       <video src="${objectUrl}" controls style="width:100%;max-height:200px;border-radius:var(--radius);background:#000"></video>
       <div style="font-size:11.5px;color:var(--text3);margin-top:6px">${videoFile.name} · ${(videoFile.size/1024/1024).toFixed(1)}MB · ${newDuration}s total</div>
       <div style="margin-top:6px;display:flex;gap:6px">
+        <button class="btn btn-primary btn-sm" onclick="downloadCurrentVideo()">⬇ Download for Reels</button>
         <button class="btn btn-secondary btn-sm" onclick="openVideoTrimmer()">✂️ Trim</button>
         ${newDuration < 148 ? '<button class="btn btn-secondary btn-sm" onclick="openVideoExtender()">➕ Extend +7s more</button>' : ''}
       </div>
@@ -2974,6 +2980,23 @@ async function applyVideoExtend() {
   }
 }
 
+// Download the current video file so it can be posted manually as a Facebook/Instagram
+// Reel with trending audio (which mutes the AI\'s choppy sound and boosts reach).
+function downloadCurrentVideo() {
+  const v = APP.currentVideo || window._pendingGeneratedVideo;
+  if (!v) { showToast('No video to download yet', 'error'); return; }
+  const href = v.dataUrl || v.supabaseUrl || v.url;
+  if (!href) { showToast('Video not ready to download', 'error'); return; }
+  const a = document.createElement('a');
+  a.href = href;
+  a.download = v.name || ('scm-video-' + Date.now() + '.mp4');
+  document.body.appendChild(a); a.click(); a.remove();
+  showToast('Video downloaded — post it as a Reel and add trending audio', 'success');
+}
+
+// Shown under generated videos: the recommended way to publish video for best reach.
+const REELS_TIP_HTML = '<div style="font-size:11px;color:var(--text2);background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius);padding:8px 10px;margin-top:8px;line-height:1.55">🎵 <b>For best reach:</b> download this and post it as a <b>Reel</b> in the Facebook or Instagram app, then add <b>trending audio</b>. That replaces the AI\'s sound and gives the video a real algorithmic boost — trending audio is the single biggest driver of video reach.</div>';
+
 async function useGeneratedVideo() {
   const v = window._pendingGeneratedVideo;
   if (!v) return;
@@ -2981,10 +3004,12 @@ async function useGeneratedVideo() {
   document.getElementById('video-preview-area').innerHTML = `
     <video src="${v.dataUrl}" controls style="width:100%;max-height:200px;border-radius:var(--radius);background:#000"></video>
     <div style="font-size:11.5px;color:var(--text3);margin-top:6px">${v.name} · ${(v.size/1024/1024).toFixed(1)}MB · AI-generated${v.durationSeconds ? ' · '+v.durationSeconds+'s' : ''}</div>
-    <div style="margin-top:6px;display:flex;gap:6px">
+    <div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap">
+      <button class="btn btn-primary btn-sm" onclick="downloadCurrentVideo()">⬇ Download for Reels</button>
       <button class="btn btn-secondary btn-sm" onclick="openVideoTrimmer()">✂️ Trim</button>
       ${v.googleVideoUri ? '<button class="btn btn-secondary btn-sm" onclick="openVideoExtender()">➕ Extend +7s</button>' : ''}
     </div>
+    ${REELS_TIP_HTML}
     <div id="vidupload-status" style="font-size:11.5px;color:var(--text2);margin-top:4px">⏫ Uploading to storage…</div>
   `;
   refreshPreviewMedia();
