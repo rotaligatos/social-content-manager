@@ -2132,7 +2132,7 @@ function handleVideoUpload(e) {
 function openVideoGenModal() {
   if (!APP.currentCompany) { showToast('Select a company first so the prompt can be tailored', 'error'); return; }
   const suggestedPrompt = buildVideoPromptSuggestion(APP.currentCompany, APP.currentPillar);
-  let html = '<div id="vidgen-overlay" style="position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:2000;display:flex;align-items:center;justify-content:center" onclick="if(event.target.id===\'vidgen-overlay\')closeVideoGenModal()">';
+  let html = '<div id="vidgen-overlay" style="position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:2000;display:flex;align-items:center;justify-content:center" onclick="if(event.target.id===\'vidgen-overlay\')safeCloseVideoGenModal()">';
   html += '<div style="background:var(--bg2);border:1px solid var(--border2);border-radius:var(--radius-lg);width:540px;max-height:85vh;display:flex;flex-direction:column;overflow:hidden">';
   html += '<div style="padding:16px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between"><div style="font-size:14px;font-weight:500">AI Generate Video — '+APP.currentCompany.toUpperCase()+'</div><button class="btn btn-ghost btn-sm" onclick="closeVideoGenModal()">Close</button></div>';
   html += '<div style="padding:18px;overflow-y:auto;flex:1">';
@@ -2152,11 +2152,39 @@ function openVideoGenModal() {
   div.id = 'vidgen-container';
   div.innerHTML = html;
   document.body.appendChild(div);
+
+  // Recovery: if a previously generated video is still held (you closed the modal
+  // without using it), bring it straight back so it's never lost to a stray click.
+  const pend = window._pendingGeneratedVideo;
+  if (pend && pend.dataUrl) {
+    const res = document.getElementById('vidgen-result');
+    if (res) res.innerHTML = `
+      <div style="font-size:11.5px;color:var(--green);margin-bottom:6px">↩ Recovered your last generated video${pend.supabaseUrl ? ' (already saved to storage)' : ''}.</div>
+      <video src="${pend.dataUrl}" controls style="width:100%;border-radius:var(--radius);margin-bottom:10px;background:#000"></video>
+      <button class="btn btn-primary" style="width:100%" onclick="useGeneratedVideo()">Use This Video</button>`;
+  }
 }
 
 function closeVideoGenModal() {
   const el = document.getElementById('vidgen-container');
   if (el) el.remove();
+  // NOTE: we deliberately do NOT clear window._pendingGeneratedVideo here, so a
+  // generated-but-unused video can be recovered by reopening the generator.
+}
+
+// Guarded close for outside-clicks: won't silently throw away work.
+function safeCloseVideoGenModal() {
+  const generating = document.getElementById('vidgen-btn')?.disabled;
+  const pend = window._pendingGeneratedVideo;
+  if (generating) {
+    showToast('Video is still generating — please wait or press Close', 'info');
+    return; // never close mid-generation
+  }
+  if (pend && pend.dataUrl && !pend.supabaseUrl) {
+    // Unsaved video present - confirm before dismissing.
+    if (!confirm('You have a generated video that has not been used yet. Close anyway? (It will still be recoverable by reopening the generator this session.)')) return;
+  }
+  closeVideoGenModal();
 }
 
 function buildVideoPromptSuggestion(co, pillar) {
@@ -2298,6 +2326,22 @@ async function runVideoGen() {
       generatedAt: Date.now() // Veo keeps videos for 2 days — track this so we can warn if expired
     };
     showToast('Video generated!', 'success');
+
+    // Safety net: immediately save a permanent copy to Supabase storage in the
+    // background, so the video survives a stray click or reload even before you
+    // press "Use This Video".
+    (async () => {
+      try {
+        const savedUrl = await uploadVideoToStorage(videoFile);
+        if (window._pendingGeneratedVideo && window._pendingGeneratedVideo.file === videoFile) {
+          window._pendingGeneratedVideo.supabaseUrl = savedUrl;
+        }
+        const res = document.getElementById('vidgen-result');
+        if (res && !res.querySelector('.vid-saved-note')) {
+          res.insertAdjacentHTML('beforeend', '<div class="vid-saved-note" style="font-size:11px;color:var(--green);margin-top:6px">✓ Auto-saved to storage — safe even if you close this.</div>');
+        }
+      } catch (_e) { /* best-effort; "Use This Video" still uploads on confirm */ }
+    })();
   } catch (err) {
     progressEl.textContent = '';
     document.getElementById('vidgen-result').innerHTML = `<div style="color:var(--red);font-size:12.5px">Error: ${err.message}</div>`;
