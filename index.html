@@ -3960,20 +3960,18 @@ function pickSpaceSetting(company, audience) {
 // ============================================================
 
 const VIDEO_STRUCTURES = [
-  { id: 'transformation', label: 'Before -> After transformation',
-    dir: 'Open on the bare / empty / dated version of the space for the first ~2 seconds as the hook, then reveal the SAME space finished with the product installed - the payoff. The change is the whole story.' },
-  { id: 'satisfying-reveal', label: 'Satisfying finish reveal',
-    dir: 'A slow, tactile reveal of the finished surface - the camera glides along a clean edge, light rakes across the texture, a soft-close drawer eases shut. Oddly-satisfying, premium, ASMR-adjacent.' },
-  { id: 'small-space', label: 'Small space, big solution',
-    dir: 'Show a compact or awkward space, then reveal how the built-in solves it - hidden storage, a fold-away, a clever module that makes the room work. A relatable problem resolved.' },
-  { id: 'feature-drop', label: 'Hidden features ("you didn\'t know it could do this")',
-    dir: 'A few surprising reveals of what the piece can do - a pull-out pantry, a concealed home-office nook, a hidden bar, soft-close everything. Playful, surprising, share-worthy.' },
+  { id: 'reveal', label: 'Continuous reveal',
+    dir: 'ONE unbroken camera move that starts tight on a plain corner / an empty wall / a bare countertop, then glides continuously to reveal the finished built-in as the payoff - the sense of transformation comes from the MOVE, not a cut. Do not change scene or cut.' },
+  { id: 'satisfying', label: 'Satisfying finish detail',
+    dir: 'A slow, tactile single take: the camera eases along a clean edge and across the surface as light rakes over the texture, ending as a soft-close drawer glides shut. Premium, oddly-satisfying, ASMR-adjacent.' },
+  { id: 'small-space', label: 'Small space, clever solution',
+    dir: 'One continuous move through a compact space that reveals how the built-in solves it - a pull-out, a fold-away, hidden storage opening - all within the SAME shot, no cut.' },
+  { id: 'feature', label: 'One clever feature',
+    dir: 'A single continuous shot that reveals ONE surprising thing the piece does - a pull-out pantry easing open, a concealed nook appearing, a lift-up panel. One feature, one shot.' },
   { id: 'dream-space', label: 'Aspirational dream space',
-    dir: 'A cinematic glide through a beautifully finished, aspirational version of the space - warm, cosy, personal. Sell the FEELING of living or working there.' },
+    dir: 'One cinematic glide through a beautifully finished space - warm, cosy, personal - selling the FEELING of being there. Sunlight moving, a calm, lived-in mood. Single continuous take.' },
   { id: 'craft', label: 'Craft / proudly made',
-    dir: 'A tactile study of material and craftsmanship - the board, the finish, the precision of the edge - resolving on the finished piece in its space. Proud, human, quality.' },
-  { id: 'context-switch', label: 'One product, many spaces',
-    dir: 'Prove versatility: the SAME finish/product working across different settings in quick succession (a home, then an office, then a showroom). Punchy and varied - directly counters "it is always a home".' },
+    dir: 'A single tactile take on material and craftsmanship - grain, finish, a precise edge - resolving on the finished piece in its setting. Proud, human, quality.' },
 ];
 
 // Build a unified concept: setting + structure + hook + directed video prompt + caption.
@@ -4001,8 +3999,9 @@ async function generateVideoConcept(company, pillar, audience, notes, colorName)
       `Make it feel like content a top furniture/interior creator would post: a strong visual HOOK in the first second, ` +
       `a clear BENEFIT (how this transforms the space / the owner's life / the business), real emotion, and a premium, cinematic look. ` +
       `Show what the product DOES and what it makes possible - not just a static pretty object.\n\n` +
-      `Write the VIDEO PROMPT for Google Veo as one vivid paragraph: describe the scene, the action/transformation, ONE deliberate camera move, ` +
-      `lighting and mood, and how it resolves. Plan the action to COMPLETE within ~8 seconds and settle on a held closing frame (never cut mid-motion). ` +
+      `Write the VIDEO PROMPT for Google Veo as one vivid paragraph. HARD RULE: this must be achievable as ONE SINGLE CONTINUOUS CAMERA SHOT - Veo cannot cut between scenes, do before/after jumps, or switch locations. Build the whole idea as one flowing move in one place. ` +
+      `Describe the scene, ONE deliberate camera move, the action, lighting and mood, and how it resolves. Plan the action to COMPLETE within ~8 seconds and settle, holding a composed closing frame (never cut mid-motion). ` +
+      `AUDIO: specify a single, clean, continuous ambient bed suited to the space (soft room tone), low and steady, resolving gently - keep it simple, no busy or layered sound. ` +
       `No on-screen text, words, logos or watermarks. Any people must be Filipino (Southeast Asian).\n\n` +
       `Also write a matching Facebook CAPTION for the SAME concept - on-brand voice, 2-3 short paragraphs, a strong opening line, one clear call to action, ` +
       `and 5-8 relevant hashtags on their own final line. The caption and the video must tell the SAME story.\n\n` +
