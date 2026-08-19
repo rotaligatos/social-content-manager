@@ -2136,8 +2136,10 @@ function openVideoGenModal() {
   html += '<div style="background:var(--bg2);border:1px solid var(--border2);border-radius:var(--radius-lg);width:540px;max-height:85vh;display:flex;flex-direction:column;overflow:hidden">';
   html += '<div style="padding:16px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between"><div style="font-size:14px;font-weight:500">AI Generate Video — '+APP.currentCompany.toUpperCase()+'</div><button class="btn btn-ghost btn-sm" onclick="closeVideoGenModal()">Close</button></div>';
   html += '<div style="padding:18px;overflow-y:auto;flex:1">';
-  html += '<label class="form-label">Describe the video</label>';
-  html += '<textarea id="vidgen-prompt" rows="4" style="margin-bottom:12px">'+suggestedPrompt+'</textarea>';
+  html += '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px"><label class="form-label" style="margin:0">Describe the video</label><button class="btn btn-secondary btn-sm" id="vidgen-concept-btn" style="font-size:11px" onclick="runFreshConcept()">✦ Fresh Concept</button></div>';
+  html += '<div id="vidgen-concept-info" style="display:none;background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius);padding:9px 11px;margin-bottom:8px"></div>';
+  html += '<textarea id="vidgen-prompt" rows="5" style="margin-bottom:6px">'+suggestedPrompt+'</textarea>';
+  html += '<div style="font-size:11px;color:var(--text3);margin-bottom:12px">Tap <b>✦ Fresh Concept</b> for a new creative idea each time — it varies the setting (home / office / showroom / hotel), uses a proven viral structure, and can match the caption to the video.</div>';
   html += '<div style="font-size:11.5px;color:var(--text3);margin-bottom:14px">Tip: describe the subject, what it\'s doing, the camera movement, and the mood. This generates an AI-imagined scene, not your literal product — for showing a specific real project or exact item, use a real photo or uploaded video instead.</div>';
   html += '<div style="display:flex;gap:10px;margin-bottom:14px">';
   html += '<div style="flex:1"><label class="form-label">Aspect Ratio</label><select id="vidgen-aspect"><option value="9:16" selected>Portrait (9:16) — best for Facebook feed/Reels</option><option value="16:9">Landscape (16:9)</option></select></div>';
@@ -2193,7 +2195,13 @@ function buildVideoPromptSuggestion(co, pillar) {
     wcli: 'A cinematic shot revealing FINISHED cabinetry and built-in furniture made from laminated melamine boards - a striking, well-designed kitchen, wardrobe or reception counter - camera gliding slowly to show the finish quality, edges and detailing, settling on a composed hero angle. Confident, premium, professional mood, quiet ambient sound, no dialogue.',
     cwli: 'A cinematic shot revealing FINISHED cabinetry and built-in furniture made from laminated melamine boards - a distinctive Cebu-made kitchen, wardrobe or shop fit-out - camera gliding slowly to show finish quality and detailing, settling on a composed hero angle. Warm, confident mood with a sense of local craftsmanship, quiet ambient sound, no dialogue.'
   };
-  return base[co] || 'A professional, cinematic product showcase video';
+  const chosen = base[co] || 'A professional, cinematic product showcase video';
+  // Vary the setting so the default prompt isn't always a home - honour the audience.
+  try {
+    const sp = pickSpaceSetting(co, (typeof APP !== 'undefined' && APP.currentAudience) || '');
+    if (sp) return chosen + ' Set the scene in ' + sp + ' (Philippine context) - not a generic kitchen unless that is the setting.';
+  } catch (_e) {}
+  return chosen;
 }
 
 async function runVideoGen() {
@@ -2968,6 +2976,11 @@ async function useGeneratedVideo() {
     <div id="vidupload-status" style="font-size:11.5px;color:var(--text2);margin-top:4px">⏫ Uploading to storage…</div>
   `;
   refreshPreviewMedia();
+  // If this video came from a Fresh Concept and the post has no caption yet, apply the
+  // matching caption automatically so the caption and video tell the same story.
+  if (window._pendingConceptCaption && !APP.currentCaption) {
+    applyConceptCaptionToPost(window._pendingConceptCaption);
+  }
   closeVideoGenModal();
   window._pendingGeneratedVideo = null;
   showToast('Video applied to post — uploading to storage…', 'info');
@@ -3923,6 +3936,118 @@ function pickSpaceSetting(company, audience) {
   else pool = res.concat(com); // designers, architects, contractors, fabricators, dealers: either
   return pool[Math.floor(Math.random() * pool.length)];
 }
+// ============================================================
+//  CREATIVE CONCEPT ENGINE (video)
+//  A plain, repetitive clip is one with no CONCEPT - same close-up, always a home.
+//  This invents ONE creative idea per video, drawing on what actually performs in
+//  short-form furniture/interior content (transformation reveals, satisfying finish
+//  reveals, small-space solutions, hidden features, aspirational spaces, craft, and
+//  cross-context versatility), VARIES the setting (home AND office/showroom/hotel/
+//  retail), frames the BENEFIT (how it improves the space), and produces BOTH the
+//  video prompt AND a matching caption from the same idea - so they finally align.
+// ============================================================
+
+const VIDEO_STRUCTURES = [
+  { id: 'transformation', label: 'Before -> After transformation',
+    dir: 'Open on the bare / empty / dated version of the space for the first ~2 seconds as the hook, then reveal the SAME space finished with the product installed - the payoff. The change is the whole story.' },
+  { id: 'satisfying-reveal', label: 'Satisfying finish reveal',
+    dir: 'A slow, tactile reveal of the finished surface - the camera glides along a clean edge, light rakes across the texture, a soft-close drawer eases shut. Oddly-satisfying, premium, ASMR-adjacent.' },
+  { id: 'small-space', label: 'Small space, big solution',
+    dir: 'Show a compact or awkward space, then reveal how the built-in solves it - hidden storage, a fold-away, a clever module that makes the room work. A relatable problem resolved.' },
+  { id: 'feature-drop', label: 'Hidden features ("you didn\'t know it could do this")',
+    dir: 'A few surprising reveals of what the piece can do - a pull-out pantry, a concealed home-office nook, a hidden bar, soft-close everything. Playful, surprising, share-worthy.' },
+  { id: 'dream-space', label: 'Aspirational dream space',
+    dir: 'A cinematic glide through a beautifully finished, aspirational version of the space - warm, cosy, personal. Sell the FEELING of living or working there.' },
+  { id: 'craft', label: 'Craft / proudly made',
+    dir: 'A tactile study of material and craftsmanship - the board, the finish, the precision of the edge - resolving on the finished piece in its space. Proud, human, quality.' },
+  { id: 'context-switch', label: 'One product, many spaces',
+    dir: 'Prove versatility: the SAME finish/product working across different settings in quick succession (a home, then an office, then a showroom). Punchy and varied - directly counters "it is always a home".' },
+];
+
+// Build a unified concept: setting + structure + hook + directed video prompt + caption.
+async function generateVideoConcept(company, pillar, audience, notes, colorName) {
+  const co = String(company || 'mssi').toLowerCase();
+  const setting = pickSpaceSetting(co, audience);
+  const structure = VIDEO_STRUCTURES[Math.floor(Math.random() * VIDEO_STRUCTURES.length)];
+
+  const fallbackPrompt = applyVideoDirection(
+    `A ${structure.label.toLowerCase()} for a Philippine furniture/laminate brand, set in ${setting}. ${structure.dir}${colorName ? ' Feature the \'' + colorName + '\' finish.' : ''}${PEOPLE_NOTE}`,
+    pillar, true);
+  const fallback = { setting, structure: structure.label, hook: '', videoPrompt: fallbackPrompt, caption: '' };
+
+  const key = (APP.apiKeys && APP.apiKeys.anthropic) || localStorage.getItem('scm_anthropic_key');
+  if (!key) return fallback;
+
+  try {
+    const brief =
+      `You are a viral short-form video creative director for ${getCompanyDescFor(co)}.\n` +
+      `Audience: ${audience || 'general'}. Content pillar: ${pillar || 'Product Showcase'}. Goal: ${getGoalFor(co)}.\n` +
+      (colorName ? `Featured finish/colour: "${colorName}".\n` : '') +
+      (notes ? `Manager notes: ${notes}.\n` : '') +
+      `\nUse THIS creative structure for the video: ${structure.label} - ${structure.dir}\n` +
+      `Set it in: ${setting} (Philippine context). Do NOT default to a generic home kitchen - honour this setting.\n\n` +
+      `Make it feel like content a top furniture/interior creator would post: a strong visual HOOK in the first second, ` +
+      `a clear BENEFIT (how this transforms the space / the owner's life / the business), real emotion, and a premium, cinematic look. ` +
+      `Show what the product DOES and what it makes possible - not just a static pretty object.\n\n` +
+      `Write the VIDEO PROMPT for Google Veo as one vivid paragraph: describe the scene, the action/transformation, ONE deliberate camera move, ` +
+      `lighting and mood, and how it resolves. Plan the action to COMPLETE within ~8 seconds and settle on a held closing frame (never cut mid-motion). ` +
+      `No on-screen text, words, logos or watermarks. Any people must be Filipino (Southeast Asian).\n\n` +
+      `Also write a matching Facebook CAPTION for the SAME concept - on-brand voice, 2-3 short paragraphs, a strong opening line, one clear call to action, ` +
+      `and 5-8 relevant hashtags on their own final line. The caption and the video must tell the SAME story.\n\n` +
+      `Return JSON only, no prose: {"hook":"the one-line hook / opening beat","videoPrompt":"...","caption":"...with hashtags..."}`;
+
+    const raw = await callClaudeSonnet(key, brief, 1100);
+    const a = raw.indexOf('{'), b = raw.lastIndexOf('}');
+    if (a < 0 || b <= a) return fallback;
+    const j = JSON.parse(raw.slice(a, b + 1));
+    if (!j.videoPrompt) return fallback;
+    // Guarantee the craft + clean landing on top of the concept.
+    const vp = String(j.videoPrompt) + PEOPLE_NOTE + VIDEO_ENDING_NOTE;
+    return { setting, structure: structure.label, hook: String(j.hook || ''), videoPrompt: vp, caption: String(j.caption || '') };
+  } catch (_e) { return fallback; }
+}
+
+// Apply a concept's caption to the Create Post preview so caption and video match.
+function applyConceptCaptionToPost(caption) {
+  if (!caption) return;
+  APP.currentCaption = caption;
+  const { body, tags } = splitCaptionTags(caption);
+  const capEl = document.getElementById('preview-caption');
+  if (capEl) { capEl.textContent = body; capEl.style.color = '#c4c3d6'; capEl.style.fontStyle = 'normal'; }
+  const tagEl = document.getElementById('preview-tags');
+  if (tagEl) tagEl.innerHTML = tags.map(t => '<span class="fb-tag">' + t + '</span>').join(' ');
+  ['btn-regenerate', 'btn-approve', 'btn-schedule'].forEach(id => { const b = document.getElementById(id); if (b) b.style.display = 'inline-flex'; });
+  showToast('Caption set to match the video concept', 'success');
+}
+
+// The "Fresh Concept" button handler in the video modal.
+async function runFreshConcept() {
+  const btn = document.getElementById('vidgen-concept-btn');
+  const orig = btn ? btn.innerHTML : '';
+  if (btn) { btn.disabled = true; btn.innerHTML = 'Thinking up a concept…'; }
+  try {
+    const notes = document.getElementById('post-notes') ? document.getElementById('post-notes').value : '';
+    const colorName = APP.currentColorId ? (getColors(APP.currentCompany).find(c => c.id === APP.currentColorId) || {}).name : '';
+    const c = await generateVideoConcept(APP.currentCompany, APP.currentPillar, APP.currentAudience, notes, colorName);
+    const ta = document.getElementById('vidgen-prompt');
+    if (ta) ta.value = c.videoPrompt;
+    window._pendingConceptCaption = c.caption || '';
+    const info = document.getElementById('vidgen-concept-info');
+    if (info) {
+      info.style.display = 'block';
+      info.innerHTML =
+        `<div style="font-size:11px;color:var(--accent2);font-weight:600;margin-bottom:3px">✦ ${c.structure}${c.setting ? ' · ' + c.setting : ''}</div>` +
+        (c.hook ? `<div style="font-size:11.5px;color:var(--text2);margin-bottom:6px"><b>Hook:</b> ${c.hook}</div>` : '') +
+        (c.caption ? `<button class="btn btn-secondary btn-sm" style="font-size:11px" onclick="applyConceptCaptionToPost(window._pendingConceptCaption)">Use this caption for the post too</button>` : '');
+    }
+    showToast('Fresh concept ready — prompt updated', 'success');
+  } catch (_e) {
+    showToast('Could not generate a concept, edit the prompt manually', 'error');
+  } finally {
+    if (btn) { btn.disabled = false; btn.innerHTML = orig; }
+  }
+}
+
 function buildSpaceHint(company, audience) {
   const space = pickSpaceSetting(company, audience);
   return { space: space, hint: ' SETTING: place this scene in ' + space + ' (Philippine context). Vary the setting between posts - do not default to a kitchen or bedroom unless the setting above says so.' };
