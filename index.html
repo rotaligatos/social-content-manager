@@ -13961,10 +13961,14 @@ function saveOurCapabilities(subs, certs) {
 // laminated boards, HPL, edgeband and hardware. Anything a rival sells outside that
 // (lumber, flooring, paint, tiles...) is NOT a gap for us and must never be reported
 // as one. Soft terms (doors, mouldings, plywood) only count when tied to our scope.
-const INTEL_HARD_OUT = /\b(lumber|timber|kiln|decking|flooring|floor tiles?|spc|roofing|cement|gypsum|drywall|ceiling (board|panel)|paint|sealant|waterproofing|steel|rebar|scaffold|tiles?|sanitary|plumbing|electrical|appliances?|glass|aluminium|aluminum|prefab|machinery|construction supplies)\b/i;
-const INTEL_SOFT_OUT = /\b(mouldings?|moldings?|trims?|door jambs?|doors?|plywood|osb|pvc ceiling)\b/i;
-const INTEL_IN_OVERRIDE = /laminat|melamine|\bhpl\b|edge ?band|cabinet|wardrobe|kitchen|vanity|closet|partition|cladding|wall panel/i;
-function intelOutOfScope(s) { s = String(s || ''); if (INTEL_HARD_OUT.test(s)) return true; return INTEL_SOFT_OUT.test(s) && !INTEL_IN_OVERRIDE.test(s); }
+// Owner decision 2026-09-25: high-gloss panels, countertops, veneer, solid surface,
+// quartz, compact boards and furniture hardware ARE in scope; WPC/PVC/3D/acoustic
+// wall panels are NOT. Doors, outdoor and construction/formwork boards stay out.
+const INTEL_HARD_OUT = /\b(lumber|timber|kiln|decking|flooring|floor tiles?|spc|wpc|roofing|cement|gypsum|drywall|ceiling (board|panel)s?|paint|sealant|waterproofing|steel|rebar|scaffold|tiles?|sanitary|plumbing|electrical|appliances?|glass|aluminium|aluminum|prefab|machinery|construction supplies|fencing|pvc (wall|ceiling)|3d wood panels?|acoustic (wall )?panels?|ceramic foam|pu stone|grill panels?|power tools)\b/i;
+const INTEL_SOFT_OUT = /\b(mouldings?|moldings?|trims?|door jambs?|doors?|plywood|osb|hardwood|softwood)\b/i;
+const INTEL_IN_OVERRIDE = /laminat|melamine|\bhpl\b|edge ?band|cabinet|wardrobe|kitchen|vanity|closet|partition|cladding|wall panel|veneer|high ?gloss|acrylic|\bpet (on|board|panel|film)|uv board|lacquer|compact|solid surface|quartz|countertop|hinge|drawer|\bslides?\b/i;
+const INTEL_OVERRIDE_BLOCK = /\bdoors?\b|outdoor|construction|formwork|industrial/i;
+function intelOutOfScope(s) { s = String(s || ''); if (INTEL_HARD_OUT.test(s)) return true; return INTEL_SOFT_OUT.test(s) && !(INTEL_IN_OVERRIDE.test(s) && !INTEL_OVERRIDE_BLOCK.test(s)); }
 function intelScopeFilter(list) { return (Array.isArray(list) ? list : []).filter(x => !intelOutOfScope(typeof x === 'string' ? x : (x && x.name) || '')); }
 function intelRunIsGood(r) { return !!(r && String(r.summary || '').trim()); }
 const INTEL_NO_EVIDENCE = /no (data|information|evidence)|not available|unclear|unknown/i;
