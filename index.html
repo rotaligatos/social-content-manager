@@ -672,6 +672,11 @@ select:focus{border-color:var(--accent-border);}
             <button class="btn btn-secondary btn-sm" style="flex:1;display:none" id="btn-approve" onclick="saveDraft()">Save Draft</button>
             <button class="btn btn-primary btn-sm" style="flex:1;display:none" id="btn-schedule" onclick="saveDraft(); showScreen('review')">Schedule →</button>
           </div>
+          <div id="website-link-row" style="display:none;padding:10px 14px 12px;border-top:1px solid var(--border)">
+            <label style="font-size:12px;color:var(--text2);display:block;margin-bottom:4px">Link to the website <span style="color:var(--text3)">(added to the caption when you save)</span></label>
+            <select id="website-link-sel" onchange="APP.websiteLink=this.value;previewWebsiteLink()" style="width:100%"></select>
+            <div id="website-link-hint" style="font-size:11px;color:var(--text3);margin-top:4px;word-break:break-all"></div>
+          </div>
         </div>
       </div>
     </div>
@@ -1561,6 +1566,16 @@ select:focus{border-color:var(--accent-border);}
 // Newest entries go at the top. Each entry should describe what changed in plain language.
 const CHANGELOG = [
   {
+    date: '2026-10-04',
+    title: 'MSSI posts can link to the new website',
+    items: [
+      'When creating an MSSI post, a new "Link to the website" choice sits under the preview: Order / send a cutting list, Book a site visit, Service request, Projects, Home page or Careers.',
+      'On Save, a short line like "👉 Book a site visit: …portal.html?tool=visit&fb=<post id>" is added to the caption, just above the hashtags. It opens that form directly on the website.',
+      'The link carries this post\'s id, so the website records which post brought each client sign-up and order.',
+      'Shown for MSSI only, since it is the only company with a live website so far.'
+    ]
+  },
+  {
     date: '2026-09-25 (d)',
     title: 'Budget mode for Google credits',
     items: [
@@ -2183,6 +2198,7 @@ function selectCompany(c) {
   document.getElementById('preview-company-badge').style.color = colors[c];
   // Update color dropdown for this company
   updateColorOptions();
+  renderWebsiteLinkRow();
 }
 
 function selectAudience(btn) {
@@ -5579,6 +5595,68 @@ async function syncAllPostsToSupabase() {
   showToast('All posts synced to cloud ✓', 'success');
 }
 
+// ============================================================
+//  WEBSITE LINKS (2026-10-04)
+//  A post can link to the company website. The link is written INTO the caption
+//  (above the hashtags) when the draft is saved, so every publish path -- browser,
+//  publish-scheduled, edits -- carries it with no other change. It is tagged with
+//  this post's id, so the website records which post brought each sign-up / order
+//  (portal.html reads utm_* into client_accounts.referral / pending_orders.referral).
+//  Only companies with a live website appear here.
+// ============================================================
+const WEBSITE_LINKS = {
+  mssi: { base: 'https://rotaligatos.github.io/mssi/', pages: [
+    { k: 'order',    label: 'Order / send a cutting list', cta: 'Send us your cutting list',  path: 'portal.html?tool=order' },
+    { k: 'visit',    label: 'Book a site visit',           cta: 'Book a site visit',          path: 'portal.html?tool=visit' },
+    { k: 'service',  label: 'Service request',             cta: 'Tell us what you need',      path: 'portal.html?tool=service' },
+    { k: 'projects', label: "Projects (Where we've built)", cta: 'See our projects',          path: 'where-weve-built.html' },
+    { k: 'home',     label: 'Home page',                    cta: 'Learn more',                path: '' },
+    { k: 'careers',  label: 'Careers',                      cta: "We're hiring",              path: 'careers.html' }
+  ] }
+};
+function websitePageFor(company, key) {
+  const site = WEBSITE_LINKS[company]; if (!site || !key) return null;
+  return site.pages.find(p => p.k === key) || null;
+}
+function buildWebsiteUrl(company, key, postId) {
+  // Short on purpose -- it shows in full on Facebook. fb=<post id> is enough: the pillar,
+  // audience and everything else about the post are already in the posts table.
+  const site = WEBSITE_LINKS[company], page = websitePageFor(company, key);
+  if (!site || !page) return '';
+  const url = site.base + page.path;
+  return url + (url.indexOf('?') >= 0 ? '&' : '?') + 'fb=' + encodeURIComponent(postId);
+}
+// Puts "👉 <cta>: <url>" above the hashtag line. Replaces a link this tool added
+// before (same site) rather than stacking a second one.
+function addWebsiteLinkToCaption(caption, company, key, postId, pillar) {
+  const page = websitePageFor(company, key), url = buildWebsiteUrl(company, key, postId);
+  if (!page || !url) return caption;
+  const site = WEBSITE_LINKS[company].base;
+  const lines = String(caption || '').split('\n').filter(l => !(l.indexOf(site) >= 0 && /^\s*👉/.test(l)));
+  let cut = lines.length;
+  while (cut > 0 && (lines[cut - 1].trim() === '' || /^#/.test(lines[cut - 1].trim()))) cut--;
+  const body = lines.slice(0, cut).join('\n').replace(/\s+$/, '');
+  const tags = lines.slice(cut).filter(l => l.trim() !== '').join('\n');
+  return body + '\n\n👉 ' + page.cta + ': ' + url + (tags ? '\n\n' + tags : '');
+}
+function renderWebsiteLinkRow() {
+  const row = document.getElementById('website-link-row'), sel = document.getElementById('website-link-sel');
+  if (!row || !sel) return;
+  const site = WEBSITE_LINKS[APP.currentCompany];
+  if (!site) { row.style.display = 'none'; APP.websiteLink = ''; return; }
+  sel.innerHTML = '<option value="">No website link</option>'
+    + site.pages.map(p => '<option value="' + p.k + '">' + p.label + '</option>').join('');
+  if (!websitePageFor(APP.currentCompany, APP.websiteLink)) APP.websiteLink = '';
+  sel.value = APP.websiteLink || '';
+  row.style.display = 'block';
+  previewWebsiteLink();
+}
+function previewWebsiteLink() {
+  const hint = document.getElementById('website-link-hint'); if (!hint) return;
+  const page = websitePageFor(APP.currentCompany, APP.websiteLink);
+  hint.textContent = page ? '👉 ' + page.cta + ': ' + WEBSITE_LINKS[APP.currentCompany].base + page.path + ' (tagged with this post)' : '';
+}
+
 function saveDraft() {
   if (!APP.currentCaption) { showToast('Generate a post first', 'error'); return; }
   const hasVideo = APP.mediaType === 'video' && APP.currentVideo;
@@ -5616,6 +5694,10 @@ function saveDraft() {
     responseOverrideTimestamp: null,
     responseOverrideMinutes: null
   };
+  if (websitePageFor(post.company, APP.websiteLink)) {
+    post.websiteLink = APP.websiteLink;
+    post.caption = addWebsiteLinkToCaption(post.caption, post.company, APP.websiteLink, post.id, post.pillar);
+  }
   APP.posts.push(post);
   saveState();
   upsertPost(post); // persist to Supabase posts table
